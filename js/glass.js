@@ -26,8 +26,10 @@
   - The filter runs again for every frame in which something moves behind the
     glass, so it is kept short, and it is reserved for the chrome that floats
     over content: bars, menus, sheets, a knob while it is held. Glass that is
-    repeated through content (the heart on every card) takes the shader's light
-    but not the lens — see Glass.shine.
+    repeated through content (the heart on every card) or rests on the page's own
+    background takes the shader's light but not the lens — see Glass.shine. It has
+    no backdrop pass at all: each one is a separate render of what is behind it, on
+    every frame of a scroll or of a page sliding in, to blur what is already smooth.
 */
 (function () {
   'use strict';
@@ -51,6 +53,7 @@
     dispersion: 0.12, // how much more blue bends than red
     saturate: 1.35,
     blur: null,       // fixed frost in px; null follows the Clear … Tinted preference
+    frost: null,      // [px at Clear, px added by Tinted]; null picks by material
     lens: true,       // false: shader light only, no refraction filter
   };
 
@@ -103,22 +106,62 @@
     node.setAttribute(name, value);
   }
 
-  // Render (or reuse) the lens for the element's current shape and attach it.
-  function apply(entry) {
-    const { opts: o, el } = entry;
-    if (!entry.w || !entry.h) return;
-    const dpr = clamp(Math.round((window.devicePixelRatio || 1) * 2) / 2, 1, 2);
-    const shape = Object.assign(shapeOf(entry), { tilt: o.tilt * Math.PI / 180, curve: o.curve, ior: o.ior, dpr });
-    const key = Object.values(shape).join('/');
-    // Already wearing this lens. (Counting the turn drops one still on its way for a
-    // shape the element has since left.)
-    if (key === entry.key) return void entry.turn++;
+  const density = () => clamp(Math.round((window.devicePixelRatio || 1) * 2) / 2, 1, 2);
+  const keyOf = (shape) => [shape.radius, shape.bezel, shape.throw, shape.tilt, shape.curve, shape.ior, shape.dpr].join('/');
+
+  /*
+    Rendering a lens reads pixels back from the GPU, which holds the page up for
+    10–30 ms: a dropped frame or two if it lands in the first frames of a page sliding
+    in. So the shapes this app has used are remembered, and rendered again while the
+    next visit is still loading (Glass.warm). After that a new page finds its lenses ready.
+  */
+  const SHAPES_KEY = 'nt.lens.shapes';
+  let known = NT.util.store.get(SHAPES_KEY, null);
+  if (!Array.isArray(known)) known = [];
+  const knownKeys = new Set(known.map((s) => keyOf(Object.assign({ dpr: 0 }, s))));
+
+  function lensFor(shape, key) {
     let pending = cache.get(key);
     if (!pending) {
       pending = NT.lens.render(shape);
       if (cache.size > 140) cache.delete(cache.keys().next().value);
       cache.set(key, pending);
+      const plain = Object.assign({}, shape, { dpr: 0 });
+      const k = keyOf(plain);
+      if (!knownKeys.has(k)) {
+        knownKeys.add(k);
+        delete plain.dpr;
+        known.push(plain);
+        if (known.length > 60) known.shift();
+        NT.util.store.set(SHAPES_KEY, known);
+      }
     }
+    return pending;
+  }
+
+  // Render every remembered shape, one per turn of the event loop so the page stays live.
+  Glass.warm = async function () {
+    if (!Glass.refraction) return;
+    const dpr = density();
+    for (const plain of known.slice()) {
+      const shape = Object.assign({}, plain, { dpr });
+      const key = keyOf(shape);
+      if (cache.has(key)) continue;
+      await lensFor(shape, key);
+      await new Promise((next) => setTimeout(next));
+    }
+  };
+
+  // Render (or reuse) the lens for the element's current shape and attach it.
+  function apply(entry) {
+    const { opts: o, el } = entry;
+    if (!entry.w || !entry.h) return;
+    const shape = Object.assign(shapeOf(entry), { tilt: o.tilt * Math.PI / 180, curve: o.curve, ior: o.ior, dpr: density() });
+    const key = keyOf(shape);
+    // Already wearing this lens. (Counting the turn drops one still on its way for a
+    // shape the element has since left.)
+    if (key === entry.key) return void entry.turn++;
+    const pending = lensFor(shape, key);
     const turn = ++entry.turn;
     Promise.all([pending, entry.ramp ? NT.lens.ramp() : null]).then(([lens, ramp]) => {
       if (!lens) return void cache.delete(key);
@@ -198,8 +241,11 @@
   function frost(entry) {
     if (!entry.blur) return;
     const o = entry.opts;
-    const amount = o.blur != null ? o.blur : entry.el.classList.contains('thick') ? 6 : 0.5 + NT.prefs.data.frost * 4;
-    entry.blur.setAttribute('stdDeviation', amount.toFixed(2));
+    const kind = entry.el.classList;
+    // Glass that carries text diffuses more of what is under it than a clear control does.
+    const [base, span] = o.frost || (kind.contains('thick') ? [3, 8] : kind.contains('tinted') ? [2.5, 6] : [0.5, 4]);
+    const amount = o.blur != null ? o.blur : base + NT.prefs.data.frost * span;
+    attr(entry.blur, 'stdDeviation', amount.toFixed(2));
   }
   NT.bus.on('prefs', () => entries.forEach(frost));
 
@@ -291,6 +337,8 @@
       el.style.setProperty('--glass-refract', `url(#${id})`);
     }
 
+    // Light only: no backdrop pass of any kind (see .no-lens).
+    if (!o.lens) el.classList.add('no-lens');
     entries.set(el, entry);
     observer.observe(el);
     frost(entry);

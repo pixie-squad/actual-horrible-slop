@@ -302,7 +302,7 @@
   UI.sheet = function ({ title, body, onClose }) {
     const wide = () => window.matchMedia('(min-width: 820px)').matches;
     const dim = h('div.sheet-dim');
-    const closeBtn = h('button.sheet-close.interactive', { type: 'button', 'aria-label': 'Close', onclick: () => close() }, icon('xmark', 16));
+    const closeBtn = h('button.sheet-close.glass.interactive', { type: 'button', 'aria-label': 'Close', onclick: () => close() }, icon('xmark', 16));
     const header = h('header.sheet-header', h('h2', title), closeBtn);
     const bodyEl = h('div.sheet-body', body);
     const panel = h('div.sheet', { role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
@@ -310,7 +310,8 @@
     const layer = h('div.sheet-layer', dim, panel);
     const returnFocus = document.activeElement;
     overlays().append(layer);
-    NT.glass.refract(panel.firstElementChild, { blur: 8, bezel: 22, magnify: 0, dispersion: 0 });
+    NT.glass.refract(panel.firstElementChild, { frost: [4, 12], bezel: 22, magnify: 0, dispersion: 0 });
+    NT.glass.shine(closeBtn);
 
     let closed = false;
     if (!reduced()) {

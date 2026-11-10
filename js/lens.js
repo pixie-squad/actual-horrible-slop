@@ -12,8 +12,8 @@
            furthest: it shows a squeezed, mirrored strip of what lies deeper
            under the glass, easing into the undistorted face.
     spec – the light the surface catches: a crisp rim that is brightest facing
-           the key light (upper left) and its reflection (lower right), with a
-           soft glow across the bevel.
+           the key light (upper left) and its reflection (lower right), a soft
+           glow across the bevel, and a darkened band just inside the rim.
 
   A shader cannot read the page behind an element, so the bending itself is
   applied by the browser (see glass.js). This file decides what shape the lens is.
@@ -88,8 +88,11 @@
       float bounce = pow(max(-facing, 0.0), 2.4);
 
       float rim = 1.0 - smoothstep(0.0, 1.4, depth);
-      float light = rim * (0.16 + 0.84 * key + 0.6 * bounce) + lean * (0.2 * key + 0.1 * bounce);
-      float shade = lean * 0.1 * max(-facing, 0.0) * (1.0 - rim);
+      float light = rim * (0.24 + 0.9 * key + 0.72 * bounce) + lean * (0.3 * key + 0.16 * bounce);
+      // A darkened band just inside the bright rim, strongest away from the light. It is
+      // what lets a slab read as glass on a plain backdrop, where there is nothing to bend.
+      float band = smoothstep(0.4, 1.6, depth) * (1.0 - smoothstep(1.6, 1.6 + uBezel * 0.55, depth));
+      float shade = band * (0.05 + 0.1 * max(-facing, 0.0)) * (1.0 - 0.7 * key);
 
       light = clamp(light, 0.0, 1.0) * inside;
       shade = clamp(shade, 0.0, 1.0) * inside;
@@ -99,15 +102,17 @@
   const UNIFORMS = ['uSize', 'uRadius', 'uBezel', 'uTilt', 'uCurve', 'uThick', 'uIor', 'uReach', 'uMode'];
 
   const canvas = document.createElement('canvas');
-  let gl = null, uniforms = null, failed = false;
+  let gl = null, uniforms = null, failed = false, canWait = false;
 
   canvas.addEventListener('webglcontextlost', (e) => { e.preventDefault(); gl = null; });
 
   function init() {
     if (gl || failed) return !!gl;
     try {
-      const ctx = canvas.getContext('webgl', { premultipliedAlpha: true, antialias: false, depth: false, stencil: false });
+      const attrs = { premultipliedAlpha: true, antialias: false, depth: false, stencil: false };
+      const ctx = canvas.getContext('webgl2', attrs) || canvas.getContext('webgl', attrs);
       if (!ctx) throw new Error('no webgl');
+      canWait = typeof ctx.fenceSync === 'function';
       const compile = (type, src) => {
         const s = ctx.createShader(type);
         ctx.shaderSource(s, src);
@@ -139,13 +144,11 @@
   // How far a ray is thrown sideways, per unit of glass depth, by a surface leaning `tilt` radians.
   const throwOf = (tilt, ior) => Math.tan(tilt - Math.asin(Math.sin(tilt) / ior));
 
-  // Draws a square tile `px` pixels across that stands for `size` CSS px. Returns its
-  // RGBA rows from the top down.
-  function draw(mode, px, size, o, thick, reach) {
-    const width = px, height = px;
-    canvas.width = width;
-    canvas.height = height;
-    gl.viewport(0, 0, width, height);
+  // Draws a square tile `px` pixels across, standing for `size` CSS px, with its
+  // lower-left corner `x` pixels along the canvas.
+  function draw(mode, x, px, size, o, thick, reach) {
+    gl.viewport(x, 0, px, px);
+    gl.scissor(x, 0, px, px);
     gl.uniform2f(uniforms.uSize, size, size);
     gl.uniform1f(uniforms.uRadius, o.radius);
     gl.uniform1f(uniforms.uBezel, o.bezel);
@@ -158,13 +161,66 @@
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  /*
+    Both images of a lens, drawn side by side and read back together. Reading pixels
+    back is what a render costs (the page waits for the GPU), so it happens once per
+    lens, and the canvas only ever grows: a new size would throw its buffer away.
+    Where the GPU can be asked to copy the pixels aside and say when it is done
+    (WebGL 2), the page does not wait at all: a lens that is first needed while a
+    page is sliding in costs that animation nothing.
+    Resolves to each image's RGBA rows from the top down.
+  */
+  function drawPair(mapPx, mapSize, specPx, specSize, o, thick, reach) {
+    const width = mapPx + specPx, height = Math.max(mapPx, specPx);
+    if (canvas.width < width) {
+      let side = 256;
+      while (side < width) side *= 2;
+      canvas.width = canvas.height = side;
+    }
+    gl.enable(gl.SCISSOR_TEST);
+    draw(0, 0, mapPx, mapSize, o, thick, reach);
+    draw(1, mapPx, specPx, specSize, o, thick, reach);
     const pixels = new Uint8Array(width * height * 4);
-    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     // WebGL hands rows back from the bottom up.
-    const stride = width * 4;
-    const rows = new Uint8Array(pixels.length);
-    for (let y = 0; y < height; y++) rows.set(pixels.subarray((height - 1 - y) * stride, (height - y) * stride), y * stride);
-    return rows;
+    const take = (x, px) => {
+      const rows = new Uint8Array(px * px * 4);
+      for (let y = 0; y < px; y++) {
+        const from = ((px - 1 - y) * width + x) * 4;
+        rows.set(pixels.subarray(from, from + px * 4), y * px * 4);
+      }
+      return rows;
+    };
+    const both = () => [take(0, mapPx), take(mapPx, specPx)];
+    if (!canWait) {
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+      return Promise.resolve(both());
+    }
+    const ctx = gl;
+    const store = ctx.createBuffer();
+    ctx.bindBuffer(ctx.PIXEL_PACK_BUFFER, store);
+    ctx.bufferData(ctx.PIXEL_PACK_BUFFER, pixels.length, ctx.STREAM_READ);
+    ctx.readPixels(0, 0, width, height, ctx.RGBA, ctx.UNSIGNED_BYTE, 0);
+    ctx.bindBuffer(ctx.PIXEL_PACK_BUFFER, null);
+    const done = ctx.fenceSync(ctx.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    ctx.flush();
+    return new Promise((resolve, reject) => {
+      const started = performance.now();
+      const check = () => {
+        if (gl !== ctx) return reject(new Error('context lost'));
+        const state = ctx.clientWaitSync(done, 0, 0);
+        if (state === ctx.TIMEOUT_EXPIRED && performance.now() - started < 2000) return void setTimeout(check, 2);
+        ctx.deleteSync(done);
+        if (state === ctx.WAIT_FAILED || state === ctx.TIMEOUT_EXPIRED) { ctx.deleteBuffer(store); return reject(new Error('read failed')); }
+        ctx.bindBuffer(ctx.PIXEL_PACK_BUFFER, store);
+        ctx.getBufferSubData(ctx.PIXEL_PACK_BUFFER, 0, pixels);
+        ctx.bindBuffer(ctx.PIXEL_PACK_BUFFER, null);
+        ctx.deleteBuffer(store);
+        resolve(both());
+      };
+      check();
+    });
   }
 
   // The `w` × `h` block at (x, y) of an image `width` pixels wide.
@@ -293,9 +349,9 @@
         // the light layer has a hairline rim and is drawn at the screen's density.
         const size = cut * 2 + EDGE;
         const slice = Math.ceil(cut * o.dpr), across = slice * 2 + Math.max(2, Math.round(EDGE * o.dpr));
-        // Both are drawn before anything is awaited: the one canvas is shared by every lens.
-        const map = draw(0, size, size, o, thick, reach);
-        const spec = draw(1, across, across / o.dpr, o, thick, reach);
+        // Both are drawn, and their read-back queued, before anything is awaited: the one
+        // canvas is shared by every lens.
+        const [map, spec] = await drawPair(size, size, across, across / o.dpr, o, thick, reach);
         const spans = [[0, cut], [cut, EDGE], [cut + EDGE, cut]];
         const jobs = [];
         spans.forEach(([y, h], row) => spans.forEach(([x, w], col) => {

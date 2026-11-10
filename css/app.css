@@ -7,6 +7,12 @@
 
 .page { position: absolute; inset: 0; overflow: hidden; }
 .page.is-off { visibility: hidden; pointer-events: none; }
+/* A page that is off screen and not the next one back keeps its state (tab roots stay
+   alive for their scroll position) but costs nothing: the browser skips style, layout
+   and paint for it. A change that touches every element, like a new theme or the
+   Clear … Tinted slider, is then only paid for by what is showing. The page directly
+   under the top one is left ready, so going back to it does not have to draw it again. */
+.page.is-off.is-parked { content-visibility: hidden; }
 
 .page-scroll {
   position: absolute;
@@ -67,23 +73,8 @@
   pointer-events: none;
 }
 
-/* Scroll edge effect: content blurs and fades as it passes under the bar. */
-.navbar::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 -26px 0;
-  pointer-events: none;
-  opacity: var(--edge, 0);
-  background: linear-gradient(to bottom,
-    color-mix(in srgb, var(--bg) 86%, transparent) 0%,
-    color-mix(in srgb, var(--bg) 58%, transparent) 55%,
-    transparent 100%);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  -webkit-mask-image: linear-gradient(to bottom, #000 50%, transparent);
-  mask-image: linear-gradient(to bottom, #000 50%, transparent);
-}
-
+/* Nothing spans the top: its buttons float over the page as separate pieces of glass,
+   and each bends whatever passes under it. */
 .navbar-side { position: relative; display: flex; align-items: center; gap: 10px; pointer-events: auto; }
 .navbar-title {
   position: absolute;
@@ -93,20 +84,34 @@
   height: var(--nav-h);
   display: flex;
   flex-direction: column;
+  align-items: center;
   justify-content: center;
   text-align: center;
   font-size: 17px;
   line-height: 21px;
   font-weight: 600;
-  opacity: 0;
-  transform: translateY(8px);
-  transition: opacity 0.22s var(--ease-out), transform 0.32s var(--ease-out);
 }
+/* The title that comes in once the large one has scrolled away is glass too: it sits
+   over moving content. It is hidden outright while away, so its lens costs nothing. */
+.navbar-title-pill {
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px) scale(0.92);
+  transition: opacity 0.22s var(--ease-out), transform 0.32s var(--ease-out), visibility 0s linear 0.22s;
+}
+.navbar-title-pill.glass { height: 38px; padding: 0 14px; font-size: 16px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.1), inset 0 0 0 0.5px var(--glass-edge); }
 .navbar-title span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .navbar-title small { display: block; font-size: 11px; line-height: 13px; font-weight: 500; letter-spacing: 0; color: var(--label-2); }
 .navbar-title small:empty { display: none; }
-.navbar.is-scrolled .navbar-title,
-.navbar.always-title .navbar-title { opacity: 1; transform: none; }
+/* "inherit", not "visible": a page that is off screen hides its whole bar, and an
+   explicit "visible" here would show through it. */
+.navbar.is-scrolled .navbar-title-pill,
+.navbar.always-title .navbar-title-pill { opacity: 1; visibility: inherit; transform: none; transition-delay: 0s; }
 
 .nav-btn { width: 44px; height: 44px; display: grid; place-items: center; --press: 1.14; }
 .nav-group { display: flex; align-items: center; height: 44px; padding: 0 3px; }
@@ -389,7 +394,7 @@
   display: flex;
   flex-direction: column;
   background: var(--sheet-fill);
-  --glass-blur: 36px;
+  --glass-blur: calc(18px + var(--frost) * 32px);
   will-change: transform;
 }
 .sheet { overflow: hidden; }
@@ -405,7 +410,8 @@
   cursor: grab;
 }
 .sheet-header h2 { font-size: 20px; line-height: 25px; font-weight: 700; letter-spacing: var(--track-display); }
-.sheet-close { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; --press: 1.14; box-shadow: inset 0 0 0 0.5px var(--glass-edge); background: var(--fill); }
+.sheet-close { flex: none; width: 36px; height: 36px; display: grid; place-items: center; --press: 1.14; }
+.sheet-close.glass { box-shadow: 0 2px 8px rgb(0 0 0 / 0.08), inset 0 0 0 0.5px var(--glass-edge); }
 .sheet-body { overflow-y: auto; padding: 4px 16px 20px; overscroll-behavior: contain; scrollbar-width: none; }
 .sheet-body::-webkit-scrollbar { display: none; }
 
@@ -441,6 +447,20 @@
 .btn.danger.filled { background: var(--red); color: #fff; }
 .btn.small { height: 34px; padding: 0 14px; font-size: 15px; }
 .btn.block { display: flex; width: 100%; }
+
+/* Glass action resting in the page. */
+.pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 17px;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  --press: 1.07;
+}
+.pill-btn.glass { box-shadow: 0 3px 12px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.05), inset 0 0 0 0.5px var(--glass-edge); }
 
 .badge {
   display: inline-flex;
@@ -1060,7 +1080,7 @@ html[data-solid] .monaco-editor .suggest-details { background: var(--surface-2) 
 .sheet { isolation: isolate; border-radius: 38px; background: none; }
 .sheet-glass.glass {
   --_r: 38px;
-  --glass-blur: 36px;
+  --glass-blur: calc(18px + var(--frost) * 32px);
   position: absolute;
   inset: 0;
   z-index: -1;

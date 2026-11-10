@@ -69,7 +69,7 @@
         else anims.push(el.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(0.2)', opacity: 0 }], { duration: 220, easing: 'ease-in', fill: 'forwards' }));
       }
     }
-    const tf = from.navbar.querySelector('.navbar-title'), tt = to.navbar.querySelector('.navbar-title');
+    const tf = from.navbar.querySelector('.navbar-title-pill'), tt = to.navbar.querySelector('.navbar-title-pill');
     if (tf) anims.push(tf.animate([{ opacity: getComputedStyle(tf).opacity }, { opacity: 0 }], { duration: 140, fill: 'forwards' }));
     if (tt) anims.push(tt.animate([{ opacity: 0 }, { opacity: getComputedStyle(tt).opacity }], { duration: 260, delay: 120, easing: 'ease-out', fill: 'backwards' }));
     return anims;
@@ -145,9 +145,31 @@
       this.apply(keep.length ? keep : ['/']);
     },
 
+    // Off-screen pages are parked (see .is-parked), except the one a step back. A parked
+    // page forgets how far it was scrolled, so that is noted here and put back.
+    _park() {
+      const under = this.stack[this.stack.length - 2];
+      for (const e of new Set([...this.stack, ...this.roots.values()])) {
+        const el = e.page.el;
+        const park = e !== under && el.classList.contains('is-off');
+        if (park === el.classList.contains('is-parked')) continue;
+        if (park) {
+          e.scrolls = [e.page.scroll, ...el.querySelectorAll('.carousel, .code-area')]
+            .filter((n) => n.scrollTop || n.scrollLeft)
+            .map((n) => [n, n.scrollLeft, n.scrollTop]);
+          el.classList.add('is-parked');
+        } else {
+          el.classList.remove('is-parked');
+          for (const [n, x, y] of e.scrolls || []) { n.scrollLeft = x; n.scrollTop = y; }
+          e.scrolls = null;
+        }
+      }
+    },
+
     updateChrome() {
       const top = this.top();
       if (!top) return;
+      this._park();
       NT.tabbar.setActive(TAB_ROOTS[this.stack[0].path] || 'home');
       NT.dom.app.classList.toggle('tab-hidden', !!top.page.hideTabbar);
       NT.tabbar.setAccessory(top.page.accessory || null);
@@ -336,6 +358,8 @@
     app.classList.add('tab-hidden');
     app.append(stage, tab.accessoryHost, tab.el, overlays, toasts, splash);
 
+    // Lenses are made ready behind the splash, not in the first frames of a page.
+    NT.glass.warm();
     await NT.api.init();
     splash.remove();
     app.removeAttribute('aria-busy');

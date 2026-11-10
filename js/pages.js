@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const NT = window.NT;
-  const { h, rel, clamp, debounce } = NT.util;
+  const { h, rel, debounce } = NT.util;
   const icon = NT.icon;
   const API = NT.api;
   const UI = NT.ui;
@@ -34,6 +34,11 @@
     NT.glass.refract(g);
     return g;
   }
+  // A glass action that sits in the page. It rests on the page's own background, where
+  // there is nothing to bend, so it takes the shader's light without the lens.
+  function glassButton(label, iconName, onClick, extra = '') {
+    return NT.glass.shine(h('button.pill-btn.glass.interactive' + extra, { type: 'button', onclick: onClick }, iconName ? icon(iconName, 18) : null, h('span', label)));
+  }
   const groupButton = (name, label, onClick, extra = '') =>
     h('button.nav-group-btn' + extra, { type: 'button', 'aria-label': label, title: label, onclick: onClick }, icon(name, 22));
 
@@ -45,7 +50,8 @@
     const trail = h('div.navbar-side');
     const titleText = h('span', opts.title || '');
     const subtitle = h('small');
-    const navTitle = h('div.navbar-title', titleText, subtitle);
+    const pill = h('div.navbar-title-pill', titleText, subtitle);
+    const navTitle = h('div.navbar-title', pill);
     const navbar = h('header.navbar', lead, navTitle, trail);
     const el = h('section.page' + (opts.className ? '.' + opts.className : ''), scroll, navbar);
 
@@ -54,6 +60,12 @@
       large = h('h1.large-title', opts.title || '');
       inner.append(large);
     } else if (!opts.titleAt) navbar.classList.add('always-title');
+    // A title that arrives by scrolling floats over content, so it is glass like the
+    // buttons beside it. One that is always there has nothing passing under it.
+    if (!navbar.classList.contains('always-title')) {
+      pill.classList.add('glass', 'thick');
+      NT.glass.refract(pill, { bezel: 14, magnify: 0.008 });
+    }
     if (opts.back) lead.append(navButton('chevron-left', 'Back', () => NT.nav.back()));
 
     const disposers = [];
@@ -81,12 +93,13 @@
       const w = navbar.clientWidth;
       if (!w) return;
       const l = lead.offsetWidth, t = trail.offsetWidth;
-      const left = 16 + l + (l ? 12 : 4), right = 16 + t + (t ? 12 : 4);
+      const left = 16 + l + (l ? 8 : 4), right = 16 + t + (t ? 8 : 4);
       const sym = Math.max(left, right);
       const centred = w - sym * 2 >= 130;
       navTitle.style.left = (centred ? sym : left) + 'px';
       navTitle.style.right = (centred ? sym : right) + 'px';
       navTitle.style.textAlign = centred || !l ? 'center' : 'left';
+      navTitle.style.alignItems = centred || !l ? 'center' : 'flex-start';
     }
     if (window.ResizeObserver) {
       const ro = new ResizeObserver(layoutTitle);
@@ -99,7 +112,6 @@
     let lastY = 0;
     scroll.addEventListener('scroll', () => {
       const y = scroll.scrollTop;
-      navbar.style.setProperty('--edge', clamp(y / 28, 0, 1).toFixed(3));
       navbar.classList.toggle('is-scrolled', y > threshold);
       NT.tabbar.onScroll(y, lastY, scroll);
       lastY = y;
@@ -676,9 +688,9 @@
       if (s.description) kids.push(h('p.detail-desc', s.description));
 
       const actions = [];
-      if (API.session) actions.push(h('button.btn.gray.small', { type: 'button', onclick: go(`/scripts/${s.script_id}/view`) }, icon('code', 18), 'View Source'));
-      if (owner) actions.push(h('button.btn.gray.small', { type: 'button', onclick: go(`/scripts/${s.script_id}/edit`) }, icon('pencil', 18), 'Edit'));
-      if (owner && !s.published_at) actions.push(h('button.btn.tint.small', { type: 'button', onclick: () => publishScript(s, load) }, icon('send', 18), 'Publish'));
+      if (API.session) actions.push(glassButton('View Source', 'code', go(`/scripts/${s.script_id}/view`)));
+      if (owner) actions.push(glassButton('Edit', 'pencil', go(`/scripts/${s.script_id}/edit`)));
+      if (owner && !s.published_at) actions.push(glassButton('Publish', 'send', () => publishScript(s, load), '.tinted'));
       if (actions.length) kids.push(h('div.detail-actions', actions));
 
       if (API.isOutdated(s)) {
