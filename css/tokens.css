@@ -16,6 +16,8 @@
   --tab-clear: 82px;
   --r-card: 26px;
   --r-hero: 34px;
+  /* Thickness of every separator. Chromium draws it as one device pixel at 100–150 % scaling. */
+  --hairline: 0.5px;
 
   /* Liquid Glass. --frost is the user's Clear (0) … Tinted (1) preference. */
   --frost: 0.3;
@@ -31,6 +33,8 @@
   --dur-smooth: 480ms;
   --spring-snappy: cubic-bezier(0.2, 0.9, 0.3, 1);
   --dur-snappy: 320ms;
+  /* How top glass eases between its light and dark tone (see glass.css, Tone). */
+  --tone-fade: color 0.22s var(--ease-out), background-color 0.22s var(--ease-out), box-shadow 0.22s var(--ease-out);
 
   --red: #ff383c;
   --orange: #ff8d28;

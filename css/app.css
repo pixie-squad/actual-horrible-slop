@@ -102,11 +102,11 @@
   opacity: 0;
   visibility: hidden;
   transform: translateY(8px) scale(0.92);
-  transition: opacity 0.22s var(--ease-out), transform 0.32s var(--ease-out), visibility 0s linear 0.22s;
+  transition: opacity 0.22s var(--ease-out), transform 0.32s var(--ease-out), visibility 0s linear 0.22s, var(--tone-fade);
 }
 .navbar-title-pill.glass { height: 38px; padding: 0 14px; font-size: 16px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.1), inset 0 0 0 0.5px var(--glass-edge); }
 .navbar-title span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.navbar-title small { display: block; font-size: 11px; line-height: 13px; font-weight: 500; letter-spacing: 0; color: var(--label-2); }
+.navbar-title small { display: block; font-size: 11px; line-height: 13px; font-weight: 500; letter-spacing: 0; color: var(--label-2); transition: color 0.22s var(--ease-out); }
 .navbar-title small:empty { display: none; }
 /* "inherit", not "visible": a page that is off screen hides its whole bar, and an
    explicit "visible" here would show through it. */
@@ -114,16 +114,24 @@
 .navbar.always-title .navbar-title-pill { opacity: 1; visibility: inherit; transform: none; transition-delay: 0s; }
 
 .nav-btn { width: 44px; height: 44px; display: grid; place-items: center; --press: 1.14; }
-.nav-group { display: flex; align-items: center; height: 44px; padding: 0 3px; }
+/* Top glass eases between tones (see glass.css, Tone) as well as springing from a press. */
+.nav-btn, .nav-pill { transition: transform var(--dur-bouncy) var(--spring-bouncy), var(--tone-fade); }
+.nav-group { display: flex; align-items: center; height: 44px; padding: 0 3px; transition: var(--tone-fade); }
 .nav-group-btn {
   width: 42px;
   height: 38px;
   display: grid;
   place-items: center;
   border-radius: 999px;
-  transition: transform var(--dur-bouncy) var(--spring-bouncy), background 0.2s;
+  transition: transform var(--dur-bouncy) var(--spring-bouncy);
 }
-.nav-group-btn:active { transform: scale(1.18); background: var(--fill); transition-duration: 0.14s; }
+/* A group is one piece of glass. A press swells the glyph and lights the glass where it
+   was touched, as on a lone button; no shape is drawn around the button inside it. */
+.nav-group-btn:active { transform: scale(1.18); transition-duration: 0.14s; }
+.nav-group:has(.nav-group-btn:active)::after { opacity: 0.8; transition-duration: 0.1s; }
+@media (hover: hover) {
+  .nav-group:has(.nav-group-btn:hover):not(:has(.nav-group-btn:active))::after { opacity: 0.4; }
+}
 .nav-pill {
   height: 44px;
   padding: 0 18px;
@@ -223,7 +231,7 @@
   overflow: hidden;
   --press: 1.1;
   transition: flex-grow var(--dur-smooth) var(--spring-smooth), flex-basis var(--dur-smooth) var(--spring-smooth),
-    transform var(--dur-bouncy) var(--spring-bouncy);
+    transform var(--dur-bouncy) var(--spring-bouncy), var(--tone-fade);
 }
 .tabbar-search-btn { flex: none; width: var(--tab-h); height: 100%; display: grid; place-items: center; transition: width 0.3s var(--ease-out); }
 .tabbar-search input {
@@ -246,7 +254,7 @@
   color: var(--label-2);
   opacity: 0;
   overflow: hidden;
-  transition: width 0.3s var(--ease-out), opacity 0.2s;
+  transition: width 0.3s var(--ease-out), opacity 0.2s, color 0.22s var(--ease-out);
 }
 
 /* Minimised (scrolling down) and search states: the capsule collapses to the current tab. */
@@ -374,7 +382,8 @@
 .menu-item.danger, .menu-item.danger .icon { color: var(--red); }
 .menu-item .menu-check { flex: none; width: 17px; height: 17px; color: var(--label); }
 .menu-item .menu-check .icon { color: inherit; }
-.menu-sep { height: 8px; margin: 4px -6px; background: var(--fill); }
+/* Groups are parted by a hairline that stops short of the glass's edge, never a band across it. */
+.menu-sep { height: var(--hairline); margin: 5px 14px; background: var(--sep); }
 
 .dialog { padding: 14px 10px 10px; }
 .dialog h2 { font-size: 17px; line-height: 22px; font-weight: 600; margin: 0 6px; }
@@ -514,7 +523,7 @@
   top: 0;
   left: 16px;
   right: 16px;
-  height: 0.5px;
+  height: var(--hairline);
   background: var(--sep);
 }
 .row.has-icon + .row.has-icon::before { left: 58px; }
@@ -1044,7 +1053,7 @@ html[data-solid] .monaco-editor .suggest-details { background: var(--surface-2) 
 .context-view .monaco-menu .monaco-action-bar.vertical .keybinding { padding: 0 14px 0 20px; opacity: 0.5; }
 .context-view .monaco-menu .monaco-action-bar.vertical .action-item.focused > .action-menu-item,
 .context-view .monaco-menu .monaco-action-bar.vertical .action-menu-item:hover { background: var(--fill-2) !important; color: var(--label) !important; }
-.context-view .monaco-menu .monaco-action-bar.vertical .action-label.separator { height: 1px; margin: 5px 14px; padding: 0; border: 0; background: var(--sep) !important; }
+.context-view .monaco-menu .monaco-action-bar.vertical .action-label.separator { height: var(--hairline); margin: 5px 14px; padding: 0; border: 0; background: var(--sep) !important; }
 .context-view .monaco-scrollable-element { border-radius: 14px !important; box-shadow: none !important; background: none !important; }
 
 @media (min-width: 820px) {
@@ -1058,7 +1067,7 @@ html[data-solid] .monaco-editor .suggest-details { background: var(--surface-2) 
    backdrop (see glass.js). */
 
 .tabbar-capsule { position: relative; border-radius: 999px; }
-.tabbar-glass.glass { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.tabbar-glass.glass { position: absolute; inset: 0; z-index: 0; pointer-events: none; transition: var(--tone-fade); }
 .tab { z-index: 2; }
 .tab-lens { z-index: 1; }
 .tab-lens::before {
@@ -1088,3 +1097,57 @@ html[data-solid] .monaco-editor .suggest-details { background: var(--surface-2) 
   background: var(--glass-sheen), var(--sheet-fill);
 }
 html[data-solid] .sheet-glass.glass { background: var(--surface); }
+
+/* ---------- Keyboard focus ----------
+   Kept at the end so these win over the wide layout above. */
+
+/* A page takes focus when it comes to the front, so the keyboard starts from it; it shows no ring. */
+.page:focus, .page:focus-visible { outline: none; }
+
+/* Rings drawn inside controls whose container clips (lists, grouped toolbar glass). */
+.list .row:focus-visible { outline-offset: -4px; border-radius: 16px; }
+.nav-group-btn:focus-visible, .seg-item:focus-visible, .tab:focus-visible, .tabbar-search-btn:focus-visible, .tabbar-search-clear:focus-visible { outline-offset: -3px; }
+/* Room above a row of cards for the ring of the one in focus. */
+.carousel { padding-top: 6px; margin-top: -4px; }
+/* Clear of the ring that marks the chosen colour. */
+.swatch:focus-visible { outline-offset: 6px; }
+
+/* Text fields show where typing goes, where there is a keyboard and pointer to move between them. */
+@media (hover: hover) {
+  .row.field input:focus-visible, .row.field textarea:focus-visible, .inline-edit:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent);
+    outline-offset: 4px;
+    border-radius: 6px;
+  }
+  .map-form:has(input:focus-visible) { outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent); outline-offset: 2px; }
+}
+
+/* ---------- Touch targets ----------
+   Small controls keep their drawn size; the area that takes a tap reaches 44px. */
+
+.more-btn, .swatch, .row-pick, .param-reset, .section-header button, .btn.small, .nav-group-btn { position: relative; }
+.more-btn::after, .swatch::after, .row-pick::after, .param-reset::after, .section-header button::after, .btn.small::after, .nav-group-btn::after { content: ""; position: absolute; inset: -5px; }
+.row-pick::after, .btn.small::after { inset: -5px 0; }
+.param-reset::after, .section-header button::after { inset: -12px -8px; }
+.nav-group-btn::after { inset: -3px -1px; }
+/* Glass draws with both of its pseudo-elements, so these two are simply made 44px. */
+.script-card .fav-btn { right: 8px; top: 8px; width: 44px; height: 44px; }
+.sheet-close { width: 44px; height: 44px; }
+.sheet-header { padding: 6px 10px 6px 24px; }
+
+/* ---------- Narrow screens and long menus ---------- */
+
+.grid { grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr)); }
+/* The label beside an inline control keeps its width; the control gives way. */
+.seg.seg-inline { flex: 1 1 0; width: auto; min-width: 0; max-width: 216px; margin-left: auto; }
+.row:has(> .seg-inline) > .row-title { flex: none; }
+.row.field label { width: clamp(84px, 30%, 118px); }
+/* A menu taller than the screen scrolls inside itself; the panel around it keeps its shape. */
+.menu-list {
+  max-height: calc(100vh - 44px - var(--safe-top) - var(--safe-bottom));
+  max-height: calc(100dvh - 44px - var(--safe-top) - var(--safe-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+.menu-list::-webkit-scrollbar { display: none; }

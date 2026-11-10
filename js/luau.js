@@ -167,12 +167,18 @@
       if (onChange) onChange(input.value);
     });
 
+    // Tab indents, so the keyboard needs another way out of the field: Escape, then Tab.
+    let leaving = false;
+    input.addEventListener('blur', () => { leaving = false; });
     input.addEventListener('keydown', (e) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
         e.preventDefault();
         if (onSave) onSave(input.value);
         return;
       }
+      if (e.key === 'Escape') return void (leaving = true);
+      if (e.key === 'Tab' && leaving) return;
+      if (!['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) leaving = false;
       if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         e.preventDefault();
         insert('\t');

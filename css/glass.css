@@ -95,6 +95,35 @@
 /* The leading action on artwork: the same glass, tinted white. */
 .glass.on-art.solid { color: #000; background: rgb(255 255 255 / calc(0.56 + var(--frost) * 0.42)); }
 
+/* ---------- Tone (glass.js, NT.tone) ----------
+   Glass at the top of the screen that has artwork under it turns dark, with a light
+   glyph, whichever theme is on: the material and everything drawn on it take the dark
+   values. Only colours change, so the switch can ease. */
+[data-over="dark"] {
+  --label: #ffffff;
+  --label-2: rgb(235 235 245 / 0.7);
+  --label-3: rgb(235 235 245 / 0.36);
+  --sep: rgb(120 120 128 / 0.5);
+  --fill: rgb(120 120 128 / 0.28);
+  --fill-2: rgb(120 120 128 / 0.4);
+  --glass-fill: rgb(18 18 22 / calc(0.24 + var(--frost) * 0.46));
+  --glass-thick: rgb(34 34 40 / calc(0.6 + var(--frost) * 0.39));
+  --glass-edge: rgb(255 255 255 / 0.12);
+  --glass-inner: inset 0 0 8px -3px rgb(255 255 255 / 0.2), inset 0 -8px 10px -10px rgb(0 0 0 / 0.4);
+  --rim-hi: rgb(255 255 255 / 0.6);
+  --rim-mid: rgb(255 255 255 / 0.3);
+  --rim-lo: rgb(255 255 255 / 0.1);
+  --tab-sel: rgb(255 255 255 / 0.16);
+  --spec-opacity: 0.75;
+}
+/* The dark theme's fill is a veil over a colour; the veil stays and the colour deepens. */
+html[data-theme="dark"] [data-over="dark"] {
+  --glass-fill: linear-gradient(rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.1)), rgb(14 14 18 / calc(0.3 + var(--frost) * 0.5));
+}
+.glass.has-spec::before { transition: opacity 0.22s var(--ease-out); }
+/* Glass that was only just built or revealed arrives in its tone. */
+.tone-snap, .tone-snap *, .tone-snap::before, .tone-snap::after { transition: none !important; }
+
 /* Pressing glass makes it swell, then settle with a spring. */
 .interactive {
   cursor: pointer;

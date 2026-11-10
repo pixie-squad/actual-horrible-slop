@@ -361,12 +361,173 @@
     }
   }, 4000);
 
-  // Specular highlight follows the pointer across any glass surface.
-  document.addEventListener('pointermove', (e) => {
+  // Specular highlight follows the pointer across any glass surface. A finger does not
+  // move before it lands, so the press itself places the light too.
+  const light = (e) => {
     const el = e.target && e.target.closest ? e.target.closest('.glass') : null;
     if (!el) return;
     const r = el.getBoundingClientRect();
     el.style.setProperty('--mx', (e.clientX - r.left).toFixed(1) + 'px');
     el.style.setProperty('--my', (e.clientY - r.top).toFixed(1) + 'px');
-  }, { passive: true });
+  };
+  document.addEventListener('pointermove', light, { passive: true });
+  document.addEventListener('pointerdown', light, { passive: true, capture: true });
+
+  /*
+    Tone. Glass that floats at the top takes its tone from what is under it: dark
+    glass with a light glyph while artwork passes beneath, back to the theme's own over
+    the page. Each piece decides for itself.
+
+    Artwork is marked where it is made (Tone.mark). What is under a piece of glass is
+    then found by asking the browser which elements are painted at two or three points
+    of it, so there is nothing to keep up to date as content loads, scrolls or is
+    dragged sideways. All points are read before anything is written, and the only
+    write is one attribute on a piece whose answer changed. A page with no artwork is
+    never asked.
+
+    Asking is cheap while the page is still (about 0.04 ms a point) but not while two
+    pages slide over each other (about 0.3 ms a point, 3-5 ms a frame), so a slide is
+    not asked about frame by frame. Both pages are asked once, before they move, and
+    each piece then follows the edge between them by arithmetic (Tone.split).
+  */
+  const Tone = (NT.tone = {});
+  const root = document.documentElement;
+  let queued = 0;
+
+  const isDark = (x, y) => {
+    for (const el of document.elementsFromPoint(x, y)) {
+      if (el.closest('.page-scroll')) return !!el.closest('.tone-dark');
+    }
+    return false;
+  };
+
+  // The glass that takes a tone on these pages, and the points of each piece that are asked about.
+  const glassOf = (pages) => {
+    const els = [];
+    for (const page of pages) els.push(...page.navbar.querySelectorAll('.navbar-side > .glass:not(.tinted), .navbar-title-pill.glass'));
+    return els;
+  };
+  const pointsOf = (el) => {
+    if (el.style.visibility === 'hidden') return null; // a menu has grown out of it; it keeps its tone
+    const r = el.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    const n = r.width > 120 ? 3 : 2;
+    return Array.from({ length: n }, (_, i) => {
+      const f = i / (n - 1);
+      return { x: r.left + r.width * (0.3 + 0.4 * f), y: r.top + r.height * (0.4 + 0.2 * f) };
+    });
+  };
+  const usable = () => {
+    const stage = NT.dom && NT.dom.stage;
+    return !!stage && !stage.inert; // under a sheet nothing moves, and nothing can be asked
+  };
+  const wanted = (pages) => !root.hasAttribute('data-solid') && pages.some((page) => page.art.length);
+
+  // Glass that has only just been built or revealed arrives in its tone; it does not
+  // fade to it. Such pieces hold their transitions off until settle(), which costs one
+  // style flush for all of them together.
+  const snapped = [];
+  function set(el, dark, snap) {
+    if ((el.dataset.over === 'dark') === dark) return;
+    if (snap) {
+      el.classList.add('tone-snap');
+      snapped.push(el);
+    }
+    if (dark) el.dataset.over = 'dark';
+    else delete el.dataset.over;
+  }
+  function settle() {
+    if (!snapped.length) return;
+    void snapped[0].offsetWidth;
+    for (const el of snapped.splice(0)) el.classList.remove('tone-snap');
+  }
+
+  function pass(pages, snap) {
+    if (!usable()) return;
+    const bar = NT.tabbar;
+    const els = glassOf(pages);
+    const live = wanted(pages);
+    if (bar.wide && live) els.push(...bar.chrome());
+    else for (const el of bar.chrome()) set(el, false, snap);
+    if (live) {
+      const tones = els.map((el) => {
+        const pts = pointsOf(el);
+        return pts && pts.filter((p) => isDark(p.x, p.y)).length * 2 >= pts.length;
+      });
+      els.forEach((el, i) => { if (tones[i] != null) set(el, tones[i], snap); });
+    } else for (const el of els) set(el, false, snap);
+    settle();
+  }
+
+  const topPage = () => {
+    const top = NT.nav && NT.nav.top();
+    return top ? [top.page] : [];
+  };
+
+  // Mark an element as artwork: content that wants a light glyph over it in either theme.
+  Tone.mark = (el) => {
+    el.classList.add('tone-dark');
+    return el;
+  };
+
+  // Look again on the next frame. Cheap to call from anything that may have moved content.
+  Tone.touch = () => {
+    if (queued) return;
+    queued = requestAnimationFrame(() => {
+      queued = 0;
+      // Not while pages are sliding: that is followed by Tone.split, and the navigator
+      // asks again once they have settled.
+      if (NT.nav && NT.nav._pending) return;
+      pass(topPage(), false);
+    });
+  };
+
+  // Look now, and take the tone without a transition.
+  Tone.sync = (...pages) => pass(pages, true);
+
+  /*
+    Two pages share the screen, `front` sliding across `back` with a straight edge
+    between them. Call this while both are in place, before anything moves: each point
+    is asked once what it shows on either page. The result's at(x) then gives every
+    piece of glass its tone for the edge at x (front covers what is to the right of
+    it), reading nothing from the page.
+  */
+  Tone.split = (front, back) => {
+    const pages = [front, back];
+    if (!usable() || !wanted(pages)) {
+      if (usable()) pass(pages, true);
+      return { at() {} };
+    }
+    const els = glassOf(pages);
+    if (NT.tabbar.wide) els.push(...NT.tabbar.chrome());
+    const pieces = [];
+    for (const el of els) {
+      const pts = pointsOf(el);
+      if (pts) pieces.push({ el, pts });
+    }
+    for (const piece of pieces) {
+      for (const p of piece.pts) {
+        p.front = p.back = null;
+        for (const el of document.elementsFromPoint(p.x, p.y)) {
+          const scroll = el.closest('.page-scroll');
+          if (scroll === front.scroll) { if (p.front === null) p.front = !!el.closest('.tone-dark'); }
+          else if (scroll === back.scroll) { if (p.back === null) p.back = !!el.closest('.tone-dark'); }
+          if (p.front !== null && p.back !== null) break;
+        }
+      }
+    }
+    return {
+      at(x, snap) {
+        for (const { el, pts } of pieces) {
+          let dark = 0;
+          for (const p of pts) if (p.x >= x ? p.front : p.back) dark++;
+          set(el, dark * 2 >= pts.length, snap);
+        }
+        settle();
+      },
+    };
+  };
+
+  window.addEventListener('resize', Tone.touch, { passive: true });
+  NT.bus.on('prefs', Tone.touch);
 })();

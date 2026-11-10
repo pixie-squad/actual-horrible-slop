@@ -175,7 +175,14 @@
       NT.tabbar.setAccessory(top.page.accessory || null);
       NT.tabbar.setMinimized(false);
       if (NT.tabbar.searching && this.paths().join() !== '/scripts') NT.tabbar.closeSearch();
-      document.title = 'NT Scripting';
+      this.retitle();
+      NT.tone.touch();
+    },
+
+    retitle() {
+      const top = this.top();
+      const name = top && top.page.title;
+      document.title = name ? `${name} · NT Scripting` : 'NT Scripting';
     },
 
     _entry(path) {
@@ -203,6 +210,19 @@
       if (e.page.onShow) Promise.resolve(e.page.onShow()).catch((err) => console.error(err));
     },
 
+    // Focus follows the navigation: into the page that has come to the front, and when
+    // that page is being returned to, back onto what was last used in it. Nothing
+    // scrolls, and the page itself shows no ring.
+    _focus(e, restore) {
+      const cur = document.activeElement;
+      if (cur && cur.closest && cur.closest('.tabbar, .overlays')) return; // the tab bar and sheets keep theirs
+      let to = restore ? e.page.lastFocus : null;
+      if (to && (!to.isConnected || !to.getClientRects().length)) to = null;
+      // Not onto a text field where that would raise an on-screen keyboard.
+      if (to && to.matches('input, textarea') && !window.matchMedia('(hover: hover)').matches) to = null;
+      (to || e.page.el).focus({ preventScroll: true });
+    },
+
     _flush() {
       if (this._pending) {
         const fn = this._pending;
@@ -211,10 +231,28 @@
       }
     },
 
+    // While one page slides across the other, each piece of top glass has the tone of
+    // whichever page is under it: the edge between the two is followed from the slide's
+    // own progress (see NT.tone.split). `edge` maps that progress to the edge's place,
+    // as a share of the width.
+    _tone(tone, slide, edge) {
+      const run = this._pending;
+      const w = window.innerWidth;
+      tone.at(edge(0) * w, true);
+      const step = () => {
+        if (this._pending !== run) return;
+        const p = slide.effect.getComputedTiming().progress;
+        if (p != null) tone.at(edge(p) * w);
+        requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    },
+
     _run(anims, cleanup) {
       const done = () => {
         anims.forEach((a) => a.cancel());
         cleanup();
+        NT.tone.touch();
       };
       this._pending = done;
       anims[0].onfinish = () => {
@@ -244,12 +282,16 @@
         this.stack = [...cur, to];
         this._show(to);
         this.updateChrome();
-        if (instant) { from.page.el.classList.add('is-off'); return; }
+        this._focus(to, false);
+        if (instant) { from.page.el.classList.add('is-off'); NT.tone.sync(to.page); return; }
+        const tone = NT.tone.split(to.page, from.page);
+        const slide = to.page.scroll.animate([{ transform: 'translateX(100%)' }, { transform: 'translateX(0)' }], { duration: nav.duration, easing: nav.easing });
         this._run([
-          to.page.scroll.animate([{ transform: 'translateX(100%)' }, { transform: 'translateX(0)' }], { duration: nav.duration, easing: nav.easing }),
+          slide,
           from.page.scroll.animate([{ transform: 'translateX(0)', filter: 'brightness(1)' }, { transform: 'translateX(-24%)', filter: 'brightness(0.86)' }], { duration: nav.duration, easing: nav.easing }),
           ...morphBars(from.page, to.page),
         ], () => from.page.el.classList.add('is-off'));
+        this._tone(tone, slide, (p) => 1 - p);
         return;
       }
 
@@ -263,12 +305,16 @@
         to.page.el.classList.remove('is-off');
         if (to.page.onShow) Promise.resolve(to.page.onShow()).catch((err) => console.error(err));
         this.updateChrome();
-        if (instant) { this._dispose(from); return; }
+        this._focus(to, true);
+        if (instant) { this._dispose(from); NT.tone.sync(to.page); return; }
+        const tone = NT.tone.split(from.page, to.page);
+        const slide = from.page.scroll.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(100%)' }], { duration: nav.duration * 0.9, easing: nav.easing, fill: 'forwards' });
         this._run([
-          from.page.scroll.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(100%)' }], { duration: nav.duration * 0.9, easing: nav.easing, fill: 'forwards' }),
+          slide,
           to.page.scroll.animate([{ transform: 'translateX(-24%)', filter: 'brightness(0.86)' }, { transform: 'translateX(0)', filter: 'brightness(1)' }], { duration: nav.duration * 0.9, easing: nav.easing }),
           ...morphBars(from.page, to.page),
         ], () => this._dispose(from));
+        this._tone(tone, slide, (p) => p);
         return;
       }
 
@@ -286,6 +332,8 @@
         }
       });
       this.updateChrome();
+      this._focus(this.top(), true);
+      NT.tone.sync(this.top().page);
       if (!instant && cur.length) {
         this.top().page.el.animate([{ opacity: 0, transform: 'scale(0.985)' }, { opacity: 1, transform: 'none' }], { duration: 240, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)' });
       }
@@ -308,12 +356,15 @@
         if (dx < 10) return;
         g.active = true;
         g.under.page.el.classList.remove('is-off');
+        g.tone = NT.tone.split(g.top.page, g.under.page);
+        g.tone.at(0, true);
         try { stage.setPointerCapture(e.pointerId); } catch (err) { /* pointer already released */ }
       }
       g.p = clamp(dx / stage.clientWidth, 0, 1);
       g.v = (e.clientX - g.lastX) / Math.max(1, e.timeStamp - g.lastT);
       g.lastX = e.clientX;
       g.lastT = e.timeStamp;
+      g.tone.at(g.p * window.innerWidth);
       g.top.page.scroll.style.transform = `translateX(${(g.p * 100).toFixed(2)}%)`;
       g.under.page.scroll.style.transform = `translateX(${(-24 * (1 - g.p)).toFixed(2)}%)`;
       g.top.page.navbar.style.opacity = String(1 - g.p);
@@ -329,6 +380,14 @@
       const opts = { duration: 240, easing: 'cubic-bezier(0.2, 0.8, 0.2, 1)', fill: 'forwards' };
       const a = s.top.page.scroll.animate([{ transform: s.top.page.scroll.style.transform }, { transform: complete ? 'translateX(100%)' : 'translateX(0)' }], opts);
       const b = s.under.page.scroll.animate([{ transform: s.under.page.scroll.style.transform }, { transform: complete ? 'translateX(0)' : 'translateX(-24%)' }], opts);
+      // The top glass keeps to the edge while the page settles either way.
+      const w = window.innerWidth, x0 = s.p * w, x1 = complete ? w : 0;
+      const settle = () => {
+        if (a.playState !== 'running') return;
+        s.tone.at(x0 + (x1 - x0) * (a.effect.getComputedTiming().progress || 0));
+        requestAnimationFrame(settle);
+      };
+      requestAnimationFrame(settle);
       a.onfinish = () => {
         a.cancel();
         b.cancel();
@@ -339,7 +398,10 @@
         if (complete) {
           s.top.page.el.style.visibility = 'hidden';
           Nav.back({ instant: true });
-        } else s.under.page.el.classList.add('is-off');
+        } else {
+          s.under.page.el.classList.add('is-off');
+          NT.tone.touch();
+        }
       };
     };
     stage.addEventListener('pointerup', end);

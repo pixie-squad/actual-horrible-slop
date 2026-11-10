@@ -17,6 +17,12 @@
   };
   const link = (path, sel, ...kids) => h('a' + (sel || ''), { href: NT.nav.href(path), onclick: go(path) }, kids);
   const signIn = () => UI.authSheet('login');
+  // Enter or Space on a focused card does what a tap on it does.
+  const onActivate = (el, fn) => el.addEventListener('keydown', (e) => {
+    if (e.target !== el || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    fn();
+  });
 
   function navButton(name, label, onClick, extra = '') {
     const b = h('button.nav-btn.glass.interactive' + extra, { type: 'button', 'aria-label': label, title: label, onclick: onClick }, icon(name, 22));
@@ -53,7 +59,7 @@
     const pill = h('div.navbar-title-pill', titleText, subtitle);
     const navTitle = h('div.navbar-title', pill);
     const navbar = h('header.navbar', lead, navTitle, trail);
-    const el = h('section.page' + (opts.className ? '.' + opts.className : ''), scroll, navbar);
+    const el = h('section.page' + (opts.className ? '.' + opts.className : ''), { tabIndex: -1, 'aria-label': opts.title || null }, scroll, navbar);
 
     let large = null;
     if (opts.large !== false) {
@@ -66,19 +72,28 @@
       pill.classList.add('glass', 'thick');
       NT.glass.refract(pill, { bezel: 14, magnify: 0.008 });
     }
-    if (opts.back) lead.append(navButton('chevron-left', 'Back', () => NT.nav.back()));
+    // A page with something to finish first (the editor saving) sets page.onBack.
+    if (opts.back) lead.append(navButton('chevron-left', 'Back', () => (page.onBack ? page.onBack() : NT.nav.back())));
 
     const disposers = [];
     const page = {
       el, scroll, inner, navbar, lead, trail,
+      // Artwork on this page (a live list): what the glass above it turns dark over.
+      art: scroll.getElementsByClassName('tone-dark'),
       hideTabbar: !!opts.hideTabbar,
       accessory: null,
+      get title() { return titleText.textContent; },
       setTitle(t) {
         titleText.textContent = t;
         if (large) large.textContent = t;
+        el.setAttribute('aria-label', t);
+        if (NT.nav) NT.nav.retitle();
       },
       setSubtitle(t) { subtitle.textContent = t || ''; },
-      setTrailing(...nodes) { trail.replaceChildren(...nodes.flat().filter(Boolean)); },
+      setTrailing(...nodes) {
+        trail.replaceChildren(...nodes.flat().filter(Boolean));
+        NT.tone.touch();
+      },
       listen(ev, fn) {
         NT.bus.on(ev, fn);
         disposers.push(() => NT.bus.off(ev, fn));
@@ -106,7 +121,13 @@
       ro.observe(navbar);
       ro.observe(lead);
       ro.observe(trail);
+      // Content arriving or changing height moves what is under the top glass.
+      new ResizeObserver(() => NT.tone.touch()).observe(inner);
     }
+    // What was last focused here is where focus returns when the page comes back.
+    el.addEventListener('focusin', (e) => { if (e.target !== el) page.lastFocus = e.target; });
+    // Capture, so a row scrolling sideways inside the page is heard as well.
+    scroll.addEventListener('scroll', () => { if (page.art.length) NT.tone.touch(); }, { capture: true, passive: true });
 
     const threshold = opts.titleAt || (large ? 40 : 8);
     let lastY = 0;
@@ -134,6 +155,8 @@
 
   function cover(id, sel, glyphSize) {
     const el = h('div.cover' + (sel || ''), { style: NT.util.cover(id) });
+    // Top glass turns dark over artwork, though not for a row's small thumbnail.
+    if (sel !== '.thumb') NT.tone.mark(el);
     const g = icon(NT.util.glyph(id), glyphSize);
     g.classList.add('cover-glyph');
     el.append(g);
@@ -305,7 +328,7 @@
           more)));
     const open = () => NT.nav.go(`/scripts/${s.script_id}`);
     card.addEventListener('click', (e) => { if (!e.target.closest('button, a')) open(); });
-    card.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target === card) open(); });
+    onActivate(card, open);
     return card;
   }
 
@@ -366,7 +389,7 @@
       h('div.spotlight-actions', o.actions.map(button)));
     const open = () => NT.nav.go(`/scripts/${s.script_id}`);
     art.addEventListener('click', (e) => { if (!e.target.closest('button')) open(); });
-    art.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target === art) open(); });
+    onActivate(art, open);
     return art;
   }
 
@@ -376,18 +399,18 @@
     const fileInput = h('input', { type: 'file', accept: '.lua,.luau,.txt,text/plain', hidden: true });
     fileInput.addEventListener('change', () => { uploadScript(fileInput.files[0]); fileInput.value = ''; });
     page.inner.append(body, fileInput);
-    let loaded = false;
+    let loaded = false, stamp = '';
+
+    if (API.session) {
+      const add = navButton('plus', 'New', () => UI.menu(add, [
+        { label: 'New Script', icon: 'plus', onSelect: newScript },
+        { label: 'Upload File', icon: 'upload', onSelect: () => fileInput.click() },
+      ]));
+      page.setTrailing(add);
+    } else page.setTrailing(navPill('Sign In', signIn));
 
     async function load() {
       const me = API.session;
-      if (me) {
-        const add = navButton('plus', 'New', () => UI.menu(add, [
-          { label: 'New Script', icon: 'plus', onSelect: newScript },
-          { label: 'Upload File', icon: 'upload', onSelect: () => fileInput.click() },
-        ]));
-        page.setTrailing(add);
-      } else page.setTrailing(navPill('Sign In', signIn));
-
       if (!loaded) body.replaceChildren(h('div.skel', { style: { height: '300px', borderRadius: 'var(--r-hero)' } }), sectionHeader(me ? 'My Scripts' : 'Recently Updated'), h('div.carousel', skeletons(3, 212)));
       try {
         const [all, mine, favs] = await Promise.all([
@@ -395,9 +418,15 @@
           me ? API.userScripts(me.user_id) : [],
           me ? API.favorites(me.user_id).catch(() => []) : [],
         ]);
+        // Coming back to Home reloads it; if nothing changed, leave the page as it is.
+        const fresh = JSON.stringify([all, mine, favs]);
+        if (loaded && fresh === stamp) return;
+        stamp = fresh;
         render(me, all, mine, favs, !loaded);
         loaded = true;
       } catch (e) {
+        loaded = false;
+        stamp = '';
         body.replaceChildren(errorState(load));
       }
     }
@@ -427,7 +456,7 @@
           eyebrow: 'Featured',
           meta: `${featured.author_name} · ${rel(featured.updated_at)}`,
           actions: me
-            ? [['Open', null, () => NT.nav.go(`/scripts/${featured.script_id}`), true], ['New Script', 'plus', newScript]]
+            ? [['Open', null, () => NT.nav.go(`/scripts/${featured.script_id}`), true]]
             : [['Open', null, () => NT.nav.go(`/scripts/${featured.script_id}`), true], ['Sign In', null, signIn]],
         }));
       }
@@ -435,11 +464,11 @@
       if (me) {
         kids.push(sectionHeader('My Scripts', mine.length ? { label: 'See All', onClick: () => { NT.state.scriptsFilter = 'mine'; NT.nav.go('/scripts'); } } : null));
         kids.push(mine.length
-          ? h('div.carousel', byRecent(mine).slice(0, 10).map(card))
+          ? h('div.carousel', { dataset: { row: 'mine' } }, byRecent(mine).slice(0, 10).map(card))
           : emptyState('doc', 'No Scripts Yet', null, { label: 'New Script', onClick: newScript }, true));
         if (favs.length) {
           kids.push(sectionHeader('Favorites', { label: 'See All', onClick: () => { NT.state.scriptsFilter = 'favorites'; NT.nav.go('/scripts'); } }));
-          kids.push(h('div.carousel', favs.slice(0, 10).map(card)));
+          kids.push(h('div.carousel', { dataset: { row: 'favs' } }, favs.slice(0, 10).map(card)));
         }
       }
 
@@ -450,7 +479,11 @@
       } else if (!me) {
         kids.push(emptyState('code', 'Sign In to Browse', null, { label: 'Sign In', onClick: signIn }));
       }
+      // A refresh (a favourite changed, a script was published) keeps each row where it was scrolled.
+      const at = {};
+      for (const row of body.querySelectorAll('.carousel[data-row]')) at[row.dataset.row] = row.scrollLeft;
       body.replaceChildren(...kids);
+      for (const row of body.querySelectorAll('.carousel[data-row]')) if (at[row.dataset.row]) row.scrollLeft = at[row.dataset.row];
     }
 
     page.onShow = load;
@@ -461,27 +494,50 @@
 
   P.scripts = function () {
     const page = makePage({ title: 'Scripts' });
-    let filter = 'all', sort = 'recent', query = NT.tabbar.query.trim().toLowerCase();
+    // Your own scripts come first. The tab reopens on whichever list was used last.
+    const store = NT.util.store;
+    const FILTERS = ['mine', 'favorites', 'all'], SORTS = ['recent', 'name', 'author'];
+    const kept = API.session ? store.get('nt.scripts.filter') : null;
+    let chosen = FILTERS.includes(kept) ? kept : API.session ? 'mine' : 'all';
+    let sort = SORTS.includes(store.get('nt.scripts.sort')) ? store.get('nt.scripts.sort') : 'recent';
+    let query = NT.tabbar.query.trim().toLowerCase();
+    // A search looks through everything; `chosen` is the list to return to after it.
+    let filter = query ? 'all' : chosen;
     let data = null, signedOut = false, stamp = '';
+    const choose = (v) => {
+      filter = chosen = v;
+      store.set('nt.scripts.filter', v);
+    };
+    const sortBy = (v) => {
+      sort = v;
+      store.set('nt.scripts.sort', v);
+      render(true);
+    };
 
     const seg = UI.segmented([
-      { value: 'all', label: 'All' },
-      { value: 'favorites', label: 'Favorites' },
       { value: 'mine', label: 'Mine' },
-    ], filter, (v) => { filter = v; render(true); });
+      { value: 'favorites', label: 'Favorites' },
+      { value: 'all', label: 'All' },
+    ], filter, (v) => { choose(v); render(true); });
     const count = h('p.footnote.count-line');
     const grid = h('div.grid');
     page.inner.append(h('div.filter-bar', seg.el), count, grid);
 
     const sortBtn = navButton('sort', 'Sort', () => UI.menu(sortBtn, [
-      { label: 'Recently Updated', checked: sort === 'recent', onSelect: () => { sort = 'recent'; render(true); } },
-      { label: 'Name', checked: sort === 'name', onSelect: () => { sort = 'name'; render(true); } },
-      { label: 'Author', checked: sort === 'author', onSelect: () => { sort = 'author'; render(true); } },
+      { label: 'Recently Updated', checked: sort === 'recent', onSelect: () => sortBy('recent') },
+      { label: 'Name', checked: sort === 'name', onSelect: () => sortBy('name') },
+      { label: 'Author', checked: sort === 'author', onSelect: () => sortBy('author') },
     ]));
     page.setTrailing(sortBtn);
 
     page.listen('search', (q) => {
-      query = String(q || '').trim().toLowerCase();
+      const next = String(q || '').trim().toLowerCase();
+      const to = next && !query ? 'all' : !next && query ? chosen : filter;
+      query = next;
+      if (to !== filter) {
+        filter = to;
+        seg.set(to);
+      }
       if (data) render(false);
     });
 
@@ -568,7 +624,7 @@
 
     page.onShow = () => {
       if (NT.state.scriptsFilter) {
-        filter = NT.state.scriptsFilter;
+        choose(NT.state.scriptsFilter);
         seg.set(filter);
         delete NT.state.scriptsFilter;
         if (data) render(true);
@@ -792,29 +848,67 @@
     const host = h('div.code-host');
     page.inner.append(host);
     const status = (t) => page.setSubtitle(t);
-    let script = null, editor = null, lastSaved = '', ticket = 0, ready = false;
+    const store = NT.util.store;
+    const draftKey = 'nt.draft.' + id;
+    let script = null, editor = null, saveBtn = null, ready = false;
+    let current = '', lastSaved = '', ticket = 0, saving = 0, deleted = false, leaving = false;
+
+    const dirty = () => !!editor && current !== lastSaved;
+    const syncSave = () => { if (saveBtn) saveBtn.disabled = !dirty(); };
+
+    // Edits are also kept on this device until the server has them, so closing the tab,
+    // going back mid-save or a save that fails cannot lose them: the next visit picks
+    // the draft up again.
+    const keepDraft = () => store.set(draftKey, { text: current, t: Date.now() });
+    const stash = debounce(keepDraft, 300);
 
     async function save(text, announce) {
       if (text === lastSaved) {
         status('Saved');
+        syncSave();
         if (announce) UI.toast('Saved');
         return true;
       }
       const mine = ++ticket;
       status('Saving…');
+      saving++;
       try {
         await API.saveContent(id, text);
         lastSaved = text;
-        if (mine === ticket) status('Saved');
+        if (current === text) {
+          stash.cancel();
+          store.remove(draftKey);
+        }
+        if (mine === ticket) status(current === text ? 'Saved' : 'Edited');
         if (announce) UI.toast('Saved');
         return true;
       } catch (e) {
         status('Not saved');
         UI.toast(String(e && e.message).includes('too long') ? 'Scripts are limited to 1,000,000 characters' : 'Couldn’t save', { warn: true });
         return false;
+      } finally {
+        saving--;
+        syncSave();
       }
     }
     const autosave = debounce((text) => save(text, false), 1000);
+
+    const onUnload = (e) => {
+      if (!dirty() && !saving) return;
+      if (dirty()) keepDraft();
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onUnload);
+
+    // Back leaves once the text is with the server (or, failing that, in the draft).
+    page.onBack = async () => {
+      if (leaving) return;
+      leaving = true;
+      autosave.cancel();
+      if (dirty()) await save(current, false);
+      NT.nav.back();
+    };
 
     function infoSheet() {
       const name = UI.field('Name', { value: script.name || '', maxLength: 32, placeholder: 'Required' });
@@ -854,10 +948,9 @@
         error.textContent = '';
         submit.disabled = true;
         try {
-          if (n !== (script.name || '')) { await API.saveName(id, n); script.name = n; }
+          if (n !== (script.name || '')) { await API.saveName(id, n); script.name = n; page.setTitle(n); }
           if (d !== (script.description || '')) { await API.saveDescription(id, d); script.description = d || null; }
           if (mapId !== (script.user_map_id || '')) { await API.setMap(id, mapId || null); script.user_map_id = mapId || null; }
-          page.setTitle(script.name);
           sheet.close();
           UI.toast('Saved');
         } catch (err) {
@@ -879,33 +972,59 @@
           : emptyState('doc', 'Script Not Found'));
         return;
       }
-      let content = '';
-      try { content = ((await API.scriptContent(id)) || {}).content || ''; } catch (e) { /* start empty */ }
+      // Without the script's text there is nothing safe to edit: an empty editor here
+      // would autosave over the real script.
+      let content;
+      try { content = ((await API.scriptContent(id)) || {}).content || ''; } catch (e) {
+        ready = false;
+        host.replaceChildren(errorState(() => page.onShow()));
+        return;
+      }
+      const draft = store.get(draftKey, null);
+      const restored = !!draft && typeof draft.text === 'string' && draft.text !== content;
+      if (draft && !restored) store.remove(draftKey);
       lastSaved = content;
+      current = restored ? draft.text : content;
       page.setTitle(script.name || 'Editor');
-      status('Saved');
+      status(restored ? 'Edited' : 'Saved');
+      host.replaceChildren();
       editor = await NT.code.mount(host, {
-        value: content,
-        onChange: (v) => { status('Edited'); autosave(v); },
-        onSave: (v) => { autosave.cancel(); save(v, true); },
+        value: current,
+        onChange: (v) => { current = v; status('Edited'); syncSave(); stash(); autosave(v); },
+        onSave: (v) => { current = v; autosave.cancel(); save(v, true); },
       });
 
-      const more = groupButton('ellipsis', 'More', () => UI.menu(more, [
-        { label: 'Script Page', icon: 'doc', onSelect: () => NT.nav.go(`/scripts/${id}`) },
-        !script.published_at && { label: 'Publish', icon: 'send', onSelect: async () => { autosave.cancel(); if (await save(editor.value, false)) publishScript(script, () => { script.published_at = new Date().toISOString(); }); } },
-        '-',
-        { label: 'Delete', icon: 'trash', danger: true, onSelect: () => deleteScript(script, () => { editor = null; NT.nav.back(); }, more) },
-      ]));
-      const done = navButton('check', 'Done', async () => { autosave.cancel(); if (await save(editor.value, false)) NT.nav.back(); }, '.tinted');
-      page.setTrailing(navGroup(groupButton('info', 'Details', infoSheet), more), done);
+      const more = groupButton('ellipsis', 'More', () => {
+        // With the script's page right underneath, "Script Page" would only be Back.
+        const paths = NT.nav.paths();
+        const under = paths[paths.length - 2] === `/scripts/${id}`;
+        UI.menu(more, [
+          !under && { label: 'Script Page', icon: 'doc', onSelect: () => NT.nav.go(`/scripts/${id}`) },
+          !script.published_at && { label: 'Publish', icon: 'send', onSelect: async () => { autosave.cancel(); if (await save(current, false)) publishScript(script, () => { script.published_at = new Date().toISOString(); }); } },
+          (!under || !script.published_at) && '-',
+          { label: 'Delete', icon: 'trash', danger: true, onSelect: () => deleteScript(script, () => { deleted = true; store.remove(draftKey); NT.nav.back(); }, more) },
+        ]);
+      });
+      // Saving keeps you where you are; only Back leaves.
+      saveBtn = navButton('check', 'Save', () => { autosave.cancel(); save(current, true); }, '.tinted');
+      page.setTrailing(navGroup(groupButton('info', 'Details', infoSheet), more), saveBtn);
+      syncSave();
+      if (restored) {
+        UI.toast('Draft restored');
+        autosave(current);
+      }
     };
 
     page.onDestroy(() => {
+      window.removeEventListener('beforeunload', onUnload);
       autosave.cancel();
-      if (editor) {
-        if (editor.value !== lastSaved) save(editor.value, false);
-        editor.dispose();
+      stash.cancel();
+      if (!editor) return;
+      if (!deleted && dirty()) {
+        keepDraft();
+        if (!leaving) save(current, false);
       }
+      editor.dispose();
     });
     return page;
   };
@@ -1046,13 +1165,23 @@
       else listHost.replaceChildren(h('div.list', skeletons(2, 60)));
     }
 
+    // The form is built once: coming back to the tab must not wipe a half-typed link.
+    let built = false, listed = '';
     page.onShow = async () => {
-      render();
+      if (!built) {
+        render();
+        built = true;
+      }
       if (!API.session) return;
       try {
-        maps = await API.maps(API.session.user_id);
+        const next = await API.maps(API.session.user_id);
+        const fresh = JSON.stringify(next);
+        if (maps && fresh === listed) return;
+        listed = fresh;
+        maps = next;
         renderList();
       } catch (e) {
+        listed = '';
         listHost.replaceChildren(errorState(() => page.onShow()));
       }
     };
@@ -1111,7 +1240,6 @@
 
       if (own) {
         kids.push(h('div.list', { style: { marginTop: '22px' } },
-          row({ icon: 'gear', tint: 'var(--label-3)', title: 'Settings', chevron: true, onClick: () => NT.nav.go('/settings') }),
           row({ icon: 'list', tint: 'var(--indigo)', title: 'Audit Log', chevron: true, onClick: () => NT.nav.go(`/users/${user.user_id}/audit`) })));
       }
       if (favs.length) {
@@ -1161,13 +1289,14 @@
       theme.el.classList.add('seg-inline');
       const accents = ['blue', 'indigo', 'purple', 'pink', 'orange', 'green', 'teal'];
       const swatches = h('div.swatches', { role: 'radiogroup', 'aria-label': 'Accent color' }, accents.map((a) => {
-        const b = h('button.swatch', { type: 'button', role: 'radio', 'aria-label': a, title: a[0].toUpperCase() + a.slice(1), 'aria-checked': String(prefs.accent === a), style: { background: `var(--${a})`, color: `var(--${a})` } });
+        const b = h('button.swatch', { type: 'button', role: 'radio', 'aria-label': a, title: a[0].toUpperCase() + a.slice(1), 'aria-checked': String(prefs.accent === a), tabIndex: prefs.accent === a ? 0 : -1, style: { background: `var(--${a})`, color: `var(--${a})` } });
         b.addEventListener('click', () => {
           NT.prefs.set({ accent: a });
-          swatches.querySelectorAll('.swatch').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+          swatches.querySelectorAll('.swatch').forEach((x) => { x.setAttribute('aria-checked', String(x === b)); x.tabIndex = x === b ? 0 : -1; });
         });
         return b;
       }));
+      UI.arrows(swatches, () => [...swatches.children], (i) => swatches.children[i].click());
       kids.push(header('Appearance'));
       kids.push(h('div.list', h('div.row', h('span.row-title', 'Theme'), theme.el), swatches));
 

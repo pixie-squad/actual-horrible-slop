@@ -9,6 +9,39 @@
   const overlays = () => NT.dom.overlays;
   const reduced = () => NT.util.reducedMotion();
 
+  /* ---------- Focus ---------- */
+
+  const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+  // Tab stays inside `root` (a menu, a dialog, a sheet), wrapping at either end.
+  function keepFocus(e, root) {
+    if (e.key !== 'Tab') return;
+    const stops = [...root.querySelectorAll(FOCUSABLE)].filter((n) => n.getClientRects().length && !n.closest('[inert]'));
+    const cur = document.activeElement;
+    const edge = stops[e.shiftKey ? 0 : stops.length - 1];
+    if (stops.length && cur !== edge && root.contains(cur)) return;
+    e.preventDefault();
+    if (stops.length) stops[e.shiftKey ? stops.length - 1 : 0].focus({ preventScroll: true });
+  }
+
+  const refocus = (el) => { if (el && el.isConnected) el.focus({ preventScroll: true }); };
+  const unfocused = () => !document.activeElement || document.activeElement === document.body;
+
+  // One tab stop for a set of choices; the arrow keys move between them.
+  UI.arrows = function (el, items, pick) {
+    el.addEventListener('keydown', (e) => {
+      const list = items();
+      const i = list.indexOf(document.activeElement);
+      if (i < 0) return;
+      const to = { ArrowLeft: i - 1, ArrowUp: i - 1, ArrowRight: i + 1, ArrowDown: i + 1, Home: 0, End: list.length - 1 }[e.key];
+      if (to == null) return;
+      e.preventDefault();
+      const next = (to + list.length) % list.length;
+      pick(next);
+      list[next].focus({ preventScroll: true });
+    });
+  };
+
   /* ---------- Toast (sits below the top bar, never over its buttons) ---------- */
 
   let currentToast = null;
@@ -79,6 +112,11 @@
       };
     };
 
+    // Where focus goes back to when this closes: the control it came from. A dialog that
+    // takes over from a menu hands back to the menu's control.
+    const opener = (activePop && src && activePop.src === src && activePop.opener)
+      || (anchor && anchor.isConnected ? anchor : document.activeElement);
+
     // A popover that is still collapsing would un-hide its control under this one.
     leaving.forEach((settle) => settle());
 
@@ -94,7 +132,10 @@
     const seat = home ? geometry(src, true) : null;
     const catcher = h('div.pop-catcher' + (opts.dim ? '.dim' : ''));
     const inner = h('div.pop-inner', content);
-    const panel = h('div.pop.glass.thick', { role: opts.role || 'menu', 'aria-label': opts.label || null }, inner);
+    const panel = h('div.pop.glass.thick', { role: opts.role || 'menu', 'aria-label': opts.label || null, 'aria-modal': opts.role === 'alertdialog' ? 'true' : null }, inner);
+    // Glass that is dark over artwork (NT.tone) opens into a panel of the same tone, so
+    // the control turning into the panel and back never changes colour at the swap.
+    if (src && src.dataset.over) panel.dataset.over = src.dataset.over;
     if (opts.width) inner.style.width = Math.min(opts.width, hr.width - 16) + 'px';
     host.append(catcher, panel);
 
@@ -164,7 +205,8 @@
         e.preventDefault();
         e.stopPropagation();
         pop.close();
-        if (anchor && anchor.isConnected) anchor.focus({ preventScroll: true });
+      } else if (e.key === 'Tab') {
+        keepFocus(e, panel);
       } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
         const list = [...panel.querySelectorAll('.menu-item:not(:disabled)')];
         if (!list.length) return;
@@ -177,6 +219,7 @@
     const pop = {
       src,
       panel,
+      opener,
       rect() {
         const r = panel.getBoundingClientRect();
         return { left: r.left - hr.left, top: r.top - hr.top, width: r.width, height: r.height, radius: parseFloat(getComputedStyle(panel).borderTopLeftRadius) || 0 };
@@ -196,6 +239,10 @@
         if (activePop === pop) activePop = null;
         document.removeEventListener('keydown', onKey, true);
         if (opts.onDismiss) opts.onDismiss();
+        // Focus returns to the control once it is back, unless what was chosen has
+        // already sent it somewhere else. A closing panel takes no more keys.
+        const restore = unfocused() || panel.contains(document.activeElement);
+        panel.inert = true;
         let handover = [];
         let settled = false;
         const finish = () => {
@@ -206,6 +253,8 @@
           catcher.remove();
           if (src) src.style.visibility = '';
           handover.forEach((a) => a.cancel());
+          if (restore && unfocused()) refocus(opener);
+          NT.tone.touch();
         };
         if (instant || reduced()) return void finish();
 
@@ -310,6 +359,11 @@
     const layer = h('div.sheet-layer', dim, panel);
     const returnFocus = document.activeElement;
     overlays().append(layer);
+    // A sheet is modal: everything else is out of reach until it closes. Only what this
+    // sheet put out of reach is given back, so one opened over another nests.
+    const held = [...NT.dom.app.children, ...overlays().children]
+      .filter((n) => n !== overlays() && n !== NT.dom.toasts && n !== layer && !n.inert);
+    held.forEach((n) => { n.inert = true; });
     NT.glass.refract(panel.firstElementChild, { frost: [4, 12], bezel: 22, magnify: 0, dispersion: 0 });
     NT.glass.shine(closeBtn);
 
@@ -327,10 +381,14 @@
       if (closed) return;
       closed = true;
       document.removeEventListener('keydown', onKey, true);
+      const inside = unfocused() || layer.contains(document.activeElement);
+      layer.inert = true;
+      held.forEach((n) => { n.inert = false; });
+      if (inside) refocus(returnFocus);
+      NT.tone.touch();
       const done = () => {
         layer.remove();
         if (onClose) onClose();
-        if (returnFocus && returnFocus.isConnected) returnFocus.focus({ preventScroll: true });
       };
       if (reduced()) return void done();
       const from = getComputedStyle(panel).transform;
@@ -345,7 +403,9 @@
     }
 
     function onKey(e) {
-      if (e.key === 'Escape' && !activePop) { e.preventDefault(); close(); }
+      if (activePop) return; // a menu opened from the sheet handles its own keys
+      if (e.key === 'Escape') { e.preventDefault(); close(); }
+      else keepFocus(e, panel);
     }
     document.addEventListener('keydown', onKey, true);
     dim.addEventListener('click', close);
@@ -497,6 +557,8 @@
     const lift = new Spring({ stiffness: 380, damping: 24, precision: 0.002, onUpdate: paint });
     const nearest = () => clamp(Math.round(pos.value / (cell() || 1)), 0, options.length - 1);
     const mark = (i) => buttons.forEach((b, j) => b.setAttribute('aria-selected', String(j === i)));
+    // The control is one tab stop, on the chosen segment; arrow keys move the choice.
+    const rove = () => buttons.forEach((b, j) => { b.tabIndex = j === index ? 0 : -1; });
     const place = (instant) => {
       const x = index * cell();
       if (instant) pos.jump(x);
@@ -507,6 +569,7 @@
       index = i;
       value = options[i].value;
       mark(i);
+      rove();
       place(false);
       if (fire && changed) onChange(value);
     }
@@ -541,9 +604,11 @@
     el.addEventListener('pointercancel', release);
     el.addEventListener('lostpointercapture', release); // never leave the thumb lifted
     buttons.forEach((b, i) => b.addEventListener('click', (e) => { if (e.detail === 0) select(i, true); }));
+    UI.arrows(el, () => buttons, (i) => select(i, true));
 
     if (window.ResizeObserver) new ResizeObserver(() => { if (!drag) place(true); }).observe(el);
     mark(index);
+    rove();
     place(true);
     return {
       el,
@@ -667,7 +732,7 @@
 
   NT.tabbar = (function () {
     const phone = window.matchMedia('(max-width: 819.98px)');
-    let el, capsule, lens, input, searchEl, accessoryHost;
+    let el, capsule, lens, input, searchEl, searchBtn, accessoryHost;
     let active = 'home', minimized = false, searching = false, drag = null, currentAccessory = null;
     const tabEls = {};
 
@@ -725,12 +790,15 @@
     }
 
     function openSearch() {
-      if (searching) return;
+      if (searching) return void input.focus({ preventScroll: true });
       searching = true;
       minimized = false;
       NT.dom.app.classList.remove('tab-min');
       NT.dom.app.classList.add('tab-search');
       if (NT.nav.paths().join() !== '/scripts') NT.nav.go('/scripts');
+      // While open the field is the capsule's tab stop; closed, its button is.
+      input.tabIndex = 0;
+      searchBtn.tabIndex = -1;
       input.focus({ preventScroll: true });
     }
 
@@ -738,8 +806,12 @@
       if (!searching) return;
       searching = false;
       NT.dom.app.classList.remove('tab-search');
+      const inside = searchEl.contains(document.activeElement);
       input.value = '';
+      input.tabIndex = -1;
+      searchBtn.tabIndex = 0;
       input.blur();
+      if (inside && window.matchMedia('(hover: hover)').matches) searchBtn.focus({ preventScroll: true });
       NT.bus.emit('search', '');
       setTimeout(() => layoutLens(true), motion.smooth.duration * 0.7);
     }
@@ -757,12 +829,23 @@
       }
 
       input = h('input', { type: 'search', placeholder: 'Search', 'aria-label': 'Search scripts', enterKeyHint: 'search', autocomplete: 'off', spellcheck: false });
-      const searchBtn = h('button.tabbar-search-btn', { type: 'button', 'aria-label': 'Search', onclick: openSearch }, icon('search', 24));
+      searchBtn = h('button.tabbar-search-btn', { type: 'button', 'aria-label': 'Search', onclick: openSearch }, icon('search', 24));
       const clearBtn = h('button.tabbar-search-clear', { type: 'button', 'aria-label': 'Close search', onclick: (e) => { e.stopPropagation(); closeSearch(); } }, icon('xmark', 18));
       searchEl = h('div.tabbar-search.glass.interactive', { onclick: (e) => { if (!searching && !e.target.closest('button')) openSearch(); } }, searchBtn, input, clearBtn);
       input.addEventListener('input', () => NT.bus.emit('search', input.value));
       input.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSearch(); });
       input.tabIndex = -1;
+      // "/" or Ctrl/Cmd+K opens search from anywhere the tab bar is showing.
+      document.addEventListener('keydown', (e) => {
+        const slash = e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey;
+        const k = (e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
+        if (!slash && !k) return;
+        const t = e.target && e.target.closest ? e.target : null;
+        if (t && t.closest(slash ? 'input, textarea, select, [contenteditable], .monaco-editor' : '.monaco-editor')) return;
+        if (NT.dom.overlays.childElementCount || NT.dom.app.classList.contains('tab-hidden')) return;
+        e.preventDefault();
+        openSearch();
+      });
 
       el = h('nav.tabbar', { 'aria-label': 'Primary' }, capsule, searchEl);
       accessoryHost = h('div.accessory');
@@ -799,7 +882,7 @@
       // The tabs can still be easing into their widths after the capsule has stopped
       // changing size; place the lens once more when they have arrived.
       capsule.addEventListener('transitionend', (e) => { if (e.propertyName === 'flex-grow' && !drag) layoutLens(true); });
-      phone.addEventListener('change', () => { setMinimized(false); layoutLens(true); });
+      phone.addEventListener('change', () => { setMinimized(false); layoutLens(true); NT.tone.touch(); });
 
       NT.glass.refract(sheetOfGlass);
       NT.glass.refract(searchEl);
@@ -858,6 +941,9 @@
       get query() { return input ? input.value : ''; },
       relayout: () => layoutLens(true),
       tabs: TABS,
+      // On wide screens the bar floats at the top, over content (see NT.tone).
+      get wide() { return !phone.matches; },
+      chrome: () => (capsule ? [capsule, searchEl] : []),
     };
   })();
 })();
