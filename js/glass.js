@@ -18,6 +18,11 @@
     Glass that hosts controls (the tab bar, sheets) is therefore a separate
     layer beside its content, not a wrapper around it.
 
+  - A lens has to be right in every frame, not only once an animation has ended.
+    It is made of corner pieces that keep their size and edges that stretch
+    (lens.js), so following an element through a resize only means moving the
+    pieces: nothing is re-rendered and nothing is pulled out of shape.
+
   - The filter runs again for every frame in which something moves behind the
     glass, so it is kept short, and it is reserved for the chrome that floats
     over content: bars, menus, sheets, a knob while it is held. Glass that is
@@ -54,7 +59,7 @@
   Glass.drop = (opts) => Object.assign({ bevel: 0.5, bend: 0.5, curve: 1.3, dispersion: 0.2, blur: 0.25, saturate: 1.1 }, opts);
 
   const entries = new Map(); // element → record
-  const cache = new Map(); // lens geometry → Promise<{ map, spec, reach }>
+  const cache = new Map(); // corner geometry → Promise of a lens (see NT.lens.render)
   let defs = null;
   let seq = 0;
 
@@ -80,18 +85,34 @@
     return luma.map((l, j) => +(l * (1 - s) + (i === j ? s : 0)).toFixed(4));
   }
 
-  // Render (or reuse) the lens for the element's current shape and attach it.
-  function apply(entry) {
-    const { w, h, r, opts: o, el } = entry;
-    if (!w || !h) return;
-    const side = Math.min(w, h);
+  // The lens an element of this size calls for. Only the corner matters: its radius,
+  // and the bevel, which is narrower on small glass.
+  function shapeOf(entry) {
+    const o = entry.opts, side = Math.min(entry.w, entry.h);
     const bezel = Math.round(clamp(side * o.bevel, 3, o.bezel));
     // The edge may look as far in as the middle of the glass, never out the other side.
-    const reach = Math.min(bezel * o.bend, side * 0.48);
-    // Large surfaces (sheets) get their light layer at 1× to keep the image small.
-    const dpr = w * h > 120000 ? 1 : clamp(Math.round((window.devicePixelRatio || 1) * 2) / 2, 1, 2);
-    const shape = { w, h, radius: r, bezel, throw: +reach.toFixed(2), tilt: o.tilt * Math.PI / 180, curve: o.curve, ior: o.ior, magnify: o.magnify, dpr };
+    const reach = +Math.min(bezel * o.bend, side * 0.48).toFixed(2);
+    return { radius: entry.r, bezel, throw: reach };
+  }
+
+  // Set an attribute only when it changes: every write makes the browser rebuild the filter.
+  function attr(node, name, value) {
+    const seen = node._seen || (node._seen = {});
+    if (seen[name] === value) return;
+    seen[name] = value;
+    node.setAttribute(name, value);
+  }
+
+  // Render (or reuse) the lens for the element's current shape and attach it.
+  function apply(entry) {
+    const { opts: o, el } = entry;
+    if (!entry.w || !entry.h) return;
+    const dpr = clamp(Math.round((window.devicePixelRatio || 1) * 2) / 2, 1, 2);
+    const shape = Object.assign(shapeOf(entry), { tilt: o.tilt * Math.PI / 180, curve: o.curve, ior: o.ior, dpr });
     const key = Object.values(shape).join('/');
+    // Already wearing this lens. (Counting the turn drops one still on its way for a
+    // shape the element has since left.)
+    if (key === entry.key) return void entry.turn++;
     let pending = cache.get(key);
     if (!pending) {
       pending = NT.lens.render(shape);
@@ -99,18 +120,76 @@
       cache.set(key, pending);
     }
     const turn = ++entry.turn;
-    pending.then((lens) => {
+    Promise.all([pending, entry.ramp ? NT.lens.ramp() : null]).then(([lens, ramp]) => {
       if (!lens) return void cache.delete(key);
       if (turn !== entry.turn) return; // the element has changed shape again since
-      if (entry.image) {
-        entry.image.setAttribute('href', lens.map);
-        const scale = lens.reach * 2;
-        const spread = entry.passes.length > 1 ? o.dispersion : 0;
-        entry.passes.forEach((node, i) => node.setAttribute('scale', (scale * (1 + (i - 1) * spread)).toFixed(2)));
-      }
+      entry.key = key;
+      entry.lens = lens;
+      entry.pieces.forEach((node, i) => attr(node, 'href', lens.pieces[i]));
+      if (ramp) attr(entry.ramp, 'href', ramp);
       el.style.setProperty('--glass-spec', `url("${lens.spec}")`);
+      el.style.setProperty('--glass-slice', lens.slice);
+      fit(entry);
       el.classList.add('has-spec');
     });
+  }
+
+  /*
+    Fit the attached lens to the element as it is right now. This runs on every frame
+    of a resize and only moves things: the corners go to the element's corners and the
+    slivers of edge between them stretch to fill, so the lens follows the shape through
+    the whole animation instead of catching up when it ends.
+
+    A lens made for a different corner (a menu still growing out of a small button) is
+    scaled to the current one, and bends in proportion.
+  */
+  function fit(entry) {
+    const { lens, w, h, el } = entry;
+    if (!lens || !w || !h) return;
+    const now = shapeOf(entry);
+    const k = Math.max(now.radius, now.bezel) / lens.corner;
+    const corner = lens.cut * k;
+    // Corners too big to fit side by side shrink together; CSS does the same for the light.
+    const cut = (lens.specCut * k).toFixed(2) + 'px';
+    if (cut !== entry.cut) el.style.setProperty('--glass-cut', (entry.cut = cut));
+    if (!entry.filter) return;
+
+    const c = Math.round(Math.min(corner, w / 2, h / 2));
+    const xs = [0, Math.min(c, w >> 1)], ys = [0, Math.min(c, h >> 1)];
+    xs.push(w - Math.min(c, w - xs[1]), w);
+    ys.push(h - Math.min(c, h - ys[1]), h);
+    entry.pieces.forEach((node, i) => {
+      const col = [0, 1, 2, 0, 2, 0, 1, 2][i], row = [0, 0, 0, 1, 1, 2, 2, 2][i];
+      const pw = xs[col + 1] - xs[col], ph = ys[row + 1] - ys[row];
+      const shown = pw > 0 && ph > 0;
+      // A piece with nothing to cover is parked outside the filter's area.
+      attr(node, 'x', shown ? xs[col] : -4);
+      attr(node, 'y', shown ? ys[row] : -4);
+      attr(node, 'width', shown ? pw : 1);
+      attr(node, 'height', shown ? ph : 1);
+    });
+
+    // Whole-surface magnification is the ramp, laid over the map at a fraction `a` of
+    // full strength. That leaves the lens's own shifts at 1 − a, so the filter bends by
+    // that much more to restore them.
+    const o = entry.opts;
+    const a = entry.ramp ? NT.lens.rampAlpha : 0;
+    const scale = lens.reach * (now.throw / lens.throw) * 2 / (1 - a);
+    const spread = entry.passes.length > 1 ? o.dispersion : 0;
+    entry.passes.forEach((node, i) => attr(node, 'scale', (scale * (1 + (i - 1) * spread)).toFixed(2)));
+    if (entry.ramp) {
+      // The ramp falls from 1 to 0 across its width and shifts by scale · a at full
+      // value. Drawn scale · a / magnify px wide and centred on the element, it moves
+      // every point by magnify × its distance from the centre. The edges of a very
+      // large surface would ask for more than the ramp can give: there it is eased off.
+      const most = scale * a * NT.lens.rampMost;
+      const magnify = Math.min(o.magnify, most / (Math.max(w, h) / 2));
+      const span = +(scale * a / magnify / NT.lens.rampSpan).toFixed(1);
+      attr(entry.ramp, 'x', +(w / 2 - span / 2).toFixed(1));
+      attr(entry.ramp, 'y', +(h / 2 - span / 2).toFixed(1));
+      attr(entry.ramp, 'width', span);
+      attr(entry.ramp, 'height', span);
+    }
   }
 
   // Frosting happens inside the filter (Chromium does not reliably apply blur()
@@ -128,23 +207,19 @@
     const el = entry.el;
     const w = Math.round(el.offsetWidth), h = Math.round(el.offsetHeight);
     if (!w || !h) return;
-    const r = Math.round(Math.min(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, w / 2, h / 2));
+    const r = Math.round(Math.min(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, w / 2, h / 2) * 2) / 2;
     if (w === entry.w && h === entry.h && r === entry.r) return;
     const first = !entry.w;
     entry.w = w;
     entry.h = h;
     entry.r = r;
-    if (entry.image) {
-      // The map is sized in px: a percentage here resolves against the (empty) SVG that
-      // holds the filter rather than the element, and the map would not be drawn at all.
-      entry.image.setAttribute('width', w);
-      entry.image.setAttribute('height', h);
-    }
-    if (first) return void apply(entry);
-    // While an element is being resized (morphs, the tab bar collapsing) the current
-    // lens simply stretches with it. A fresh one is rendered once the size settles:
-    // rendering mid-animation would cost the very frames the animation needs.
+    fit(entry);
     clearTimeout(entry.timer);
+    if (first) return void apply(entry);
+    // A change of size alone needs nothing more: the lens fits any size. If the corner
+    // itself changed (a menu morphing out of a button) the lens is scaled for now, and
+    // one for the new corner is rendered once the shape settles: rendering mid-animation
+    // would cost the very frames the animation needs.
     entry.timer = setTimeout(() => apply(entry), 140);
   }
 
@@ -161,19 +236,36 @@
   Glass.refract = function (el, opts = {}) {
     if (!Glass.refraction || !observer || entries.has(el)) return el;
     const o = Object.assign({}, DEFAULTS, opts);
-    const entry = { el, filter: null, image: null, blur: null, passes: [], opts: o, w: 0, h: 0, r: -1, timer: 0, missing: 0, turn: 0 };
+    const entry = { el, filter: null, pieces: [], ramp: null, blur: null, passes: [], opts: o, lens: null, key: '', cut: '', w: 0, h: 0, r: -1, timer: 0, missing: 0, turn: 0 };
 
     if (o.lens) {
       const id = 'lg-' + ++seq;
       const filter = make('filter', { id, x: '0', y: '0', width: '100%', height: '100%', 'color-interpolation-filters': 'sRGB' });
 
-      // The map is laid on neutral grey, so until it has loaded (and wherever it does
-      // not reach) the filter reads "no shift" rather than throwing the backdrop aside.
-      const image = make('feImage', { x: '0', y: '0', width: '1', height: '1', preserveAspectRatio: 'none', result: 'lens' });
+      // The map is put together from the lens's corner and edge pieces, laid on neutral
+      // grey: the flat face of the glass, and all of it until the lens has loaded, reads
+      // "no shift" rather than throwing the backdrop aside. Pieces are placed in px: a
+      // percentage would resolve against the (empty) SVG that holds the filter.
       const merge = make('feMerge', { result: 'map' });
-      merge.append(make('feMergeNode', { in: 'flat' }), make('feMergeNode', { in: 'lens' }));
+      merge.append(make('feMergeNode', { in: 'flat' }));
+      filter.append(make('feFlood', { 'flood-color': 'rgb(128,128,128)', result: 'flat' }));
+      for (let i = 0; i < 8; i++) {
+        const piece = make('feImage', { x: '-4', y: '-4', width: '1', height: '1', preserveAspectRatio: 'none', result: 'p' + i });
+        entry.pieces.push(piece);
+        filter.append(piece);
+        merge.append(make('feMergeNode', { in: 'p' + i }));
+      }
+      if (o.magnify > 0) {
+        // Magnification is laid over the pieces here rather than drawn into the lens, so
+        // it is right for whatever size the element has in this frame (see fit). It goes
+        // into the same merge: a separate step to add it costs several ms a frame.
+        entry.ramp = make('feImage', { x: '-4', y: '-4', width: '1', height: '1', preserveAspectRatio: 'none', result: 'ramp' });
+        filter.append(entry.ramp);
+        merge.append(make('feMergeNode', { in: 'ramp' }));
+      }
+      filter.append(merge);
       const blur = make('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: '0', edgeMode: 'duplicate', result: 'soft' });
-      filter.append(make('feFlood', { 'flood-color': 'rgb(128,128,128)', result: 'flat' }), image, merge, blur);
+      filter.append(blur);
 
       const bend = (result) => {
         const node = make('feDisplacementMap', { in: 'soft', in2: 'map', scale: '0', xChannelSelector: 'R', yChannelSelector: 'G', result });
@@ -195,7 +287,6 @@
       }
       ensureDefs().append(filter);
       entry.filter = filter;
-      entry.image = image;
       entry.blur = blur;
       el.style.setProperty('--glass-refract', `url(#${id})`);
     }

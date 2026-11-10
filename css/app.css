@@ -594,10 +594,9 @@ button.row:active, a.row:active { background: var(--fill); }
 .script-card { display: flex; flex-direction: column; box-shadow: 0 1px 2px rgb(0 0 0 / 0.03); }
 .script-card .cover { height: 104px; }
 .script-card .cover .badge { position: absolute; left: 12px; top: 12px; }
-.fav-btn { width: 38px; height: 38px; display: grid; place-items: center; --press: 1.18; }
-.script-card .fav-btn { position: absolute; right: 10px; top: 10px; }
+.script-card .fav-btn { position: absolute; right: 10px; top: 10px; width: 38px; height: 38px; display: grid; place-items: center; --press: 1.18; }
 .fav-btn[aria-pressed="true"] svg { fill: var(--red); stroke: var(--red); }
-.fav-btn.pop svg { animation: heart-pop var(--dur-bouncy) var(--spring-bouncy); }
+.fav-btn.is-popping svg { animation: heart-pop var(--dur-bouncy) var(--spring-bouncy); }
 @keyframes heart-pop { from { transform: scale(0.4); } }
 
 .script-card-body { flex: 1; display: flex; flex-direction: column; padding: 14px 16px 12px; min-width: 0; }
@@ -1048,7 +1047,6 @@ html[data-solid] .monaco-editor .suggest-details { background: var(--surface-2) 
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: var(--glass-spec) 0 0 / 100% 100% no-repeat;
   opacity: 0;
   transition: opacity 0.2s;
 }

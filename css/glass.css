@@ -269,9 +269,17 @@ html[data-solid] .lens-held { background: #fff !important; }
 /* ---------- Shader-rendered light (lens.js) ----------
    Where the lens shader runs, its specular layer replaces the CSS rim and glow. */
 
+/* The light is a small tile: its corners are drawn at their own size in the element's
+   corners and the edges between them stretch, so it is the right shape at any size. */
+.glass.has-spec::before,
+.lens-held.has-spec::before,
+.tab-lens::before {
+  border-image: var(--glass-spec) var(--glass-slice) fill / var(--glass-cut) stretch;
+}
+
 .glass.has-spec::before {
   padding: 0;
-  background: var(--glass-spec) 0 0 / 100% 100% no-repeat;
+  background: none;
   -webkit-mask: none;
   mask: none;
   opacity: var(--spec-opacity, 1);
@@ -287,6 +295,5 @@ html[data-solid] .lens-held { background: #fff !important; }
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: var(--glass-spec) 0 0 / 100% 100% no-repeat;
   opacity: var(--spec-opacity, 1);
 }

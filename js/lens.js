@@ -17,6 +17,16 @@
 
   A shader cannot read the page behind an element, so the bending itself is
   applied by the browser (see glass.js). This file decides what shape the lens is.
+
+  Glass changes size all the time: a button grows into a search field, a menu
+  grows out of a button. A lens drawn for one size and stretched to another is
+  wrong (a round button's light pulled wide is an oval, not a capsule), and
+  drawing a new one for every frame is too slow. So a lens is not drawn at the
+  element's size at all. Both images are rendered for a small tile: the four
+  corners, each with one sliver of straight edge between them. Corners keep
+  their size wherever the tile is used and only the slivers stretch, which is
+  exact, because a straight edge looks the same all the way along. One tile
+  fits every size of the same corner.
 */
 (function () {
   'use strict';
@@ -41,7 +51,6 @@
     uniform float uThick;   // depth of glass the bent ray crosses
     uniform float uIor;     // index of refraction
     uniform float uReach;   // shift in px that maps to a full-scale channel value
-    uniform float uMagnify; // whole-surface magnification
     uniform int uMode;      // 0 = refraction map, 1 = specular light
 
     float roundRect(vec2 p) {
@@ -66,7 +75,7 @@
           float tilt = uTilt * lean;
           vec3 normal = vec3(outward * sin(tilt), cos(tilt));
           vec3 ray = refract(vec3(0.0, 0.0, -1.0), normal, 1.0 / uIor);
-          shift = ray.xy / max(-ray.z, 0.05) * uThick - p * uMagnify;
+          shift = ray.xy / max(-ray.z, 0.05) * uThick;
         }
         gl_FragColor = vec4(0.5 + 0.5 * clamp(shift / uReach, -1.0, 1.0), 0.5, 1.0);
         return;
@@ -87,7 +96,7 @@
       gl_FragColor = vec4(vec3(light), clamp(light + shade, 0.0, 1.0)); // premultiplied
     }`;
 
-  const UNIFORMS = ['uSize', 'uRadius', 'uBezel', 'uTilt', 'uCurve', 'uThick', 'uIor', 'uReach', 'uMagnify', 'uMode'];
+  const UNIFORMS = ['uSize', 'uRadius', 'uBezel', 'uTilt', 'uCurve', 'uThick', 'uIor', 'uReach', 'uMode'];
 
   const canvas = document.createElement('canvas');
   let gl = null, uniforms = null, failed = false;
@@ -130,11 +139,14 @@
   // How far a ray is thrown sideways, per unit of glass depth, by a surface leaning `tilt` radians.
   const throwOf = (tilt, ior) => Math.tan(tilt - Math.asin(Math.sin(tilt) / ior));
 
-  function draw(mode, width, height, o, thick, reach) {
+  // Draws a square tile `px` pixels across that stands for `size` CSS px. Returns its
+  // RGBA rows from the top down.
+  function draw(mode, px, size, o, thick, reach) {
+    const width = px, height = px;
     canvas.width = width;
     canvas.height = height;
     gl.viewport(0, 0, width, height);
-    gl.uniform2f(uniforms.uSize, o.w, o.h);
+    gl.uniform2f(uniforms.uSize, size, size);
     gl.uniform1f(uniforms.uRadius, o.radius);
     gl.uniform1f(uniforms.uBezel, o.bezel);
     gl.uniform1f(uniforms.uTilt, o.tilt);
@@ -142,14 +154,27 @@
     gl.uniform1f(uniforms.uThick, thick);
     gl.uniform1f(uniforms.uIor, o.ior);
     gl.uniform1f(uniforms.uReach, reach);
-    gl.uniform1f(uniforms.uMagnify, o.magnify);
     gl.uniform1i(uniforms.uMode, mode);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     const pixels = new Uint8Array(width * height * 4);
     gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-    return pixels;
+    // WebGL hands rows back from the bottom up.
+    const stride = width * 4;
+    const rows = new Uint8Array(pixels.length);
+    for (let y = 0; y < height; y++) rows.set(pixels.subarray((height - 1 - y) * stride, (height - y) * stride), y * stride);
+    return rows;
+  }
+
+  // The `w` × `h` block at (x, y) of an image `width` pixels wide.
+  function crop(pixels, width, x, y, w, h) {
+    const out = new Uint8Array(w * h * 4);
+    for (let j = 0; j < h; j++) {
+      const from = ((y + j) * width + x) * 4;
+      out.set(pixels.subarray(from, from + w * 4), j * w * 4);
+    }
+    return out;
   }
 
   /*
@@ -176,12 +201,12 @@
     return out;
   }
 
-  // pixels: RGBA rows from the bottom up, as WebGL returns them.
+  // pixels: RGBA rows from the top down.
   async function png(pixels, width, height, premultiplied) {
     const stride = width * 4;
     const rows = new Uint8Array((stride + 1) * height);
     for (let y = 0; y < height; y++) {
-      const src = (height - 1 - y) * stride;
+      const src = y * stride;
       const row = pixels.subarray(src, src + stride);
       if (premultiplied) {
         for (let i = 0; i < stride; i += 4) {
@@ -211,25 +236,74 @@
     return 'data:image/png;base64,' + btoa(text);
   }
 
+  const EDGE = 2; // px of straight edge kept between two corners of a tile
+
+  // Whole-surface magnification is a plain ramp: every point looks a little further
+  // toward the centre, in proportion to its distance from it. Red falls from left to
+  // right and green from top to bottom, each passing through "no shift" in the middle.
+  // The same image serves every lens; the filter decides how steep it is (glass.js).
+  // It is see-through, so laying it over a lens's map mixes the two shifts into one.
+  //
+  // It is also tiny. An image inside a filter costs time on every frame in proportion
+  // to its size (a 256 px ramp took 10 ms a frame here), and a straight ramp loses
+  // nothing by being stretched from 16 px: the browser interpolates between them.
+  const RAMP_ALPHA = 64, RAMP_SIZE = 16;
+  let rampUrl = null;
+  function ramp() {
+    if (!rampUrl) {
+      const n = RAMP_SIZE, step = 255 / (n - 1), pixels = new Uint8Array(n * n * 4);
+      for (let y = 0; y < n; y++) {
+        for (let x = 0; x < n; x++) pixels.set([255 - x * step, 255 - y * step, 128, RAMP_ALPHA], (y * n + x) * 4);
+      }
+      rampUrl = png(pixels, n, n, false);
+    }
+    return rampUrl;
+  }
+
   NT.lens = {
     available: () => typeof CompressionStream === 'function' && init(),
-    // o: { w, h, radius, bezel, throw, tilt, curve, ior, magnify, dpr }
-    //    throw – how far, in px, the very edge reaches into the glass
-    // Resolves to { reach, map, spec }, or null if the lens could not be rendered.
+    ramp,
+    // The ramp's value falls by 1 between the centres of its first and last pixel: over
+    // this share of its width.
+    rampSpan: (RAMP_SIZE - 1) / RAMP_SIZE,
+    // How far from the middle value it can be trusted: the outermost pixel on each side
+    // is where the browser's interpolation stops being a straight line.
+    rampMost: (RAMP_SIZE - 3) / (RAMP_SIZE - 1) / 2,
+    rampAlpha: RAMP_ALPHA / 255,
+    /*
+      o: { radius, bezel, throw, tilt, curve, ior, dpr }
+         throw – how far, in px, the very edge reaches into the glass
+
+      Resolves to null if the lens could not be rendered, otherwise to
+        corner – the larger of radius and bezel: what a corner has to contain
+        cut    – that in whole px: the tile is cut this far in from each side
+        reach  – shift in px that a full-scale value in the map stands for
+        pieces – the map as eight images, row by row, without the (flat) middle
+        spec   – the light layer, whole; slice – its corner size in image pixels
+        specCut – that corner in CSS px
+    */
     async render(o) {
       if (!init()) return null;
       try {
+        const cut = Math.max(1, Math.ceil(Math.max(o.radius, o.bezel)));
         const thick = o.throw / throwOf(o.tilt, o.ior);
         // The edge bends most, so it sets the largest shift the map has to encode.
-        const reach = Math.max(1, o.throw * 1.02 + o.magnify * Math.max(o.w, o.h) * 0.5);
-        // The map varies smoothly and is stretched by the filter, so 1× is enough for it;
+        const reach = Math.max(1, o.throw * 1.02);
+        // The map varies smoothly and is resampled by the filter, so 1× is enough for it;
         // the light layer has a hairline rim and is drawn at the screen's density.
-        const width = Math.max(1, Math.round(o.w * o.dpr)), height = Math.max(1, Math.round(o.h * o.dpr));
+        const size = cut * 2 + EDGE;
+        const slice = Math.ceil(cut * o.dpr), across = slice * 2 + Math.max(2, Math.round(EDGE * o.dpr));
         // Both are drawn before anything is awaited: the one canvas is shared by every lens.
-        const map = draw(0, o.w, o.h, o, thick, reach);
-        const spec = draw(1, width, height, o, thick, reach);
-        const [mapUrl, specUrl] = await Promise.all([png(map, o.w, o.h, false), png(spec, width, height, true)]);
-        return { reach, map: mapUrl, spec: specUrl };
+        const map = draw(0, size, size, o, thick, reach);
+        const spec = draw(1, across, across / o.dpr, o, thick, reach);
+        const spans = [[0, cut], [cut, EDGE], [cut + EDGE, cut]];
+        const jobs = [];
+        spans.forEach(([y, h], row) => spans.forEach(([x, w], col) => {
+          if (row !== 1 || col !== 1) jobs.push(png(crop(map, size, x, y, w, h), w, h, false));
+        }));
+        jobs.push(png(spec, across, across, true));
+        const urls = await Promise.all(jobs);
+        return { corner: Math.max(o.radius, o.bezel), cut, reach, throw: o.throw, pieces: urls.slice(0, 8), spec: urls[8], slice, specCut: slice / o.dpr };
       } catch (e) {
         return null;
       }

@@ -795,6 +795,9 @@
       capsule.addEventListener('pointercancel', release);
 
       if (window.ResizeObserver) new ResizeObserver(() => { if (!drag) layoutLens(true); }).observe(capsule);
+      // The tabs can still be easing into their widths after the capsule has stopped
+      // changing size; place the lens once more when they have arrived.
+      capsule.addEventListener('transitionend', (e) => { if (e.propertyName === 'flex-grow' && !drag) layoutLens(true); });
       phone.addEventListener('change', () => { setMinimized(false); layoutLens(true); });
 
       NT.glass.refract(sheetOfGlass);

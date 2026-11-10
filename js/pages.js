@@ -257,9 +257,9 @@
       const next = !s.is_favorite;
       s.is_favorite = next;
       sync();
-      b.classList.remove('pop');
+      b.classList.remove('is-popping');
       void b.offsetWidth;
-      if (next) b.classList.add('pop');
+      if (next) b.classList.add('is-popping');
       try {
         await API.setFavorite(s.script_id, next);
         if (ctx && ctx.onFavorite) ctx.onFavorite(s, next);
@@ -635,16 +635,16 @@
       return h('div.row.param.col', h('div.param-head', h('span.row-title', label), resetBtn, valueEl), s.el);
     }
 
-    function paramGroup(groupId, list, open) {
+    function paramGroup(groupId, list) {
       const badge = h('span.badge.accent.param-count', { hidden: true });
       const sync = () => {
         const n = list.filter((p) => valueOf(p) !== p.default_value).length;
         badge.hidden = n === 0;
         badge.textContent = `${n} changed`;
       };
-      const head = h('button.row.disclosure', { type: 'button', 'aria-expanded': String(!!open) },
+      const head = h('button.row.disclosure', { type: 'button', 'aria-expanded': 'false' },
         h('span.row-title.headline', API.groupLabel(groupId)), badge, icon('chevron-down', 18));
-      const wrap = h('div.collapsible' + (open ? '.is-open' : ''), h('div.collapsible-inner', list.map((p) => paramRow(p, sync))));
+      const wrap = h('div.collapsible', h('div.collapsible-inner', list.map((p) => paramRow(p, sync))));
       head.addEventListener('click', () => {
         const next = head.getAttribute('aria-expanded') !== 'true';
         head.setAttribute('aria-expanded', String(next));
@@ -692,7 +692,7 @@
           groups.get(p.group_id).push(p);
         }
         kids.push(sectionHeader('Parameters'));
-        kids.push(h('div.param-groups', [...groups].map(([gid, list], i) => paramGroup(gid, list, i === 0))));
+        kids.push(h('div.param-groups', [...groups].map(([gid, list]) => paramGroup(gid, list))));
       }
 
       if (releases && releases.length) {
