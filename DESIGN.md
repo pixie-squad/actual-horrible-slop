@@ -80,6 +80,8 @@ Prefer space and grouping to a line. Where a line is right:
   blocks.
 - Popovers are not new layers that fade in: the control that was tapped becomes the
   menu or dialog and collapses back into it (`UI.popover`).
+- A dialog grows about the centre of the control it came from (`UI.confirm`). Only an
+  action that loses something asks first: Delete and Reset do, Log Out does not.
 - Only a control becomes a popover, never content. Content that can be changed (your
   own avatar) stays in view and carries a glass badge; the badge is what opens, centred
   on the content it belongs to (`NT.media.editable`, `align: 'center'`).

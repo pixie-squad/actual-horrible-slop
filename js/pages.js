@@ -1252,9 +1252,9 @@
       }
 
       if (me) {
+        // Nothing is lost by logging out (drafts stay on this device), so it does not ask.
         kids.push(h('div.list', { style: { marginTop: '26px' } }, h('button.row.danger', { type: 'button', onclick: async (e) => {
-          const ok = await UI.confirm({ title: 'Log Out?', confirmLabel: 'Log Out', destructive: true, source: e.currentTarget });
-          if (!ok) return;
+          e.currentTarget.disabled = true;
           await API.logout();
           NT.nav.reset(['/']);
         } }, 'Log Out')));

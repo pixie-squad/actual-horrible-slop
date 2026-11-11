@@ -346,7 +346,7 @@
     return pop;
   };
 
-  /* ---------- Confirmation dialog (grows out of `source` when one is given) ---------- */
+  /* ---------- Confirmation dialog (grows out of `source`, about its centre, when one is given) ---------- */
 
   UI.confirm = function ({ title, message, confirmLabel = 'OK', cancelLabel = 'Cancel', destructive = false, source }) {
     return new Promise((resolve) => {
@@ -362,6 +362,7 @@
         dim: true,
         width: 290,
         radius: 34,
+        align: 'center',
         source: anchored ? undefined : null,
         onDismiss: () => resolve(result),
       });

@@ -49,6 +49,7 @@
         dim: true,
         width: 290,
         radius: 34,
+        align: 'center',
         source: anchored ? undefined : null,
         onDismiss: () => resolve(result),
       });
