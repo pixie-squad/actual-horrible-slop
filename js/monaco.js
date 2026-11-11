@@ -24,10 +24,18 @@
     });
   }
 
+  // Monaco measures the font once and places the caret by that width. Measured on a
+  // fallback while the web font is still downloading, the caret drifts off the text.
+  const fontsIn = () => Promise.race([
+    Promise.all(['', 'bold ', 'italic '].map((style) => document.fonts.load(`${style}13px ${FONT}`))).catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, 3000)),
+  ]);
+
   function load() {
     if (loading) return loading;
     loading = new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('editor load timed out')), 12000);
+      const fonts = fontsIn();
       // Workers must be same-origin, so start them from a blob that pulls in the CDN build.
       window.MonacoEnvironment = {
         getWorkerUrl() {
@@ -41,8 +49,8 @@
           clearTimeout(timer);
           try {
             setup(window.monaco);
-            resolve(window.monaco);
-          } catch (e) { reject(e); }
+          } catch (e) { return reject(e); }
+          fonts.then(() => resolve(window.monaco));
         }, (err) => { clearTimeout(timer); reject(err); });
       }).catch((e) => { clearTimeout(timer); reject(e); });
     });
@@ -270,6 +278,11 @@
     };
     NT.bus.on('prefs', applyTheme);
     applyTheme();
+
+    // The code font arrived after the editor was made after all (a slow network).
+    document.fonts.addEventListener('loadingdone', (e) => {
+      if (e.fontfaces.some((face) => FONT.includes(face.family.replace(/["']/g, '')))) monaco.editor.remeasureFonts();
+    });
 
     // "Go to definition" may point into another file. Each editor shows one file at a
     // time, so the editor it was asked in is told to show that file instead.
