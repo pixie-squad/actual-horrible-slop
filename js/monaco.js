@@ -167,15 +167,28 @@
         const range = { startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: word.startColumn, endColumn: word.endColumn };
         const K = monaco.languages.CompletionItemKind;
         const suggestions = [];
-        for (const k of KEYWORDS.concat(CONSTANTS)) suggestions.push({ label: k, kind: K.Keyword, insertText: k, range });
-        for (const t of TYPES) suggestions.push({ label: t, kind: K.TypeParameter, insertText: t, range });
-        for (const b of BUILTINS) suggestions.push({ label: b, kind: K.Function, insertText: b, range });
+        // With a language server answering for this file the words come from it (lsp.js),
+        // so listing them here as well would show each twice. The snippets are only here.
+        const served = !!NT.lsp && NT.lsp.serves(model);
+        if (!served) {
+          for (const k of KEYWORDS.concat(CONSTANTS)) suggestions.push({ label: k, kind: K.Keyword, insertText: k, range });
+          for (const t of TYPES) suggestions.push({ label: t, kind: K.TypeParameter, insertText: t, range });
+          for (const b of BUILTINS) suggestions.push({ label: b, kind: K.Function, insertText: b, range });
+        }
+        // After a "." or ":" the server lists members; a block snippet has no place there.
+        if (served && /[.:]$/.test(model.getValueInRange({ startLineNumber: position.lineNumber, endLineNumber: position.lineNumber, startColumn: Math.max(1, word.startColumn - 1), endColumn: word.startColumn }))) return { suggestions };
         for (const [label, body, detail] of SNIPPETS) {
           suggestions.push({ label, kind: K.Snippet, detail, insertText: body, insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet, range });
         }
         return { suggestions };
       },
     });
+
+    // A colour token as Monaco wants it (#rrggbb), or `fallback` where it is not one.
+    const token = (name, fallback) => {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      return /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
+    };
 
     // Colours follow the app's own code palette (see tokens.css).
     const theme = (dark) => {
@@ -221,33 +234,72 @@
           'scrollbar.shadow': '#00000000',
           'focusBorder': '#00000000',
           'editorGutter.background': c.bg,
+          // Problems are underlined in the app's own red, orange and blue.
+          'editorError.foreground': token('--red', '#ff383c'),
+          'editorWarning.foreground': token('--orange', '#ff8d28'),
+          'editorInfo.foreground': token('--blue', '#0088ff'),
+          'editorHint.foreground': '#' + c.c,
+          'editorUnnecessaryCode.opacity': '#00000099',
+          'editor.rangeHighlightBackground': c.sel + '40',
+          'editor.wordHighlightBackground': c.sel + '55',
+          'editor.wordHighlightStrongBackground': c.sel + '88',
+          // The list of references that opens inside the editor.
+          'peekView.border': c.guide,
+          'peekViewEditor.background': c.bg,
+          'peekViewEditorGutter.background': c.bg,
+          'peekViewResult.background': c.widget,
+          'peekViewTitle.background': c.widget,
+          'peekViewTitleLabel.foreground': c.fg,
+          'peekViewTitleDescription.foreground': c.numOn,
+          'peekViewResult.selectionBackground': c.sel + '80',
+          'peekViewEditor.matchHighlightBackground': c.sel + 'aa',
+          'peekViewResult.matchHighlightBackground': c.sel + 'aa',
         },
       };
     };
-    monaco.editor.defineTheme('nt-light', theme(false));
-    monaco.editor.defineTheme('nt-dark', theme(true));
 
-    const applyTheme = () => monaco.editor.setTheme(document.documentElement.dataset.theme === 'dark' ? 'nt-dark' : 'nt-light');
+    // The theme is defined again whenever it is put on: some of its colours are read
+    // from the tokens, and those follow the theme.
+    let worn = '';
+    const applyTheme = () => {
+      const name = document.documentElement.dataset.theme === 'dark' ? 'nt-dark' : 'nt-light';
+      if (name === worn) return;
+      worn = name;
+      monaco.editor.defineTheme(name, theme(name === 'nt-dark'));
+      monaco.editor.setTheme(name);
+    };
     NT.bus.on('prefs', applyTheme);
     applyTheme();
+
+    // "Go to definition" may point into another file. Each editor shows one file at a
+    // time, so the editor it was asked in is told to show that file instead.
+    monaco.editor.registerEditorOpener({
+      openCodeEditor(source, resource, at) {
+        const space = spaces.get(resource.authority);
+        return !!space && space.reveal(resource, at);
+      },
+    });
   }
+
+  // Every mounted editor keeps its own set of files, told apart by this name in their addresses.
+  const spaces = new Map();
+  let spaceSeq = 0;
 
   // Monaco builds its popups itself, the first time each is needed. As they arrive
   // they are given the app's glass: the same material and lens as its own menus.
   const POP_LENS = { bezel: 18, magnify: 0.008, dispersion: 0 };
+  // The suggestion list, its detail pane, hovers, parameter hints and the rename field.
+  const POPUPS = '.suggest-widget, .suggest-details, .monaco-hover, .parameter-hints-widget, .rename-box';
   function dressPopups(root) {
+    const glaze = (pane) => {
+      pane.classList.add('glass', 'thick');
+      NT.glass.refract(pane, POP_LENS);
+    };
+    // Some arrive as the widget itself, some inside the box Monaco positions.
     const dress = (node) => {
       if (node.nodeType !== 1) return;
-      if (node.classList.contains('suggest-widget')) {
-        node.classList.add('glass', 'thick');
-        NT.glass.refract(node, POP_LENS);
-      } else if (node.classList.contains('suggest-details-container')) {
-        const pane = node.querySelector('.suggest-details');
-        if (pane) {
-          pane.classList.add('glass', 'thick');
-          NT.glass.refract(pane, POP_LENS);
-        }
-      }
+      if (node.matches(POPUPS)) glaze(node);
+      else node.querySelectorAll(POPUPS).forEach(glaze);
     };
     const watcher = new MutationObserver((list) => {
       for (const change of list) change.addedNodes.forEach(dress);
@@ -259,12 +311,102 @@
     return watcher;
   }
 
+  /* ---------- Mounting ----------
+     An editor holds a set of files (a project, see project.js) and shows one of them at
+     a time. A script that is a single text is a set of one file, main.luau.
+
+     What mount() gives back, whichever editor it had to use:
+
+       kind                 'monaco' | 'basic' | 'none' (the page left before it loaded)
+       value                the text on screen
+       path                 the file on screen; null while a read-only document is
+       paths() has(p)       the files
+       text(p)              a file's text, with \n line endings
+       stamp(p)             changes with the text and is the same again after an undo
+       open(p, at)          show a file; at: { lineNumber, column } or a range
+       add(p, text) remove(p) rename(from, to) reset(files)
+       report(byPath)       errors found outside the editor: { path: [{ line, column, message }] }
+       failing()            the files with an error in them, as a Set
+       back()               leave a read-only document for the file shown before it
+       on(event, fn)        'change' (path, edit), 'show' (path, document), 'add', 'remove',
+                            'rename' (from, to), 'reset', 'problems'; returns its undo
+       focus() dispose()
+
+     With Monaco there is also `monaco`, `editor`, model(p), pathOf(model) and
+     doc(name, text) for the language server (lsp.js). */
+
+  const ENTRY = 'main.luau';
+
+  function emitter() {
+    const subs = {};
+    return {
+      on(ev, fn) {
+        (subs[ev] = subs[ev] || new Set()).add(fn);
+        return () => subs[ev].delete(fn);
+      },
+      emit(ev, ...args) { if (subs[ev]) for (const fn of [...subs[ev]]) fn(...args); },
+    };
+  }
+
   function mountMonaco(monaco, host, opts) {
+    const id = 'w' + ++spaceSeq;
+    const address = (kind, name) => monaco.Uri.from({ scheme: 'nt', authority: id, path: `/${kind}/${name}` });
+    const bus = emitter();
+    const models = new Map();    // project path → model: one each, so every file keeps its own undo history
+    const docs = new Map();      // name → model of a read-only document (a definition file)
+    const paths = new WeakMap(); // model → project path
+    const views = new WeakMap(); // model → cursor and scroll position while another file is shown
+    const texts = new WeakMap(); // model → { version, text }
+    const hooks = new Map();     // model → its change listener
+    const serial = new WeakMap(); // model → a number no other model has had
+    let made = 0;
+    let quiet = false;           // true while reset() rewrites the files
+    let shown = null;            // the project file on screen
+    let last = ENTRY;            // where back() returns to
+
+    function make(path, text) {
+      const model = monaco.editor.createModel(text, /\.json$/i.test(path) ? 'json' : 'luau', address('project', path));
+      // Scripts are stored with plain \n line endings whatever the platform.
+      model.setEOL(monaco.editor.EndOfLineSequence.LF);
+      models.set(path, model);
+      paths.set(model, path);
+      serial.set(model, ++made);
+      hooks.set(model, model.onDidChangeContent((e) => {
+        if (quiet) return;
+        bus.emit('change', path, e);
+        if (opts.onChange) opts.onChange(path);
+      }));
+      return model;
+    }
+
+    function drop(path) {
+      const model = models.get(path);
+      models.delete(path);
+      hooks.get(model).dispose();
+      hooks.delete(model);
+      // Markers are kept by address, not by model: they would outlive it.
+      const owners = new Set(monaco.editor.getModelMarkers({ resource: model.uri }).map((m) => m.owner));
+      for (const owner of owners) monaco.editor.setModelMarkers(model, owner, []);
+      model.dispose();
+    }
+
+    const read = (model) => {
+      const hit = texts.get(model), version = model.getVersionId();
+      if (hit && hit.version === version) return hit.text;
+      const text = model.getValue(monaco.editor.EndOfLinePreference.LF);
+      texts.set(model, { version, text });
+      return text;
+    };
+
+    const files = opts.files || { [ENTRY]: opts.value || '' };
+    for (const path of Object.keys(files)) make(path, files[path]);
+    shown = opts.open && models.has(opts.open) ? opts.open : ENTRY;
+    last = shown;
+
     // Row height of the suggestion list comes from the stylesheet (taller for touch).
     const suggestRow = parseFloat(getComputedStyle(host).getPropertyValue('--sg-row')) || 34;
     const editor = monaco.editor.create(host, {
-      value: opts.value || '',
-      language: 'luau',
+      model: models.get(shown),
       theme: document.documentElement.dataset.theme === 'dark' ? 'nt-dark' : 'nt-light',
       readOnly: !!opts.readOnly,
       domReadOnly: !!opts.readOnly,
@@ -307,37 +449,214 @@
       quickSuggestions: !opts.readOnly,
       suggestLineHeight: suggestRow,
       suggestFontSize: 14,
+      hover: { delay: 350, above: false },
+      inlayHints: { enabled: 'off' },
       accessibilitySupport: 'auto',
       ariaLabel: opts.readOnly ? 'Script source' : 'Script editor',
     });
-    const popups = dressPopups(editor.getDomNode());
-    // Scripts are stored with plain \n line endings whatever the platform.
-    const model = editor.getModel();
-    model.setEOL(monaco.editor.EndOfLineSequence.LF);
-    const read = () => model.getValue(monaco.editor.EndOfLinePreference.LF);
-    if (opts.onChange) editor.onDidChangeModelContent(() => opts.onChange(read()));
-    if (opts.onSave) editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => opts.onSave(read()));
+    let popups = dressPopups(editor.getDomNode());
+    // An action belongs to this editor alone; a command would answer in every editor.
+    if (opts.onSave) {
+      editor.addAction({ id: 'nt.save', label: 'Save', keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS], run: () => opts.onSave() });
+    }
+
+    function show(model, at) {
+      const from = editor.getModel();
+      if (from !== model) {
+        if (from) views.set(from, editor.saveViewState());
+        editor.setModel(model);
+        // Monaco rebuilds its view for another model, and the layers its popups live in with it.
+        popups.disconnect();
+        popups = dressPopups(editor.getDomNode());
+        if (views.has(model)) editor.restoreViewState(views.get(model));
+        const path = paths.get(model) || null;
+        const locked = !!opts.readOnly || !path;
+        editor.updateOptions({ readOnly: locked, domReadOnly: locked, renderLineHighlight: locked ? 'none' : 'line' });
+        shown = path;
+        if (path) last = path;
+        bus.emit('show', path, path ? null : model.uri.path.split('/').pop());
+      }
+      if (at) {
+        const range = at.endLineNumber ? at : { startLineNumber: at.lineNumber, startColumn: at.column, endLineNumber: at.lineNumber, endColumn: at.column };
+        editor.setSelection(range);
+        editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Immediate);
+      }
+    }
+
+    spaces.set(id, {
+      reveal(resource, at) {
+        const model = monaco.editor.getModel(resource);
+        if (!model) return false;
+        show(model, at);
+        editor.focus();
+        return true;
+      },
+    });
+    const watch = monaco.editor.onDidChangeMarkers((uris) => {
+      if (uris.some((uri) => uri.authority === id)) bus.emit('problems');
+    });
+
     return {
       kind: 'monaco',
-      get value() { return read(); },
+      monaco,
+      editor,
+      on: bus.on,
+      get value() { return read(editor.getModel()); },
+      get path() { return shown; },
+      paths: () => [...models.keys()],
+      has: (path) => models.has(path),
+      text: (path) => read(models.get(path)),
+      stamp: (path) => serial.get(models.get(path)) + ':' + models.get(path).getAlternativeVersionId(),
+      model: (path) => models.get(path),
+      pathOf: (model) => paths.get(model) || null,
+      open(path, at) { show(models.get(path), at); },
+      add(path, text) {
+        make(path, text);
+        bus.emit('add', path);
+      },
+      remove(path) {
+        if (last === path) last = ENTRY;
+        if (shown === path) show(models.get(ENTRY));
+        drop(path);
+        bus.emit('remove', path);
+      },
+      // A model cannot change its address, so the file moves into a new one. Its place
+      // in the text comes along; its undo history does not.
+      rename(from, to) {
+        const old = models.get(from);
+        const model = make(to, read(old));
+        const view = editor.getModel() === old ? editor.saveViewState() : views.get(old);
+        if (view) views.set(model, view);
+        if (last === from) last = to;
+        if (shown === from) show(model);
+        drop(from);
+        bus.emit('rename', from, to);
+      },
+      reset(next) {
+        quiet = true;
+        for (const path of Object.keys(next)) {
+          if (models.has(path)) models.get(path).setValue(next[path]);
+          else make(path, next[path]);
+        }
+        if (!(shown in next)) show(models.get(ENTRY));
+        for (const path of [...models.keys()]) if (!(path in next)) drop(path);
+        if (!models.has(last)) last = ENTRY;
+        quiet = false;
+        bus.emit('reset');
+      },
+      doc(name, text) {
+        if (!docs.has(name)) docs.set(name, monaco.editor.createModel(text, 'luau', address('defs', name)));
+        return docs.get(name);
+      },
+      back() {
+        show(models.get(models.has(last) ? last : ENTRY));
+        editor.focus();
+      },
+      report(byPath) {
+        for (const [path, model] of models) {
+          const lines = model.getLineCount();
+          monaco.editor.setModelMarkers(model, 'bundle', (byPath[path] || []).map((d) => {
+            const line = Math.min(lines, Math.max(1, d.line || 1));
+            const column = d.line && d.column ? Math.min(d.column, model.getLineMaxColumn(line)) : model.getLineFirstNonWhitespaceColumn(line) || 1;
+            return { severity: monaco.MarkerSeverity.Error, source: 'Bundle', message: d.message, startLineNumber: line, startColumn: column, endLineNumber: line, endColumn: model.getLineMaxColumn(line) };
+          }));
+        }
+      },
+      failing() {
+        const out = new Set();
+        for (const [path, model] of models) {
+          if (monaco.editor.getModelMarkers({ resource: model.uri }).some((m) => m.severity === monaco.MarkerSeverity.Error)) out.add(path);
+        }
+        return out;
+      },
       focus() { editor.focus(); },
-      dispose() { popups.disconnect(); editor.dispose(); model.dispose(); },
+      dispose() {
+        spaces.delete(id);
+        watch.dispose();
+        popups.disconnect();
+        editor.dispose();
+        for (const path of [...models.keys()]) drop(path);
+        for (const model of docs.values()) model.dispose();
+      },
     };
   }
 
+  // The built-in editor shows the same set of files through one text field, one at a time.
   function mountFallback(host, opts) {
+    const files = new Map(Object.entries(opts.files || { [ENTRY]: opts.value || '' }));
     if (opts.readOnly) {
-      host.append(NT.luau.viewer(opts.value || ''));
-      return { kind: 'basic', get value() { return opts.value || ''; }, focus() {}, dispose() {} };
+      host.append(NT.luau.viewer(files.get(ENTRY)));
+      return { kind: 'basic', get value() { return files.get(ENTRY); }, focus() {}, dispose() {} };
     }
-    const ed = NT.luau.editor({ value: opts.value || '', onChange: opts.onChange, onSave: opts.onSave });
+    const bus = emitter();
+    let shown = opts.open && files.has(opts.open) ? opts.open : ENTRY;
+    let reported = {};
+    const ed = NT.luau.editor({
+      value: files.get(shown),
+      onChange: (text) => {
+        files.set(shown, text);
+        bus.emit('change', shown);
+        if (opts.onChange) opts.onChange(shown);
+      },
+      onSave: () => { if (opts.onSave) opts.onSave(); },
+    });
     host.append(ed.el);
-    return { kind: 'basic', get value() { return ed.value; }, focus() { ed.input.focus(); }, dispose() {} };
+    const show = (path) => {
+      shown = path;
+      ed.value = files.get(path);
+      ed.el.firstElementChild.scrollTo(0, 0);
+      bus.emit('show', path, null);
+    };
+    return {
+      kind: 'basic',
+      on: bus.on,
+      get value() { return ed.value; },
+      get path() { return shown; },
+      paths: () => [...files.keys()],
+      has: (path) => files.has(path),
+      text: (path) => files.get(path),
+      stamp: (path) => files.get(path),
+      open(path) { if (path !== shown) show(path); },
+      add(path, text) {
+        files.set(path, text);
+        bus.emit('add', path);
+      },
+      remove(path) {
+        if (shown === path) show(ENTRY);
+        files.delete(path);
+        bus.emit('remove', path);
+      },
+      rename(from, to) {
+        files.set(to, files.get(from));
+        files.delete(from);
+        if (shown === from) {
+          shown = to;
+          bus.emit('show', to, null);
+        }
+        bus.emit('rename', from, to);
+      },
+      reset(next) {
+        files.clear();
+        for (const path of Object.keys(next)) files.set(path, next[path]);
+        show(files.has(shown) ? shown : ENTRY);
+        bus.emit('reset');
+      },
+      back() {},
+      report(byPath) {
+        reported = byPath;
+        bus.emit('problems');
+      },
+      failing: () => new Set(Object.keys(reported).filter((path) => files.has(path) && reported[path].length)),
+      focus() { ed.input.focus(); },
+      dispose() {},
+    };
   }
 
   NT.code = {
     preload() { load().catch(() => {}); },
-    // Mount an editor into `host`. opts: { value, readOnly, onChange, onSave }
+    // Mount an editor into `host`.
+    //   opts: { files: { path: text }, open: path, readOnly, onChange(path), onSave() }
+    //   or, for one text: { value, readOnly }
     async mount(host, opts = {}) {
       const spinner = h('div.boot', h('div.spinner'));
       host.append(spinner);

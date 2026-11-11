@@ -422,7 +422,7 @@
 
     // Lenses are made ready behind the splash, not in the first frames of a page.
     NT.glass.warm();
-    await NT.api.init();
+    await Promise.all([NT.api.init(), NT.ext.init()]);
     splash.remove();
     app.removeAttribute('aria-busy');
     Nav.start();

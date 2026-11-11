@@ -16,3 +16,7 @@ desktop.ini
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Extensions: fetched tools and stored data
+.tools/
+data/

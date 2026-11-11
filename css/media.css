@@ -1,0 +1,86 @@
+/*
+  Real thumbnails and avatars (js/media.js).
+
+  An uploaded image is painted as the background of the generated cover or avatar it
+  replaces (media.js writes it where the generated art was, over its average colour),
+  so nothing is added and nothing around it moves. On that element:
+    art-on      the image is what shows: the generated art and glyph are gone
+    tone-light  the image is bright: what rests on it is dark instead of white
+    --art       the image's average colour
+*/
+
+/* Every image has its own colour. Kept from inheriting, it leaves the style of what
+   is inside one cover the same as inside the next, which the browser then works out
+   once: measured, 3 ms less style work in the frame a grid adds 18 cards. */
+@property --art { syntax: "*"; inherits: false; }
+
+.art-on > .cover-glyph { display: none; }
+.avatar.art-on { color: transparent; text-shadow: none; }
+
+/* ---------- What rests on an image ----------
+   A photograph can be any brightness anywhere, where the generated covers are an
+   even mid-tone. Its average colour picks the side: white type on a dark or middling
+   image, black on a bright one. The shade under the type is the image's own colour
+   pushed further to that side, and glass on it carries enough of a body to hold its
+   label over a patch that goes against the average. Only the two covers that carry
+   type have a shade, so only they hand a colour down. */
+
+.cover.art-on.tone-light { color: #000; }
+.spotlight.art-on, .detail-hero.art-on { --scrim: color-mix(in oklab, var(--art, #000), #000 58%); }
+.spotlight.art-on.tone-light, .detail-hero.art-on.tone-light { --scrim: color-mix(in oklab, var(--art, #fff), #fff 58%); }
+.cover.art-on::after { background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--scrim) 74%, transparent)); }
+.cover.tone-light .detail-meta a { color: inherit; }
+
+html:not([data-solid]) .art-on .glass.on-art:not(.solid) {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0.02) 55%, rgb(255 255 255 / 0.06)),
+    rgb(0 0 0 / calc(0.2 + var(--frost) * 0.3));
+}
+html:not([data-solid]) .art-on.tone-light .glass.on-art:not(.solid) {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.3), rgb(255 255 255 / 0.06) 55%, rgb(255 255 255 / 0.14)),
+    rgb(255 255 255 / calc(0.3 + var(--frost) * 0.4));
+}
+.tone-light .glass.on-art {
+  color: #000;
+  box-shadow: 0 8px 22px rgb(0 0 0 / 0.14), inset 0 0 8px -3px rgb(255 255 255 / 0.6), inset 0 0 0 0.5px rgb(0 0 0 / 0.1);
+}
+.tone-light .glass.on-art.solid { color: #fff; background: rgb(0 0 0 / calc(0.56 + var(--frost) * 0.42)); }
+html[data-solid] .tone-light .glass.on-art { background: rgb(255 255 255 / 0.72); }
+html[data-solid] .tone-light .glass.on-art.solid { background: #000; }
+
+.art-on .badge.on-art { background: rgb(0 0 0 / 0.5); }
+.art-on.tone-light .badge.on-art { background: rgb(255 255 255 / 0.62); color: #000; }
+
+/* ---------- Top glass over a bright image (js/media.js, Tone) ----------
+   The counterpart of [data-over="dark"] in glass.css: in the dark theme, glass with a
+   bright image under it takes the light theme's material and a dark glyph. */
+html[data-theme="dark"] [data-over="light"] {
+  --label: #000000;
+  --label-2: rgb(60 60 67 / 0.64);
+  --label-3: rgb(60 60 67 / 0.34);
+  --sep: rgb(60 60 67 / 0.14);
+  --fill: rgb(120 120 128 / 0.12);
+  --fill-2: rgb(120 120 128 / 0.2);
+  --glass-fill: rgb(255 255 255 / calc(0.05 + var(--frost) * 0.68));
+  --glass-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.14) 0%, rgb(255 255 255 / 0) 50%, rgb(255 255 255 / 0.04) 100%);
+  --glass-thick: rgb(250 250 252 / calc(0.56 + var(--frost) * 0.43));
+  --glass-edge: rgb(0 0 0 / 0.09);
+  --glass-inner: inset 0 0 8px -3px rgb(255 255 255 / 0.5), inset 0 -8px 10px -10px rgb(0 0 0 / 0.12);
+  --glass-shadow: 0 10px 32px rgb(0 0 0 / 0.13), 0 2px 6px rgb(0 0 0 / 0.07);
+  --rim-hi: rgb(255 255 255 / 0.98);
+  --rim-mid: rgb(255 255 255 / 0.62);
+  --rim-lo: rgb(255 255 255 / 0.24);
+  --tab-sel: rgb(0 0 0 / 0.075);
+  --spec-opacity: 1;
+}
+
+/* ---------- Your own picture, and the control that changes it ----------
+   The picture stays put; the badge on its lower edge is what becomes the menu. A press
+   anywhere on the picture is a press on the badge: the picture recedes as content does
+   and the badge swells as glass does. */
+
+.art-edit { position: relative; display: block; padding-bottom: 10px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.art-edit > .avatar { transition: transform var(--dur-bouncy) var(--spring-bouncy); }
+.art-edit:active > .avatar { transform: scale(0.975); transition-duration: 0.14s; transition-timing-function: var(--ease-out); }
+.art-badge { position: absolute; left: 50%; bottom: 0; width: 32px; height: 32px; margin-left: -16px; display: grid; place-items: center; --press: 1.14; }
+.art-edit:active > .art-badge { transform: scale(var(--press)); transition-duration: 0.16s; transition-timing-function: var(--ease-out); }
+.art-edit:active > .art-badge::after { opacity: 0.8; transition-duration: 0.1s; }

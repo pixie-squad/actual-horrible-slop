@@ -2,7 +2,7 @@
 (function () {
   'use strict';
   const NT = window.NT;
-  const { h, rel, debounce } = NT.util;
+  const { h, rel } = NT.util;
   const icon = NT.icon;
   const API = NT.api;
   const UI = NT.ui;
@@ -142,7 +142,7 @@
 
   function avatar(name, size, seed) {
     const a = NT.util.hash(String(seed || name)) % 360;
-    return h('span.avatar', {
+    return NT.media.avatar(h('span.avatar', {
       'aria-hidden': 'true',
       style: {
         width: size + 'px',
@@ -150,7 +150,7 @@
         fontSize: Math.round(size * 0.4) + 'px',
         background: `linear-gradient(140deg, oklch(0.74 0.16 ${a}), oklch(0.55 0.2 ${(a + 55) % 360}))`,
       },
-    }, NT.util.initials(name));
+    }, NT.util.initials(name)), seed);
   }
 
   function cover(id, sel, glyphSize) {
@@ -160,7 +160,8 @@
     const g = icon(NT.util.glyph(id), glyphSize);
     g.classList.add('cover-glyph');
     el.append(g);
-    return el;
+    // An uploaded thumbnail takes the generated art's place (media.js).
+    return NT.media.cover(el, id);
   }
 
   function emptyState(iconName, title, text, action, compact) {
@@ -268,12 +269,17 @@
   function scriptMenu(anchor, s, ctx) {
     const id = s.script_id;
     const owner = API.isOwner(s);
+    // The script's own page is where its thumbnail is chosen and removed.
+    const [thumb, noThumb] = owner && ctx.art ? NT.media.items('thumbs', id) : [];
     UI.menu(anchor, [
       { label: 'Share', icon: 'share', onSelect: () => shareScript(s) },
       API.session && { label: 'View Source', icon: 'code', onSelect: () => NT.nav.go(`/scripts/${id}/view`) },
       owner && '-',
       owner && { label: 'Edit', icon: 'pencil', onSelect: () => NT.nav.go(`/scripts/${id}/edit`) },
       owner && !s.published_at && { label: 'Publish', icon: 'send', onSelect: () => publishScript(s, ctx.refresh) },
+      thumb,
+      noThumb && '-',
+      noThumb,
       owner && { label: 'Delete', icon: 'trash', danger: true, onSelect: () => deleteScript(s, ctx.removed || ctx.refresh, anchor) },
     ]);
   }
@@ -652,7 +658,7 @@
 
     // The toolbar exists from the first frame, so it can reshape out of the
     // previous page's toolbar while this page is still loading.
-    const more = groupButton('ellipsis', 'More', () => { if (script) scriptMenu(more, script, { refresh: load, removed: () => NT.nav.back() }); });
+    const more = groupButton('ellipsis', 'More', () => { if (script) scriptMenu(more, script, { refresh: load, removed: () => NT.nav.back(), art: true }); });
     const group = navGroup(
       groupButton('heart', 'Favorite', () => {}),
       groupButton('share', 'Share', () => { if (script) shareScript(script); }),
@@ -843,191 +849,8 @@
 
   /* ---------- Editor ---------- */
 
-  P.editor = function (id) {
-    const page = makePage({ title: 'Editor', back: true, large: false, hideTabbar: true, className: 'page-editor' });
-    const host = h('div.code-host');
-    page.inner.append(host);
-    const status = (t) => page.setSubtitle(t);
-    const store = NT.util.store;
-    const draftKey = 'nt.draft.' + id;
-    let script = null, editor = null, saveBtn = null, ready = false;
-    let current = '', lastSaved = '', ticket = 0, saving = 0, deleted = false, leaving = false;
-
-    const dirty = () => !!editor && current !== lastSaved;
-    const syncSave = () => { if (saveBtn) saveBtn.disabled = !dirty(); };
-
-    // Edits are also kept on this device until the server has them, so closing the tab,
-    // going back mid-save or a save that fails cannot lose them: the next visit picks
-    // the draft up again.
-    const keepDraft = () => store.set(draftKey, { text: current, t: Date.now() });
-    const stash = debounce(keepDraft, 300);
-
-    async function save(text, announce) {
-      if (text === lastSaved) {
-        status('Saved');
-        syncSave();
-        if (announce) UI.toast('Saved');
-        return true;
-      }
-      const mine = ++ticket;
-      status('Saving…');
-      saving++;
-      try {
-        await API.saveContent(id, text);
-        lastSaved = text;
-        if (current === text) {
-          stash.cancel();
-          store.remove(draftKey);
-        }
-        if (mine === ticket) status(current === text ? 'Saved' : 'Edited');
-        if (announce) UI.toast('Saved');
-        return true;
-      } catch (e) {
-        status('Not saved');
-        UI.toast(String(e && e.message).includes('too long') ? 'Scripts are limited to 1,000,000 characters' : 'Couldn’t save', { warn: true });
-        return false;
-      } finally {
-        saving--;
-        syncSave();
-      }
-    }
-    const autosave = debounce((text) => save(text, false), 1000);
-
-    const onUnload = (e) => {
-      if (!dirty() && !saving) return;
-      if (dirty()) keepDraft();
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', onUnload);
-
-    // Back leaves once the text is with the server (or, failing that, in the draft).
-    page.onBack = async () => {
-      if (leaving) return;
-      leaving = true;
-      autosave.cancel();
-      if (dirty()) await save(current, false);
-      NT.nav.back();
-    };
-
-    function infoSheet() {
-      const name = UI.field('Name', { value: script.name || '', maxLength: 32, placeholder: 'Required' });
-      const descId = 'f-' + NT.util.uid(6);
-      const desc = h('textarea', { id: descId, rows: 4, maxLength: 1024, placeholder: 'Optional' });
-      desc.value = script.description || '';
-      const counter = h('span', `${desc.value.length}/1024`);
-      desc.addEventListener('input', () => { counter.textContent = `${desc.value.length}/1024`; });
-      let maps = null, mapId = script.user_map_id || '';
-      const mapValue = h('span', '…');
-      const mapPick = h('button.row-pick', { type: 'button', 'aria-label': 'Map' }, mapValue, icon('sort', 15));
-      const syncMap = () => {
-        const m = (maps || []).find((x) => x.user_map_id === mapId);
-        mapValue.textContent = m ? m.name : 'None';
-      };
-      API.maps(script.author_uuid).then((list) => { maps = list; syncMap(); }).catch(() => { maps = []; syncMap(); });
-      mapPick.addEventListener('click', () => {
-        if (!maps) return;
-        UI.menu(mapPick, [
-          { label: 'None', checked: !mapId, onSelect: () => { mapId = ''; syncMap(); } },
-          maps.length ? '-' : null,
-          ...maps.map((m) => ({ label: m.name, checked: m.user_map_id === mapId, onSelect: () => { mapId = m.user_map_id; syncMap(); } })),
-        ]);
-      });
-      const error = h('p.form-error', { role: 'alert' });
-      const submit = h('button.btn.filled.block', { type: 'submit' }, 'Save');
-      const form = h('form.form-stack', { novalidate: true },
-        h('div.list', name.row, h('div.row.field.col', h('label', { for: descId }, 'Description', counter), desc), h('div.row', h('span.row-title', 'Map'), mapPick)),
-        error, submit);
-      const sheet = UI.sheet({ title: 'Details', body: form });
-
-      form.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const n = name.input.value.trim(), d = desc.value.trim();
-        if (n.length < 3 || n.length > 32) return void (error.textContent = 'Name needs 3 to 32 characters.');
-        if (d && (d.length < 32 || d.length > 1024)) return void (error.textContent = 'Description needs 32 to 1024 characters, or leave it empty.');
-        error.textContent = '';
-        submit.disabled = true;
-        try {
-          if (n !== (script.name || '')) { await API.saveName(id, n); script.name = n; page.setTitle(n); }
-          if (d !== (script.description || '')) { await API.saveDescription(id, d); script.description = d || null; }
-          if (mapId !== (script.user_map_id || '')) { await API.setMap(id, mapId || null); script.user_map_id = mapId || null; }
-          sheet.close();
-          UI.toast('Saved');
-        } catch (err) {
-          error.textContent = 'Couldn’t save. Try again.';
-          submit.disabled = false;
-        }
-      });
-    }
-
-    page.onShow = async () => {
-      if (ready) return;
-      ready = true;
-      NT.code.preload();
-      script = await API.script(id);
-      if (!script || !API.isOwner(script)) {
-        ready = false;
-        host.replaceChildren(script
-          ? emptyState('pencil', 'Read Only', 'Only the author can edit this script.', { label: 'View Source', onClick: () => NT.nav.go(`/scripts/${id}/view`), style: 'gray' })
-          : emptyState('doc', 'Script Not Found'));
-        return;
-      }
-      // Without the script's text there is nothing safe to edit: an empty editor here
-      // would autosave over the real script.
-      let content;
-      try { content = ((await API.scriptContent(id)) || {}).content || ''; } catch (e) {
-        ready = false;
-        host.replaceChildren(errorState(() => page.onShow()));
-        return;
-      }
-      const draft = store.get(draftKey, null);
-      const restored = !!draft && typeof draft.text === 'string' && draft.text !== content;
-      if (draft && !restored) store.remove(draftKey);
-      lastSaved = content;
-      current = restored ? draft.text : content;
-      page.setTitle(script.name || 'Editor');
-      status(restored ? 'Edited' : 'Saved');
-      host.replaceChildren();
-      editor = await NT.code.mount(host, {
-        value: current,
-        onChange: (v) => { current = v; status('Edited'); syncSave(); stash(); autosave(v); },
-        onSave: (v) => { current = v; autosave.cancel(); save(v, true); },
-      });
-
-      const more = groupButton('ellipsis', 'More', () => {
-        // With the script's page right underneath, "Script Page" would only be Back.
-        const paths = NT.nav.paths();
-        const under = paths[paths.length - 2] === `/scripts/${id}`;
-        UI.menu(more, [
-          !under && { label: 'Script Page', icon: 'doc', onSelect: () => NT.nav.go(`/scripts/${id}`) },
-          !script.published_at && { label: 'Publish', icon: 'send', onSelect: async () => { autosave.cancel(); if (await save(current, false)) publishScript(script, () => { script.published_at = new Date().toISOString(); }); } },
-          (!under || !script.published_at) && '-',
-          { label: 'Delete', icon: 'trash', danger: true, onSelect: () => deleteScript(script, () => { deleted = true; store.remove(draftKey); NT.nav.back(); }, more) },
-        ]);
-      });
-      // Saving keeps you where you are; only Back leaves.
-      saveBtn = navButton('check', 'Save', () => { autosave.cancel(); save(current, true); }, '.tinted');
-      page.setTrailing(navGroup(groupButton('info', 'Details', infoSheet), more), saveBtn);
-      syncSave();
-      if (restored) {
-        UI.toast('Draft restored');
-        autosave(current);
-      }
-    };
-
-    page.onDestroy(() => {
-      window.removeEventListener('beforeunload', onUnload);
-      autosave.cancel();
-      stash.cancel();
-      if (!editor) return;
-      if (!deleted && dirty()) {
-        keepDraft();
-        if (!leaving) save(current, false);
-      }
-      editor.dispose();
-    });
-    return page;
-  };
+  // The editor page is a module of its own (editor.js), built from these pieces.
+  NT.kit = { makePage, navButton, navGroup, groupButton, emptyState, errorState, publishScript, deleteScript };
 
   /* ---------- Maps ---------- */
 
@@ -1229,8 +1052,10 @@
       };
       const drafts = scripts.filter((s) => !s.published_at).length;
 
+      // Your own avatar is the control that changes it (media.js).
+      const face = avatar(user.name || user.username, 104, user.user_id);
       const kids = [h('div.profile-head',
-        avatar(user.name || user.username, 104, user.user_id),
+        own ? NT.media.editable(face, 'avatars', user.user_id, 'Profile Photo') : face,
         h('h1', user.name || user.username),
         h('span.handle', '@' + user.username),
         h('div.stats',
@@ -1339,41 +1164,95 @@
 
   /* ---------- Audit log ---------- */
 
+  // What each kind of event is called, its symbol and its tint.
   const EVENT = {
-    ScriptCreate: ['Created a script', 'plus', 'var(--blue)'],
-    ScriptPublish: ['Published a script', 'send', 'var(--green)'],
-    ScriptUpdate: ['Edited a script', 'pencil', 'var(--orange)'],
-    ScriptDelete: ['Deleted a script', 'trash', 'var(--red)'],
-    UserRegister: ['Created the account', 'person', 'var(--indigo)'],
-    UserPasswordChange: ['Changed the password', 'key', 'var(--label-3)'],
+    UserRegister: ['Account Created', 'person', 'var(--indigo)'],
+    UserLogin: ['Signed In', 'person', 'var(--indigo)'],
+    UserLogout: ['Signed Out', 'logout', 'var(--label-3)'],
+    UserPasswordChange: ['Password Changed', 'key', 'var(--label-3)'],
+    ScriptCreate: ['Script Created', 'plus', 'var(--blue)'],
+    ScriptUpdate: ['Script Edited', 'pencil', 'var(--orange)'],
+    ScriptPublish: ['Script Published', 'send', 'var(--green)'],
+    ScriptDelete: ['Script Deleted', 'trash', 'var(--red)'],
+    FavoriteAdd: ['Favorite Added', 'heart', 'var(--pink)'],
+    FavoriteRemove: ['Favorite Removed', 'heart', 'var(--label-3)'],
+    MapCreate: ['Map Added', 'map', 'var(--green)'],
+    MapUpdate: ['Map Updated', 'map', 'var(--green)'],
+    MapDelete: ['Map Deleted', 'trash', 'var(--red)'],
+  };
+  // An update that says which part changed is called by that part.
+  const CHANGED = {
+    ScriptUpdate: { name: 'Script Renamed', description: 'Description Edited', map: 'Map Changed' },
+    MapUpdate: { name: 'Map Renamed' },
   };
 
   P.audit = function (userId) {
     const page = makePage({ title: 'Audit Log', back: true, narrow: true });
     const body = h('div');
     page.inner.append(body);
-    body.append(h('div.list', skeletons(5, 60)));
+    let stamp = null;
 
-    page.onShow = async () => {
-      if (!API.session) {
+    // scripts: the ones that still exist, by id. Only those have a name and a page to go to.
+    function eventRow(ev, scripts) {
+      const type = String(ev.event_type);
+      const changes = ev.changes && typeof ev.changes === 'object' ? ev.changes : {};
+      const [title, symbol, tint] = EVENT[type] || [type.replace(/([a-z])([A-Z])/g, '$1 $2'), 'info', 'var(--label-3)'];
+      const part = Object.keys(CHANGED[type] || {}).find((k) => changes[k]);
+      const onScript = /^(Script|Favorite)/.test(type);
+      const script = onScript ? scripts.get(ev.target_id) : null;
+      const notes = [];
+      if (onScript) notes.push(script ? script.name || script.script_id : String(ev.target_id));
+      if (changes.revision != null) notes.push(`Revision ${changes.revision}`);
+      // Saves in one sitting arrive as one event.
+      if (changes.count > 1) notes.push(`${changes.count} ${changes.content ? 'saves' : 'changes'}`);
+      const path = !script ? null
+        : type === 'ScriptPublish' && changes.revision != null ? `/scripts/${script.script_id}/view?revision=${changes.revision}`
+          : `/scripts/${script.script_id}`;
+      return row({
+        icon: symbol, tint,
+        title: part ? CHANGED[type][part] : title,
+        subtitle: notes.length ? notes.join(' · ') : null,
+        mono: onScript && !script,
+        value: rel(ev.occurred_at),
+        chevron: !!path,
+        onClick: path ? () => NT.nav.go(path) : null,
+      });
+    }
+
+    async function load() {
+      const me = API.session;
+      if (!me) {
+        stamp = null;
         body.replaceChildren(emptyState('list', 'Not Signed In', null, { label: 'Sign In', onClick: signIn }));
         return;
       }
-      let events;
-      try { events = await API.audit(userId); }
-      catch (e) { body.replaceChildren(emptyState('list', 'Audit Log Unavailable')); return; }
-      if (!events.length) return void body.replaceChildren(emptyState('list', 'No Activity Yet'));
-      const sorted = events.slice().sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
-      body.replaceChildren(h('div.list', sorted.map((ev) => {
-        const [label, ic, tint] = EVENT[ev.event_type] || [String(ev.event_type).replace(/([a-z])([A-Z])/g, '$1 $2'), 'info', 'var(--label-3)'];
-        const isUser = String(ev.event_type).startsWith('User');
-        const path = ev.event_type === 'ScriptPublish' && ev.changes && ev.changes.revision != null
-          ? `/scripts/${ev.target_id}/view?revision=${ev.changes.revision}`
-          : isUser ? `/users/${ev.target_id}` : `/scripts/${ev.target_id}`;
-        const detail = ev.changes && ev.changes.revision != null ? `Revision ${ev.changes.revision} · ${ev.target_id}` : String(ev.target_id);
-        return row({ icon: ic, tint, title: label, subtitle: detail, mono: true, value: rel(ev.occurred_at), chevron: ev.event_type !== 'ScriptDelete', onClick: ev.event_type === 'ScriptDelete' ? null : () => NT.nav.go(path) });
-      })));
-    };
+      if (stamp === null) body.replaceChildren(h('div.list', skeletons(5, 60)));
+      let events, mine, all;
+      try {
+        [events, mine, all] = await Promise.all([
+          API.audit(userId),
+          API.userScripts(me.user_id).catch(() => []),
+          API.scripts().catch(() => []),
+        ]);
+      } catch (e) {
+        stamp = null;
+        body.replaceChildren(emptyState('list', 'Audit Log Unavailable', null, { label: 'Try Again', onClick: load, style: 'gray' }));
+        return;
+      }
+      events = (Array.isArray(events) ? events : [])
+        .filter((ev) => ev && ev.event_type && ev.occurred_at)
+        .sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+      const scripts = new Map([...(all || []), ...(mine || [])].map((s) => [s.script_id, s]));
+      // Coming back to the page reloads it; if nothing changed, leave it where it was scrolled.
+      const fresh = JSON.stringify([events, [...scripts].map(([id, s]) => [id, s.name])]);
+      if (fresh === stamp) return;
+      stamp = fresh;
+      body.replaceChildren(events.length
+        ? h('div.list', events.map((ev) => eventRow(ev, scripts)))
+        : emptyState('list', 'No Activity Yet'));
+    }
+
+    page.onShow = load;
     return page;
   };
 

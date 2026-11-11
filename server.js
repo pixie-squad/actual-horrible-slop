@@ -3,10 +3,13 @@
   Local server for NT Scripting (no dependencies).
 
     node server.js            → http://localhost:5173
+    node ext/tools.js         → fetch the tools some extensions need (once)
 
   - Serves the static app, falling back to index.html for app routes.
   - Proxies /api/* to https://scripting.nulls.gg/api/* so the browser can use
     the real service with its session cookie, without cross-origin limits.
+  - Mounts the backend extensions in ./ext under /x/* (see ext/index.js).
+    NT_EXT=off runs without them.
 */
 'use strict';
 
@@ -14,11 +17,15 @@ const http = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const core = require('./ext/core');
+const ext = require('./ext');
 
 const ROOT = __dirname;
 const PORT = Number(process.env.PORT) || 5173;
 const HOST = process.env.HOST || '127.0.0.1';
-const UPSTREAM = 'scripting.nulls.gg';
+const UPSTREAM = core.UPSTREAM;
+const upstreamLib = UPSTREAM.protocol === 'http:' ? http : https;
+const upstreamPort = UPSTREAM.port || (UPSTREAM.protocol === 'http:' ? 80 : 443);
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -62,25 +69,59 @@ function localCookie(cookie) {
     .replace(/;\s*SameSite=None/gi, '; SameSite=Lax');
 }
 
+// Extensions are told about calls that change something. Up to this much of the
+// request and the response is kept for them; anything larger is passed on unseen.
+const OBSERVE_LIMIT = 64 * 1024;
+
+function capture(stream) {
+  const chunks = [];
+  let size = 0;
+  stream.on('data', (chunk) => {
+    if (size > OBSERVE_LIMIT) return;
+    size += chunk.length;
+    if (size <= OBSERVE_LIMIT) chunks.push(chunk);
+    else chunks.length = 0;
+  });
+  return () => {
+    if (!chunks.length) return null;
+    try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch (e) { return null; }
+  };
+}
+
 function proxy(req, res, url) {
   const headers = {
     accept: req.headers.accept || '*/*',
     'accept-language': req.headers['accept-language'] || 'en',
     'user-agent': req.headers['user-agent'] || 'nt-scripting-local',
-    origin: `https://${UPSTREAM}`,
-    referer: `https://${UPSTREAM}/`,
+    origin: UPSTREAM.origin,
+    referer: UPSTREAM.origin + '/',
   };
   for (const name of ['cookie', 'content-type', 'content-length']) {
     if (req.headers[name]) headers[name] = req.headers[name];
   }
 
-  const upstream = https.request(
-    { host: UPSTREAM, port: 443, method: req.method, path: url.pathname + url.search, headers },
+  const observed = ext.observing && req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';
+  const sent = observed ? capture(req) : null;
+
+  const upstream = upstreamLib.request(
+    { host: UPSTREAM.hostname, port: upstreamPort, method: req.method, path: url.pathname + url.search, headers },
     (up) => {
       const out = { 'x-nt-proxy': '1', 'cache-control': 'no-store' };
       if (up.headers['content-type']) out['content-type'] = up.headers['content-type'];
       if (up.headers['set-cookie']) out['set-cookie'] = up.headers['set-cookie'].map(localCookie);
       res.writeHead(up.statusCode || 502, out);
+      if (observed) {
+        const got = capture(up);
+        up.on('end', () => ext.observe({
+          req,
+          method: req.method,
+          path: url.pathname,
+          status: up.statusCode || 502,
+          body: sent(),
+          json: got(),
+          setCookie: up.headers['set-cookie'] || [],
+        }));
+      }
       up.pipe(res);
     }
   );
@@ -92,17 +133,20 @@ function proxy(req, res, url) {
   req.pipe(upstream);
 }
 
+function parse(req) {
+  try { return new URL(req.url, `http://${req.headers.host || 'localhost'}`); } catch (e) { return null; }
+}
+
 const server = http.createServer((req, res) => {
-  let url;
-  try {
-    url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-  } catch (e) {
+  const url = parse(req);
+  if (!url) {
     res.writeHead(400);
     res.end();
     return;
   }
 
   if (url.pathname.startsWith('/api/')) return proxy(req, res, url);
+  if (url.pathname === '/x' || url.pathname.startsWith('/x/')) return void ext.handle(req, res, url);
 
   if (req.method !== 'GET' && req.method !== 'HEAD') {
     res.writeHead(405, { Allow: 'GET, HEAD' });
@@ -121,10 +165,19 @@ const server = http.createServer((req, res) => {
   sendFile(res, path.join(ROOT, 'index.html'));
 });
 
+// WebSockets exist only for extensions (the language server).
+server.on('upgrade', (req, socket, head) => {
+  const url = parse(req);
+  if (!url || !url.pathname.startsWith('/x/')) return void socket.destroy();
+  socket.on('error', () => {});
+  ext.upgrade(req, socket, head, url);
+});
+
 // As PID 1 in a container Node ignores these unless handled, which makes `docker stop` hang.
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => process.exit(0));
 
 server.listen(PORT, HOST, () => {
   console.log(`NT Scripting → http://${HOST === '127.0.0.1' ? 'localhost' : HOST}:${PORT}`);
-  console.log(`Proxying /api → https://${UPSTREAM}/api`);
+  console.log(`Proxying /api → ${UPSTREAM.origin}/api`);
+  console.log(ext.names.length ? `Extensions → ${ext.names.join(', ')}` : 'Extensions → none');
 });

@@ -1,0 +1,201 @@
+/*
+  Projects in the editor: the explorer beside the code, and what the language
+  server adds to Monaco (editor.js, explorer.js, lsp.js).
+*/
+
+/* ---------- Layout ----------
+   The explorer is content, like the code beside it: opaque, on the page. On a wide
+   window it is a column the code makes room for; on a narrow one it comes up in a
+   sheet instead (editor.js). The column's width and gap are animated by the page. */
+
+.editor-split { flex: 1; display: flex; min-width: 0; min-height: 0; }
+.editor-split > .code-host { min-width: 0; }
+.editor-side { flex: none; width: 260px; margin-right: 12px; border-radius: var(--r-card); background: var(--surface); overflow: hidden; }
+.editor-side > .explorer { width: 260px; height: 100%; }
+@media (max-width: 819.98px) { .editor-side { display: none; } }
+
+/* ---------- Explorer ---------- */
+
+.explorer { display: flex; flex-direction: column; min-height: 0; -webkit-user-select: none; user-select: none; }
+.sheet-body > .explorer { border-radius: var(--r-card); background: var(--surface); }
+
+/* Rows sit 6px inside the card, so their corners are the card's less that (26 − 6). */
+.ex-bar { flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 6px 0; }
+.ex-new, .ex-more { display: flex; align-items: center; height: 44px; border-radius: 20px; transition: background 0.15s; }
+.ex-new { flex: 1; min-width: 0; gap: 10px; padding: 0 12px; font-size: 15px; line-height: 20px; font-weight: 500; color: var(--accent); }
+.ex-more { flex: none; justify-content: center; width: 44px; color: var(--label-2); }
+
+.ex-tree { flex: 1; min-height: 0; overflow-y: auto; padding: 0 6px 6px; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--fill-2) transparent; }
+.ex-row {
+  --depth: 0;
+  --pad: calc(12px + var(--depth) * 16px);
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px 0 var(--pad);
+  border-radius: 20px;
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--label);
+  cursor: pointer;
+  -webkit-touch-callout: none;
+  transition: background 0.15s;
+}
+/* A hairline between rows, inset to the text; none above the first or below the last. */
+.ex-row + .ex-row::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: calc(var(--pad) + 46px);
+  right: 12px;
+  height: var(--hairline);
+  background: var(--sep);
+  transition: opacity 0.15s;
+}
+.ex-row .icon { color: var(--label-2); }
+.ex-twist { flex: none; display: grid; place-items: center; width: 12px; height: 20px; }
+.ex-twist .icon { color: var(--label-3); transition: transform 0.24s var(--ease-out); }
+.ex-row[aria-expanded="true"] > .ex-twist .icon { transform: rotate(90deg); }
+.ex-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The open file takes the accent. */
+.ex-row.is-open, .ex-row.is-open > .icon { color: var(--accent); }
+
+/* Unsaved edits, or a problem inside: a small dot, nothing more. */
+.ex-mark { flex: none; width: 6px; height: 6px; border-radius: 50%; }
+.ex-row[data-mark="edited"] > .ex-mark { background: var(--label-3); }
+.ex-row[data-mark="error"] > .ex-mark { background: var(--red); }
+
+@media (hover: hover) {
+  .ex-row:not(.ex-edit):hover, .ex-new:hover, .ex-more:hover { background: var(--fill); }
+}
+.ex-row:not(.ex-edit):active, .ex-new:active, .ex-more:active { background: var(--fill-2); }
+/* The line gives way to a row that is lit, on both of its sides. */
+.ex-row:hover::before, .ex-row:hover + .ex-row::before,
+.ex-row:active::before, .ex-row:active + .ex-row::before,
+.ex-row:focus-visible::before, .ex-row:focus-visible + .ex-row::before { opacity: 0; }
+.ex-row:focus-visible, .ex-new:focus-visible, .ex-more:focus-visible { outline-offset: -3px; }
+
+/* A row that is being named. What is wrong with the name is said under the field. */
+.ex-row.ex-edit { flex-wrap: wrap; row-gap: 0; cursor: default; }
+.ex-input { flex: 1; min-width: 0; height: 32px; margin: 6px -6px 6px -4px; padding: 0 8px; border-radius: 10px; background: var(--fill); font-size: 15px; -webkit-user-select: text; user-select: text; }
+.ex-input::placeholder { color: var(--label-3); }
+.ex-error { flex: 0 0 100%; margin: -2px 0 8px; padding-left: 38px; font-size: 13px; line-height: 18px; color: var(--red); }
+.ex-error:empty { display: none; }
+@media (hover: hover) {
+  .ex-input:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent); outline-offset: 0; }
+}
+
+/* ---------- Back from a definition file ----------
+   A control floating over the code, so it is glass. */
+
+.code-return {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 16px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: fit-content;
+  min-width: 160px;
+  max-width: calc(100% - 32px);
+  height: 44px;
+  margin: 0 auto;
+  padding: 0 18px 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.code-return span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- Monaco: hovers, parameter hints, rename ----------
+   Popovers, so thick glass with the lens (monaco.js adds .glass.thick), the same
+   as the suggestion list. */
+
+.monaco-editor .monaco-hover.glass,
+.monaco-editor .parameter-hints-widget.glass,
+.monaco-editor .rename-box.glass {
+  border: 0 !important;
+  border-radius: 18px !important;
+  overflow: hidden;
+  background: var(--glass-sheen), var(--glass-thick) !important;
+  box-shadow: var(--glass-shadow), var(--glass-inner), inset 0 0 0 0.5px var(--glass-edge) !important;
+  color: var(--label) !important;
+}
+.monaco-editor .monaco-hover.glass.has-spec,
+.monaco-editor .parameter-hints-widget.glass.has-spec,
+.monaco-editor .rename-box.glass.has-spec { box-shadow: var(--glass-shadow), inset 0 0 0 0.5px var(--glass-edge) !important; }
+html[data-solid] .monaco-editor .monaco-hover.glass,
+html[data-solid] .monaco-editor .parameter-hints-widget.glass,
+html[data-solid] .monaco-editor .rename-box.glass { background: var(--surface-2) !important; }
+
+/* Text keeps clear of the round corners; prose is in the app's face, code in the editor's. */
+.monaco-editor .monaco-hover.glass .monaco-hover-content { padding: 4px 6px; }
+.monaco-editor .monaco-hover.glass .hover-row:not(:first-child):not(:empty) { border-top: 0; }
+.monaco-editor .monaco-hover.glass .markdown-hover p,
+.monaco-editor .parameter-hints-widget.glass .docs { font-family: var(--font); font-size: 13px; line-height: 18px; }
+.monaco-editor .monaco-hover.glass hr { height: var(--hairline); margin: 6px 0; border: 0; background: var(--sep); }
+.monaco-editor .monaco-hover.glass a { color: var(--accent) !important; }
+.monaco-editor .monaco-hover.glass code,
+.monaco-editor .parameter-hints-widget.glass .docs code { border-radius: 6px; background: var(--fill) !important; }
+/* "View Problem" and "No quick fixes available" say nothing the underline has not. */
+.monaco-editor .monaco-hover.glass .hover-row.status-bar { display: none; }
+
+.monaco-editor .parameter-hints-widget.glass .signature { padding: 10px 14px 6px; }
+.monaco-editor .parameter-hints-widget.glass .signature .parameter.active { color: var(--accent); }
+.monaco-editor .parameter-hints-widget.glass .docs { padding: 0 14px 10px; color: var(--label-2); }
+.monaco-editor .parameter-hints-widget.glass .signature.has-docs::after { display: none; }
+.monaco-editor .parameter-hints-widget.glass.multiple .controls { padding-right: 8px; }
+
+/* The glass is the field. */
+.monaco-editor .rename-box .rename-input-with-button { padding: 0 !important; border: 0 !important; background: none !important; }
+.monaco-editor .rename-box .rename-input { padding: 8px 14px !important; background: none !important; color: var(--label) !important; }
+.monaco-editor .rename-box .rename-label { display: none; }
+
+/* Kinds the language server names that the built-in list never did (see app.css). */
+.monaco-editor .suggest-widget .suggest-icon.codicon-symbol-module,
+.monaco-editor .suggest-widget .suggest-icon.codicon-symbol-file,
+.monaco-editor .suggest-widget .suggest-icon.codicon-symbol-folder { --_k: var(--tk-s); --_g: "M"; }
+.monaco-editor .suggest-widget .suggest-icon.codicon-symbol-enum,
+.monaco-editor .suggest-widget .suggest-icon.codicon-symbol-enum-member { --_k: var(--tk-n); --_g: "E"; }
+
+/* ---------- Monaco: references and the symbol list ----------
+   The list of references opens inside the code and is part of it. The symbol list
+   floats over it like the find bar, and is dressed the same way (app.css). */
+
+.monaco-editor .peekview-widget .head,
+.monaco-editor .peekview-widget .ref-tree { font-family: var(--font); font-size: 13px; }
+.monaco-editor .peekview-widget .head .peekview-title .filename { color: var(--label); }
+.monaco-editor .peekview-widget .ref-tree .monaco-count-badge { background: var(--fill-2) !important; color: var(--label-2) !important; }
+
+.quick-input-widget {
+  top: 8px !important;
+  padding: 6px !important;
+  border: 0 !important;
+  border-radius: 20px !important;
+  background: var(--glass-thick) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  backdrop-filter: blur(24px) saturate(1.8);
+  box-shadow: var(--glass-shadow), inset 0 0 0 0.5px var(--glass-edge) !important;
+  color: var(--label) !important;
+  font-family: var(--font);
+  overflow: hidden;
+}
+html[data-solid] .quick-input-widget { background: var(--surface-2) !important; -webkit-backdrop-filter: none; backdrop-filter: none; }
+.quick-input-widget .quick-input-header { padding: 0 !important; margin-bottom: 0 !important; }
+.quick-input-widget .monaco-inputbox { border: 0 !important; border-radius: 14px !important; background: var(--fill) !important; }
+.quick-input-widget .monaco-inputbox .input { padding: 6px 12px !important; color: var(--label) !important; font-family: var(--font); font-size: 15px; }
+.quick-input-widget .quick-input-list { margin-top: 6px; }
+.quick-input-widget .monaco-list, .quick-input-widget .monaco-list-rows { background: none !important; }
+.quick-input-widget .quick-input-list .monaco-list-row { border-radius: 14px; color: var(--label) !important; outline: 0 !important; }
+.quick-input-widget .quick-input-list .monaco-list-row.focused { background: var(--accent) !important; color: #fff !important; }
+.quick-input-widget .quick-input-list .monaco-list-row.focused .codicon,
+.quick-input-widget .quick-input-list .monaco-list-row.focused .monaco-icon-label::after,
+.quick-input-widget .quick-input-list .monaco-list-row.focused .label-description { color: #fff !important; opacity: 1; }
+.quick-input-widget .quick-input-list .monaco-list-row .monaco-highlighted-label .highlight { color: var(--accent); }
+.quick-input-widget .quick-input-list .monaco-list-row.focused .monaco-highlighted-label .highlight { color: #fff; }
+.quick-input-widget .quick-input-list-separator { color: var(--label-2) !important; }

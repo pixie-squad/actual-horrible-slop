@@ -72,7 +72,9 @@
   /* ---------- Morphing popover ----------
      Menus and confirmation dialogs are not new layers that fade in: the control
      that was tapped becomes the popover. The glass keeps one continuous shape,
-     growing from the control's exact frame and collapsing back into it. */
+     growing from the control's exact frame and collapsing back into it. It grows from
+     the control's leading or trailing corner; `align: 'center'` grows it about the
+     control's centre instead. */
 
   let activePop = null;
   const leaving = new Set(); // popovers still collapsing: each entry completes one at once
@@ -143,12 +145,16 @@
     let to, ax = 'left', ay = 'top';
     if (home) {
       const right = home.left + home.width / 2 > hr.width / 2 + 1;
-      let left = right ? home.left + home.width - fw : home.left;
+      // `align: 'center'`: the control sits on the centre line of what it belongs to, and
+      // opens about its own centre (where there is room to).
+      const centred = home.left + (home.width - fw) / 2;
+      const mid = opts.align === 'center' && centred >= m && centred + fw <= hr.width - m;
+      let left = mid ? centred : right ? home.left + home.width - fw : home.left;
       left = clamp(left, m, Math.max(m, hr.width - fw - m));
       let top = home.top;
       if (top + fh > hr.height - m) { top = home.top + home.height - fh; ay = 'bottom'; }
       top = clamp(top, m, Math.max(m, hr.height - fh - m));
-      ax = right ? 'right' : 'left';
+      ax = mid ? 'center' : right ? 'right' : 'left';
       to = { left, top, width: fw, height: fh };
     } else {
       to = { left: (hr.width - fw) / 2, top: (hr.height - fh) / 2, width: fw, height: fh };
@@ -156,9 +162,10 @@
     to.radius = Math.min(opts.radius || 28, fh / 2);
     const start = from || home || { left: to.left + fw / 2 - 30, top: to.top + fh / 2 - 30, width: 60, height: 60, radius: 30 };
 
-    inner.style[ax] = '0';
-    inner.style[ay] = '0';
-    inner.style.transformOrigin = `${ax} ${ay}`;
+    // What is inside the panel is pinned to the part of it that does not move: the corner
+    // it grows from, or its centre line.
+    const pinned = (width) => (ax === 'center' ? `left:calc(50% - ${width / 2}px)` : `${ax}:0`) + `;${ay}:0;transform-origin:${ax} ${ay}`;
+    inner.style.cssText += ';' + pinned(fw);
 
     // A copy of the control's own content, so it visibly turns into the popover and back.
     // It is laid out at the control's resting size, pinned to the corner the panel grows
@@ -169,7 +176,7 @@
       ghost.removeAttribute('id');
       ghost.classList.remove('glass', 'thick', 'interactive', 'tinted');
       ghost.classList.add('pop-ghost');
-      ghost.style.cssText = `width:${seat.width}px;height:${seat.height}px;${ax}:0;${ay}:0;transform-origin:${ax} ${ay}`;
+      ghost.style.cssText = `width:${seat.width}px;height:${seat.height}px;${pinned(seat.width)}`;
       if (from) ghost.style.opacity = '0'; // only needed on the way back
       ghost.inert = true;
       ghost.setAttribute('aria-hidden', 'true');
@@ -265,7 +272,7 @@
         const back = src && src.isConnected;
         const target = back
           ? geometry(src, true)
-          : { left: cur.left + (ax === 'right' ? cur.width : 0), top: cur.top + (ay === 'bottom' ? cur.height : 0), width: 0, height: 0, radius: 0 };
+          : { left: cur.left + (ax === 'right' ? cur.width : ax === 'center' ? cur.width / 2 : 0), top: cur.top + (ay === 'bottom' ? cur.height : 0), width: 0, height: 0, radius: 0 };
         const sp = motion.snappy;
         inner.animate([{ opacity: 1, filter: 'blur(0px)' }, { opacity: 0, filter: 'blur(6px)' }], { duration: 130, easing: 'ease-out', fill: 'forwards' });
         if (ghost) ghost.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 170, delay: sp.duration * 0.3, easing: 'ease-out', fill: 'both' });
@@ -317,7 +324,7 @@
         it.icon ? icon(it.icon, 20) : null,
         h('span', it.label)));
     }
-    const pop = UI.popover(anchor, list, { role: 'menu', source: opts.source });
+    const pop = UI.popover(anchor, list, { role: 'menu', source: opts.source, align: opts.align });
     const first = list.querySelector('.menu-item:not(:disabled)');
     if (first) first.focus({ preventScroll: true });
     return pop;

@@ -289,6 +289,14 @@
       return publicUser(u);
     },
     async audit(userId) {
+      // The local server keeps this log itself where it can (ext/audit.js) and only
+      // answers for the person asking; without it, the upstream's own log.
+      if (this.mode === 'live' && NT.ext.has('audit')) {
+        const own = userId === this.session.user_id || userId === '@' + this.session.username;
+        const res = await fetch(NT.ext.url(`/audit/users/${own ? 'me' : encodeURIComponent(userId)}`), { credentials: 'include' });
+        if (!res.ok) throw new StatusError(res.status);
+        return (await res.json()).events;
+      }
       if (this.mode === 'live') return (await live(`/users/${encodeURIComponent(userId)}/audit`)).events;
       await lag();
       return db.audit.slice();
@@ -459,6 +467,23 @@
       if (script.user_map_internal_id != null) payload.map = script.user_map_internal_id;
       const encoded = base62(new TextEncoder().encode(JSON.stringify(payload)));
       return `nullsbrawl://createAndJoinRoom?roomname=params:v2:${encoded}&friendly=1&side=0`;
+    },
+
+    /* ----- Projects (demo store only; live ones are the server's, see project.js) ----- */
+
+    // The source files a demo script is bundled from, kept beside the script:
+    // { files, minify, built, sum }, or nothing while the script is a single file.
+    async demoProject(id) {
+      await lag();
+      return ownScript(id).project || null;
+    },
+    // Merges `patch` into the script's project; null removes the project.
+    async setDemoProject(id, patch) {
+      await lag();
+      const s = ownScript(id);
+      if (patch) s.project = Object.assign({}, s.project, patch);
+      else delete s.project;
+      persist();
     },
 
     /* ----- Maps ----- */

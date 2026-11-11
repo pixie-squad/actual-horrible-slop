@@ -893,10 +893,9 @@ button.row.accent { color: var(--accent); }
 .monaco-editor .line-numbers { font-variant-numeric: tabular-nums; }
 .monaco-editor .selected-text { border-radius: 4px; }
 
-/* Find bar, suggestions, hovers and the context menu take on the glass material. */
+/* The find bar and the context menu take on the glass material. (Suggestions follow
+   below; hovers, parameter hints and rename are in project.css.) */
 .monaco-editor .find-widget,
-.monaco-editor .monaco-hover,
-.monaco-editor .parameter-hints-widget,
 .monaco-menu-container,
 .context-view .monaco-menu {
   border: 0 !important;
@@ -1045,7 +1044,6 @@ html[data-solid] .monaco-editor .suggest-details { background: var(--surface-2) 
 }
 .monaco-editor .suggest-details code { border-radius: 6px; background: var(--fill) !important; }
 .monaco-editor .suggest-details a { color: var(--accent) !important; }
-.monaco-editor .monaco-hover .hover-row { padding: 2px 6px; }
 .context-view .monaco-menu { padding: 6px !important; }
 .context-view .monaco-menu .monaco-action-bar.vertical .action-item { border-radius: 14px; margin: 0; }
 .context-view .monaco-menu .monaco-action-bar.vertical .action-menu-item { height: 36px; border-radius: 14px; font-family: var(--font); font-size: 15px; }
