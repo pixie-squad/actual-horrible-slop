@@ -1,14 +1,14 @@
 /*
   Backend extensions, as seen from the app.
 
-  The local server can do more than proxy the API (thumbnails, avatars, an audit
-  log, projects, bundling, a language server; see ext/index.js). Which of these it
-  has is asked once at start-up. Opened from disk, or against a server without
+  The local server can do more than proxy the API: it bundles projects and runs a
+  language server (see ext/index.js), and keeps nothing. Which of these
+  it has is asked once at start-up. Opened from disk, or against a server without
   them, nothing is there and the app behaves as it did before they existed.
 
-    NT.ext.has('media')    → true when that extension answered
+    NT.ext.has('lsp')      → true when that extension answered
     NT.ext.info('lsp')     → what it reported about itself ({} if nothing)
-    NT.ext.url('/media/…') → the address of something under /x
+    NT.ext.url('/bundle')  → the address of something under /x
 */
 (function () {
   'use strict';

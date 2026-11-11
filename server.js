@@ -8,8 +8,10 @@
   - Serves the static app, falling back to index.html for app routes.
   - Proxies /api/* to https://scripting.nulls.gg/api/* so the browser can use
     the real service with its session cookie, without cross-origin limits.
-  - Mounts the backend extensions in ./ext under /x/* (see ext/index.js).
-    NT_EXT=off runs without them.
+  - Mounts the backend extensions in ./ext under /x/* (see ext/index.js): the
+    bundler and the language server. NT_EXT=off runs without them.
+  - Keeps nothing. No request or answer is written down, and there is no data
+    folder: what the app stores is in the upstream's scripts or in the browser.
 */
 'use strict';
 
@@ -69,25 +71,7 @@ function localCookie(cookie) {
     .replace(/;\s*SameSite=None/gi, '; SameSite=Lax');
 }
 
-// Extensions are told about calls that change something. Up to this much of the
-// request and the response is kept for them; anything larger is passed on unseen.
-const OBSERVE_LIMIT = 64 * 1024;
-
-function capture(stream) {
-  const chunks = [];
-  let size = 0;
-  stream.on('data', (chunk) => {
-    if (size > OBSERVE_LIMIT) return;
-    size += chunk.length;
-    if (size <= OBSERVE_LIMIT) chunks.push(chunk);
-    else chunks.length = 0;
-  });
-  return () => {
-    if (!chunks.length) return null;
-    try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch (e) { return null; }
-  };
-}
-
+// Requests and answers are piped straight through: nothing of either is read or kept here.
 function proxy(req, res, url) {
   const headers = {
     accept: req.headers.accept || '*/*',
@@ -100,9 +84,6 @@ function proxy(req, res, url) {
     if (req.headers[name]) headers[name] = req.headers[name];
   }
 
-  const observed = ext.observing && req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS';
-  const sent = observed ? capture(req) : null;
-
   const upstream = upstreamLib.request(
     { host: UPSTREAM.hostname, port: upstreamPort, method: req.method, path: url.pathname + url.search, headers },
     (up) => {
@@ -110,18 +91,6 @@ function proxy(req, res, url) {
       if (up.headers['content-type']) out['content-type'] = up.headers['content-type'];
       if (up.headers['set-cookie']) out['set-cookie'] = up.headers['set-cookie'].map(localCookie);
       res.writeHead(up.statusCode || 502, out);
-      if (observed) {
-        const got = capture(up);
-        up.on('end', () => ext.observe({
-          req,
-          method: req.method,
-          path: url.pathname,
-          status: up.statusCode || 502,
-          body: sent(),
-          json: got(),
-          setCookie: up.headers['set-cookie'] || [],
-        }));
-      }
       up.pipe(res);
     }
   );

@@ -11,10 +11,8 @@ COPY ext ./ext
 RUN node ext/tools.js
 
 # Inside a container the server has to listen on all interfaces to be reachable.
-# Projects, thumbnails, avatars and the audit log live in /data: mount a volume there.
-ENV HOST=0.0.0.0 PORT=5173 NT_DATA=/data
-RUN mkdir -p /data && chown node:node /data
-VOLUME /data
+# It keeps nothing, so there is no volume to mount.
+ENV HOST=0.0.0.0 PORT=5173
 EXPOSE 5173
 
 USER node

@@ -153,15 +153,17 @@
     }, NT.util.initials(name)), seed);
   }
 
-  function cover(id, sel, glyphSize) {
+  // s: the script, as a list item or whole.
+  function cover(s, sel, glyphSize) {
+    const id = s.script_id;
     const el = h('div.cover' + (sel || ''), { style: NT.util.cover(id) });
     // Top glass turns dark over artwork, though not for a row's small thumbnail.
     if (sel !== '.thumb') NT.tone.mark(el);
     const g = icon(NT.util.glyph(id), glyphSize);
     g.classList.add('cover-glyph');
     el.append(g);
-    // An uploaded thumbnail takes the generated art's place (media.js).
-    return NT.media.cover(el, id);
+    // The script's own thumbnail takes the generated art's place (media.js).
+    return NT.media.cover(el, s);
   }
 
   function emptyState(iconName, title, text, action, compact) {
@@ -317,7 +319,7 @@
     const fav = API.session ? favButton(s, ctx, '.glass.on-art.interactive') : null;
     if (fav) NT.glass.shine(fav);
     const more = h('button.more-btn', { type: 'button', 'aria-label': 'Script actions', title: 'Script actions', onclick: (e) => { e.stopPropagation(); scriptMenu(more, s, ctx); } }, icon('ellipsis', 20));
-    const art = cover(s.script_id, '', 96);
+    const art = cover(s, '', 96);
     if (!s.published_at) art.append(h('span.badge.on-art', 'Draft'));
     if (fav) art.append(fav);
     const card = h('article.card.script-card.pressable.rise', { tabIndex: 0, style: { '--i': index || 0 } },
@@ -373,7 +375,7 @@
 
   function scriptRow(s) {
     return h('a.row', { href: NT.nav.href(`/scripts/${s.script_id}`), onclick: go(`/scripts/${s.script_id}`) },
-      cover(s.script_id, '.thumb', 24),
+      cover(s, '.thumb', 24),
       h('span.row-main', h('span.row-title', s.name || s.script_id), h('span.row-sub', `${s.author_name} · ${rel(s.updated_at)}`)),
       h('span.row-chevron', icon('chevron-right', 16)));
   }
@@ -383,7 +385,7 @@
   // The lead card is real content, not decoration: the script you last worked on
   // (or the newest one published), with glass controls resting on its artwork.
   function spotlight(s, o) {
-    const art = cover(s.script_id, '.spotlight.pressable', 220);
+    const art = cover(s, '.spotlight.pressable', 220);
     art.tabIndex = 0;
     const button = ([label, iconName, onClick, solid]) => NT.glass.refract(
       h('button.art-btn.glass.on-art.interactive' + (solid ? '.solid' : ''), { type: 'button', onclick: (e) => { e.stopPropagation(); onClick(); } },
@@ -735,7 +737,7 @@
 
       group.firstElementChild.replaceWith(favButton(s, null, '.nav-group-btn'));
 
-      const heroEl = cover(s.script_id, '.detail-hero', 190);
+      const heroEl = cover(s, '.detail-hero', 190);
       const badges = [];
       if (!s.published_at) badges.push(h('span.badge.on-art', 'Draft'));
       if (API.isOutdated(s)) badges.push(h('span.badge.on-art', 'Outdated'));

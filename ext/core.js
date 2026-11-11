@@ -2,11 +2,11 @@
   Shared pieces for the backend extensions (no dependencies).
 
   Every extension lives in its own file next to this one and is mounted under
-  /x/<name> by ext/index.js. What they share is here: where data lives, how to
-  ask the upstream service who a request belongs to, and small HTTP helpers.
+  /x/<name> by ext/index.js. What they share is here: how to ask the upstream
+  service who a request belongs to, the rules for project files, and small HTTP
+  helpers. Nothing here writes to disk.
 
     NT_UPSTREAM   upstream origin            (default https://scripting.nulls.gg)
-    NT_DATA       where extensions keep data (default ./data)
     NT_TOOLS      where fetched tools live   (default ./.tools)
     NT_EXT        "off", or a comma list of extensions to load (default: all)
 */
@@ -14,13 +14,11 @@
 
 const http = require('http');
 const https = require('https');
-const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
 const ROOT = path.join(__dirname, '..');
 const UPSTREAM = new URL(process.env.NT_UPSTREAM || 'https://scripting.nulls.gg');
-const DATA_DIR = path.resolve(process.env.NT_DATA || path.join(ROOT, 'data'));
 const TOOLS_DIR = path.resolve(process.env.NT_TOOLS || path.join(ROOT, '.tools'));
 
 /* ---------- Errors and responses ---------- */
@@ -135,7 +133,8 @@ function upstream(method, apiPath, opts = {}) {
 /* ---------- Who is asking ---------- */
 
 // The session cookie is the upstream's; the only way to know whose it is, is to ask.
-// Answers are remembered briefly so a burst of requests asks once.
+// Answers are remembered for half a minute, in memory and under a hash of the cookie,
+// so a burst of requests asks once.
 const SESSION_TTL = 30000;
 const sessions = new Map(); // sha256(cookie) → { at, user }
 const asking = new Map();   // sha256(cookie) → the lookup under way
@@ -172,41 +171,7 @@ async function session(req) {
   return answer;
 }
 
-// Forget what is known about a cookie (after logout or a password change).
-function forgetSession(cookie) {
-  if (!cookie) return;
-  sessions.delete(cookieKey(cookie));
-  asking.delete(cookieKey(cookie));
-}
-
-async function requireUser(req) {
-  const user = await session(req);
-  if (!user) throw new HttpError(401, 'unauthorized');
-  return user;
-}
-
-// The script as the caller is allowed to see it, or null.
-async function script(req, scriptId) {
-  if (!isId(scriptId)) return null;
-  let res;
-  try { res = await upstream('GET', `/api/scripts/${encodeURIComponent(scriptId)}`, { cookie: req.headers.cookie }); }
-  catch (e) { throw new HttpError(502, 'upstream-unavailable'); }
-  return res.status === 200 && res.json && res.json.script_id ? res.json : null;
-}
-
-// → { user, script } when the caller is signed in and wrote this script.
-async function requireOwner(req, scriptId) {
-  const user = await requireUser(req);
-  const s = await script(req, scriptId);
-  if (!s) throw new HttpError(404, 'not-found');
-  if (s.author_uuid !== user.user_id) throw new HttpError(403, 'forbidden');
-  return { user, script: s };
-}
-
 /* ---------- Guards ---------- */
-
-// Ids arrive in URLs and become file names: letters, digits, dash and underscore only.
-const isId = (s) => typeof s === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(s);
 
 // A browser sends Origin with anything that is not a plain navigation. When it is
 // there it has to be this server; other pages do not get to act with the session.
@@ -246,60 +211,12 @@ function requireRate(name, req, max, windowMs) {
   if (!rateLimit(name, clientKey(req), max, windowMs)) throw new HttpError(429, 'slow-down');
 }
 
-/* ---------- Data on disk ---------- */
-
-// Everything goes under DATA_DIR/<area>/…; path parts must be ids or plain file names.
-const store = {
-  root: DATA_DIR,
-  // Absolute path for the parts given, refusing anything that could leave DATA_DIR.
-  path(...parts) {
-    for (const p of parts) {
-      if (typeof p !== 'string' || !/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,95}$/.test(p) || p.includes('..')) {
-        throw new HttpError(400, 'bad-id');
-      }
-    }
-    return path.join(DATA_DIR, ...parts);
-  },
-  async read(file) {
-    try { return await fs.promises.readFile(file); } catch (e) {
-      if (e.code === 'ENOENT') return null;
-      throw e;
-    }
-  },
-  async readJson(file, fallback = null) {
-    const buf = await store.read(file);
-    if (!buf) return fallback;
-    try { return JSON.parse(buf.toString('utf8')); } catch (e) { return fallback; }
-  },
-  // Written to a temporary name and renamed, so a reader never sees half a file.
-  async write(file, data) {
-    await fs.promises.mkdir(path.dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-    try {
-      await fs.promises.writeFile(tmp, data);
-      await fs.promises.rename(tmp, file);
-    } catch (e) {
-      fs.promises.unlink(tmp).catch(() => {});
-      throw e;
-    }
-  },
-  writeJson(file, value) {
-    return store.write(file, JSON.stringify(value));
-  },
-  async remove(file) {
-    try { await fs.promises.unlink(file); return true; } catch (e) {
-      if (e.code === 'ENOENT') return false;
-      throw e;
-    }
-  },
-};
-
 const sha256 = (data) => crypto.createHash('sha256').update(data).digest('hex');
 
 /* ---------- Project files ---------- */
 
 // A project is a flat map of path → text. The same rules hold wherever one is
-// accepted (stored, bundled, mirrored for the language server), so they live here.
+// accepted (bundled, mirrored for the language server), so they live here.
 const PROJECT = {
   maxFiles: 300,
   maxFileBytes: 1000000,
@@ -367,10 +284,10 @@ function checkEntry(files, entry) {
 }
 
 module.exports = {
-  ROOT, UPSTREAM, DATA_DIR, TOOLS_DIR,
+  ROOT, UPSTREAM, TOOLS_DIR,
   HttpError, send, readBody, readJson,
-  upstream, session, forgetSession, requireUser, script, requireOwner,
-  isId, sameOrigin, requireSameOrigin, clientKey, rateLimit, requireRate,
-  store, sha256,
+  upstream, session,
+  sameOrigin, requireSameOrigin, clientKey, rateLimit, requireRate,
+  sha256,
   PROJECT, badPath, checkFiles, checkEntry,
 };

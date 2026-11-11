@@ -3,16 +3,18 @@
 
   One file (main.luau) is the script itself and is saved as its text, exactly as
   typed. From the second file on it is a stored project (project.js): each save keeps
-  the sources with the local server, bundles them, and saves the bundle as the
-  script. The explorer (explorer.js) is how files come and go; the language server
-  (lsp.js) reads along where there is one.
+  the sources in the project's holder scripts, bundles them, and saves the bundle as
+  the script. The explorer (explorer.js) is how files come and go; the language
+  server (lsp.js) reads along where there is one.
 
   What can go wrong on a save, and what the line under the title then says:
 
-    Not saved       the request failed; the edits are kept on this device (nt.draft.<id>)
+    Not saved       the request failed, or the script is over the size limit; the
+                    edits are kept on this device (nt.draft.<id>)
     Bundle failed   the sources are stored, but they do not bundle: the script is as it
                     was. The places are marked in the files.
-    Too large       the same, with a bundle over the script size limit
+    Too large       the same, with a bundle over the script size limit (which what the
+                    script carries besides code, its project mark, counts towards)
     Conflict        the project was saved somewhere else since it was opened here.
                     Nothing more is saved until Save is pressed and a side is chosen.
 */
@@ -158,7 +160,7 @@
       paint();
       try {
         if (Object.keys(shot.files).length === 1) {
-          await API.saveContent(id, shot.files[ENTRY]);
+          await API.saveContent(id, shot.files[ENTRY], { project: null });
           stored(shot);
           stale = false;
           note = '';
@@ -186,8 +188,7 @@
           stale = true;
           stored(shot);
           const b = res.bundle;
-          if (b.code != null && b.fits) {
-            await API.saveContent(id, b.code);
+          if (b.code != null && Project.fits(id, b)) {
             await Project.report(id, b, base);
             stale = false;
             note = '';
@@ -209,7 +210,8 @@
         else if (trouble && warn) UI.toast(trouble, { warn: true });
       } catch (e) {
         failed = true;
-        UI.toast(String(e && e.message).includes('too long') ? 'Scripts are limited to 1,000,000 characters' : 'Couldn’t save', { warn: true });
+        const why = String(e && e.message);
+        UI.toast(why.includes('too long') ? 'Scripts are limited to 1,000,000 characters' : 'Couldn’t save', { warn: true });
       } finally {
         saving--;
         if (!gone) {
