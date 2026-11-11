@@ -191,7 +191,109 @@
       o.chevron ? h('span.row-chevron', icon('chevron-right', 16)) : null);
   }
 
-  const skeletons = (n, height) => Array.from({ length: n }, () => h('div.skel', { style: { height: height + 'px' } }));
+  /* ---------- Placeholders ---------- */
+
+  // What a page shows before its content arrives: the same components, with a bar where
+  // each run of words would be and a plain block for artwork (see .ph in app.css).
+  const times = (n, fn) => Array.from({ length: n }, (_, i) => fn(i));
+  const pick = (list, i) => list[i % list.length];
+  const bar = (w) => h('span.ph-bar', { style: { '--w': w } });
+  const block = (sel, w, ht) => h(sel + '.ph-block', { style: { width: w + 'px', height: (ht || w) + 'px' } });
+
+  const ph = {
+    card: (i) => h('article.card.script-card.ph',
+      h('div.cover'),
+      h('div.script-card-body',
+        h('h3', bar(pick(['58%', '44%', '66%', '50%'], i))),
+        h('p', bar('94%'), bar(pick(['62%', '38%', '74%', '52%'], i))),
+        h('footer', block('span.avatar', 22), bar(pick(['34%', '28%', '40%'], i))))),
+    cards: (n) => times(n, ph.card),
+    // o: { thumb | icon, sub, value }
+    row: (o, i) => h('div.row.ph' + (o.icon ? '.has-icon' : ''),
+      o.thumb ? h('div.thumb.ph-block') : null,
+      o.icon ? h('span.row-icon.ph-block') : null,
+      h('span.row-main',
+        h('span.row-title', bar(pick(['9em', '7em', '10.5em', '8em'], i))),
+        o.sub ? h('span.row-sub', bar(pick(['8em', '11em', '7em'], i))) : null),
+      o.value ? h('span.row-value', bar('52px')) : null),
+    list: (n, o) => h('div.list', times(n, (i) => ph.row(o, i))),
+    header: () => h('div.section-header.ph', h('h2', bar('6em'))),
+    // widths: of the buttons that will rest on the artwork.
+    spotlight: (widths) => h('div.cover.spotlight.ph',
+      h('span.spotlight-eyebrow', bar('10em')),
+      h('h2', bar('min(8em, 86%)')),
+      h('p', bar('7em')),
+      h('div.spotlight-actions', widths.map((w) => block('span.art-btn', w, 48)))),
+    detail: (signedIn) => [
+      h('div.cover.detail-hero.ph',
+        h('h1', bar('min(9em, 86%)')),
+        h('div.detail-meta', block('span.avatar', 26), bar('9em'))),
+      h('p.detail-desc.ph', bar('96%'), bar('58%')),
+      signedIn ? h('div.detail-actions.ph', block('span.pill-btn', 150, 40)) : null,
+      ph.header(),
+      h('div.param-groups', times(3, (i) => h('div.list', h('div.row.ph', h('span.row-title.headline', bar(pick(['8em', '11em', '9em'], i))))))),
+    ],
+    profile: (own) => [
+      h('div.profile-head',
+        h('span.avatar.ph-block.ph-ink', { style: { width: '104px', height: '104px' } }),
+        h('h1.ph', bar('6.4em')),
+        h('span.handle.ph', bar('4.6em')),
+        h('div.stats', times(own ? 3 : 2, () => h('div.stat.ph', h('b', bar('1.1em')), h('span', bar('3.6em')))))),
+      own ? h('div.list', { style: { marginTop: '22px' } }, ph.row({ icon: true }, 3)) : null,
+      ph.header(),
+      h('div.grid', ph.cards(3)),
+    ],
+  };
+
+  // What breathes inside a placeholder.
+  const INK = '.ph > *, .ph-ink';
+
+  // Stands a placeholder in `host` until its content arrives.
+  function hold(host, nodes, sel = '') {
+    const layer = h('div.ph-layer' + sel, { 'aria-hidden': 'true', inert: true }, nodes);
+    // The breath passes down the page: each piece starts a moment after the one before.
+    layer.querySelectorAll(INK).forEach((n, i) => n.style.setProperty('--i', i));
+    host.setAttribute('aria-busy', 'true');
+    host.replaceChildren(layer);
+  }
+
+  // Puts the content in `host` (nodes, or a function that does it). Where a placeholder
+  // was standing, it stays over the content and the two cross-fade: the first frame is
+  // the placeholder, the last is the content, and nothing moves in between.
+  //   beside: elements outside `host` that the content fills in as well.
+  function settle(host, fill, beside = []) {
+    const layer = [...host.children].find((n) => n.classList.contains('ph-layer'));
+    const fade = !!layer && !NT.util.reducedMotion() && host.getClientRects().length > 0;
+    // Taking the placeholder out of the page restarts its breath, so it is held where it was.
+    const ink = fade ? [...layer.querySelectorAll(INK)] : [];
+    const breath = ink.map((n) => getComputedStyle(n).opacity);
+    if (typeof fill === 'function') fill();
+    else host.replaceChildren(...fill.filter(Boolean));
+    host.removeAttribute('aria-busy');
+    if (layer) layer.remove();
+    if (!fade) return;
+    ink.forEach((n, i) => {
+      n.style.animation = 'none';
+      n.style.opacity = breath[i];
+    });
+    const timing = { duration: 300, easing: 'cubic-bezier(0.4, 0, 0.2, 1)' };
+    // Only what is on screen is worth a layer of its own.
+    const edge = window.innerHeight;
+    const seen = [...host.children, ...beside].filter((n) => {
+      const r = n.getBoundingClientRect();
+      return r.height && r.bottom > 0 && r.top < edge;
+    });
+    host.classList.add('ph-host');
+    layer.classList.add('is-clearing');
+    host.append(layer);
+    for (const n of seen) n.animate([{ opacity: 0 }, { opacity: 1 }], timing);
+    const done = () => {
+      layer.remove();
+      if (!host.querySelector(':scope > .ph-layer')) host.classList.remove('ph-host');
+    };
+    layer.animate([{ opacity: 1 }, { opacity: 0 }], Object.assign({ fill: 'forwards' }, timing)).finished.then(done, done);
+  }
+
   const byRecent = (list) => list.slice().sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
   const errorState = (retry) => emptyState('warning', 'Couldn’t Load', null, { label: 'Try Again', onClick: retry, style: 'gray' });
 
@@ -315,14 +417,15 @@
     return b;
   }
 
-  function scriptCard(s, ctx, index) {
+  // rise: the card's place in a staggered entrance; left out, it is simply there.
+  function scriptCard(s, ctx, rise) {
     const fav = API.session ? favButton(s, ctx, '.glass.on-art.interactive') : null;
     if (fav) NT.glass.shine(fav);
     const more = h('button.more-btn', { type: 'button', 'aria-label': 'Script actions', title: 'Script actions', onclick: (e) => { e.stopPropagation(); scriptMenu(more, s, ctx); } }, icon('ellipsis', 20));
     const art = cover(s, '', 96);
     if (!s.published_at) art.append(h('span.badge.on-art', 'Draft'));
     if (fav) art.append(fav);
-    const card = h('article.card.script-card.pressable.rise', { tabIndex: 0, style: { '--i': index || 0 } },
+    const card = h('article.card.script-card.pressable' + (rise == null ? '' : '.rise'), { tabIndex: 0, style: { '--i': rise || 0 } },
       art,
       h('div.script-card-body',
         h('h3', s.name || s.script_id),
@@ -414,12 +517,17 @@
         { label: 'New Script', icon: 'plus', onSelect: newScript },
         { label: 'Upload File', icon: 'upload', onSelect: () => fileInput.click() },
       ]));
-      page.setTrailing(add);
+      // While looking around, the way to the real thing stays in reach.
+      page.setTrailing(API.mode === 'demo' ? navPill('Sign In', signIn) : null, add);
     } else page.setTrailing(navPill('Sign In', signIn));
 
     async function load() {
       const me = API.session;
-      if (!loaded) body.replaceChildren(h('div.skel', { style: { height: '300px', borderRadius: 'var(--r-hero)' } }), sectionHeader(me ? 'My Scripts' : 'Recently Updated'), h('div.carousel', skeletons(3, 212)));
+      if (!loaded) {
+        hold(body, me
+          ? [ph.spotlight([103, 87]), sectionHeader('My Scripts'), h('div.carousel', ph.cards(5))]
+          : [ph.spotlight([87, 104]), sectionHeader('Recently Updated'), ph.list(5, { thumb: true, sub: true })]);
+      }
       try {
         const [all, mine, favs] = await Promise.all([
           API.scripts().catch(() => []),
@@ -430,23 +538,19 @@
         const fresh = JSON.stringify([all, mine, favs]);
         if (loaded && fresh === stamp) return;
         stamp = fresh;
-        render(me, all, mine, favs, !loaded);
+        render(me, all, mine, favs);
         loaded = true;
       } catch (e) {
         loaded = false;
         stamp = '';
-        body.replaceChildren(errorState(load));
+        settle(body, [errorState(load)]);
       }
     }
 
-    function render(me, all, mine, favs, animate) {
+    function render(me, all, mine, favs) {
       const ctx = { refresh: load, onFavorite: () => load() };
       const kids = [];
-      const card = (s, i) => {
-        const c = scriptCard(s, ctx, i);
-        if (!animate) c.classList.remove('rise');
-        return c;
-      };
+      const card = (s) => scriptCard(s, ctx);
 
       const latest = byRecent(mine)[0];
       const featured = byRecent(all.filter((s) => !me || s.author_uuid !== me.user_id))[0];
@@ -490,7 +594,7 @@
       // A refresh (a favourite changed, a script was published) keeps each row where it was scrolled.
       const at = {};
       for (const row of body.querySelectorAll('.carousel[data-row]')) at[row.dataset.row] = row.scrollLeft;
-      body.replaceChildren(...kids);
+      settle(body, kids);
       for (const row of body.querySelectorAll('.carousel[data-row]')) if (at[row.dataset.row]) row.scrollLeft = at[row.dataset.row];
     }
 
@@ -585,11 +689,7 @@
       count.textContent = query
         ? `${list.length} result${list.length === 1 ? '' : 's'}`
         : `${list.length} script${list.length === 1 ? '' : 's'}`;
-      lazyGrid(grid, page.scroll, list, (s, i) => {
-        const c = scriptCard(s, ctx, Math.min(i, 12));
-        if (!animate || i >= 24) c.classList.remove('rise');
-        return c;
-      }, keep ? grid._shown || 0 : 0);
+      lazyGrid(grid, page.scroll, list, (s, i) => scriptCard(s, ctx, animate && i < 24 ? Math.min(i, 12) : null), keep ? grid._shown || 0 : 0);
       if (!keep) page.scroll.scrollTop = 0; // a different list starts from its top
       if (!list.length) {
         grid.after(query
@@ -605,7 +705,7 @@
     async function load() {
       const me = API.session;
       const first = !data;
-      if (first) grid.replaceChildren(...skeletons(6, 216));
+      if (first) hold(grid, ph.cards(6), '.grid');
       try {
         const [all, mine, favs] = await Promise.all([
           API.scripts(),
@@ -618,12 +718,12 @@
         stamp = fresh;
         signedOut = false;
         data = { all, mine, favs };
-        render(first, !first);
+        settle(grid, () => render(false, !first), [count]);
       } catch (e) {
         stamp = '';
-        if (e && e.status === 401) { signedOut = true; data = { all: [], mine: [], favs: [] }; render(false); }
+        if (e && e.status === 401) { signedOut = true; data = { all: [], mine: [], favs: [] }; settle(grid, () => render(false)); }
         else {
-          emptyGrid();
+          settle(grid, emptyGrid);
           clearStates();
           grid.after(errorState(load));
         }
@@ -649,7 +749,7 @@
     page.el.classList.add('has-acc');
     const body = h('div');
     page.inner.append(body);
-    body.append(h('div.skel', { style: { height: '228px', borderRadius: 'var(--r-hero)' } }), h('div', { style: { height: '14px' } }), ...skeletons(2, 52));
+    hold(body, ph.detail(!!API.session));
 
     let script = null, params = [], releases = [];
     const values = {};
@@ -781,7 +881,7 @@
             h('time', { dateTime: r.created_at }, rel(r.created_at))),
           r.description ? h('p', r.description) : null))));
       }
-      body.replaceChildren(...kids);
+      settle(body, kids);
     }
 
     async function load() {
@@ -791,7 +891,10 @@
         page.accessory = null;
         page.el.classList.remove('has-acc');
         page.setTrailing();
-        body.replaceChildren(emptyState('doc', 'Script Not Found', null, { label: 'Browse Scripts', onClick: () => NT.nav.go('/scripts') }));
+        // Signed out, the service answers for nothing: that is not the script missing.
+        settle(body, [API.session || API.mode !== 'live'
+          ? emptyState('doc', 'Script Not Found', null, { label: 'Browse Scripts', onClick: () => NT.nav.go('/scripts') })
+          : emptyState('doc', 'Sign In to View', null, { label: 'Sign In', onClick: signIn })]);
         NT.nav.updateChrome();
         return;
       }
@@ -805,7 +908,7 @@
     let shown = false;
     page.onShow = () => {
       // Re-read on return (after editing or publishing) without resetting parameter choices.
-      load().catch(() => { if (!shown) body.replaceChildren(errorState(() => page.onShow())); });
+      load().catch(() => { if (!shown) settle(body, [errorState(() => page.onShow())]); });
       shown = true;
     };
     return page;
@@ -926,9 +1029,9 @@
 
     let listHost = null;
     function renderList() {
-      listHost.replaceChildren(maps.length
+      settle(listHost, [maps.length
         ? h('div.list', maps.map(mapRow))
-        : emptyState('map', 'No Maps Yet', 'Paste a room link to add one.', null, true));
+        : emptyState('map', 'No Maps Yet', 'Paste a room link to add one.', null, true)]);
     }
 
     function render() {
@@ -987,7 +1090,7 @@
         msg,
         listHost);
       if (maps) renderList();
-      else listHost.replaceChildren(h('div.list', skeletons(2, 60)));
+      else hold(listHost, ph.list(3, { icon: true, sub: true }));
     }
 
     // The form is built once: coming back to the tab must not wipe a half-typed link.
@@ -1007,7 +1110,7 @@
         renderList();
       } catch (e) {
         listed = '';
-        listHost.replaceChildren(errorState(() => page.onShow()));
+        settle(listHost, [errorState(() => page.onShow())]);
       }
     };
     return page;
@@ -1027,7 +1130,7 @@
       const me = API.session;
       const target = userId || (me && me.user_id);
       if (!target) return void body.replaceChildren(emptyState('person', 'Not Signed In', null, { label: 'Sign In', onClick: signIn }));
-      if (!loaded) body.replaceChildren(h('div.profile-head', h('div.skel', { style: { width: '104px', height: '104px', borderRadius: '50%' } }), h('div.skel', { style: { width: '180px', height: '30px', marginTop: '16px', borderRadius: '10px' } })));
+      if (!loaded) hold(body, ph.profile(!userId || (!!me && (userId === me.user_id || userId === '@' + me.username))));
       let user, scripts, favs;
       try {
         [user, scripts, favs] = await Promise.all([
@@ -1036,7 +1139,9 @@
           API.favorites(target).catch(() => []),
         ]);
       } catch (e) {
-        body.replaceChildren(e && e.status === 404 ? emptyState('person', 'User Not Found') : errorState(load));
+        settle(body, [e && e.status === 404 ? emptyState('person', 'User Not Found')
+          : e && e.status === 401 && !me ? emptyState('person', 'Sign In to View', null, { label: 'Sign In', onClick: signIn })
+            : errorState(load)]);
         loaded = false;
         return;
       }
@@ -1047,11 +1152,7 @@
       const own = !!me && user.user_id === me.user_id;
       page.setTitle(user.name || user.username);
       const ctx = { refresh: load, onFavorite: () => { if (own) load(); } };
-      const card = (s, i) => {
-        const c = scriptCard(s, ctx, Math.min(i, 10));
-        if (loaded) c.classList.remove('rise');
-        return c;
-      };
+      const card = (s) => scriptCard(s, ctx);
       const drafts = scripts.filter((s) => !s.published_at).length;
 
       // Your own avatar is the control that changes it (media.js).
@@ -1077,7 +1178,7 @@
       kids.push(scripts.length
         ? lazyGrid(h('div.grid'), page.scroll, byRecent(scripts), card)
         : emptyState('doc', 'No Scripts Yet', null, own ? { label: 'New Script', onClick: newScript } : null, true));
-      body.replaceChildren(...kids);
+      settle(body, kids);
       loaded = true;
     }
 
@@ -1108,6 +1209,8 @@
       if (me && !demo) account.push(row({ icon: 'key', tint: 'var(--label-3)', title: 'Password', value: me.has_password ? 'On' : 'Not set', chevron: true, onClick: () => UI.passwordSheet() }));
       if (!me || demo) account.push(row({ title: me ? 'Sign In With Your Account' : 'Sign In', accent: true, onClick: signIn }));
       kids.push(h('div.list', account));
+      kids.push(h('div.list', { style: { marginTop: '26px' } },
+        row({ icon: 'code', tint: 'var(--indigo)', title: 'Editor', chevron: true, onClick: () => NT.nav.go('/settings/editor') })));
 
       // Appearance
       const theme = UI.segmented([
@@ -1161,6 +1264,115 @@
 
     page.listen('session', render);
     page.onShow = render;
+    return page;
+  };
+
+  /* ---------- Editor settings ----------
+     How the editor behaves (editor-prefs.js). Reached from Settings and from the
+     editor's own menu; an editor that is open takes each change as it is made. */
+
+  const EP = NT.editorPrefs;
+
+  const switchRow = (title, key) =>
+    h('div.row', h('span.row-title', title), UI.toggle(EP.data[key], (on) => EP.set({ [key]: on }), title).el);
+
+  // A row whose value opens a menu of the values it can take. options: [[value, label]]
+  function pickRow(title, key, options) {
+    const value = h('span');
+    const pick = h('button.row-pick', { type: 'button', 'aria-label': title }, value, icon('sort', 15));
+    const sync = () => { value.textContent = (options.find((o) => o[0] === EP.data[key]) || options[0])[1]; };
+    pick.addEventListener('click', () => UI.menu(pick, options.map(([v, label]) => ({
+      label,
+      checked: EP.data[key] === v,
+      onSelect: () => { EP.set({ [key]: v }); sync(); },
+    }))));
+    sync();
+    return h('div.row', h('span.row-title', title), pick);
+  }
+
+  P.editorSettings = function () {
+    const page = makePage({ title: 'Editor', back: true, narrow: true, hideTabbar: true });
+    const body = h('div');
+    page.inner.append(body);
+    const header = (text) => h('h2.list-header', text);
+    let reset = null;
+
+    function render() {
+      const indent = UI.segmented([{ value: false, label: 'Tabs' }, { value: true, label: 'Spaces' }], EP.data.spaces, (v) => EP.set({ spaces: v }));
+      indent.el.classList.add('seg-inline');
+      const kids = [
+        h('div.list',
+          switchRow('Auto-Insert end', 'closeBlocks'),
+          switchRow('Auto-Close Brackets', 'closeBrackets'),
+          switchRow('Auto-Close Quotes', 'closeQuotes'),
+          switchRow('Suggest While Typing', 'suggest'),
+          pickRow('Accept on Enter', 'acceptEnter', [['smart', 'Smart'], ['on', 'Always'], ['off', 'Never']]),
+          switchRow('Autosave', 'autosave')),
+        header('Indentation'),
+        h('div.list',
+          h('div.row', h('span.row-title', 'Indent With'), indent.el),
+          pickRow('Width', 'tabSize', [2, 3, 4, 8].map((n) => [n, String(n)])),
+          switchRow('Detect From File', 'detectIndent')),
+        header('Display'),
+        h('div.list',
+          pickRow('Font Size', 'fontSize', EP.CHOICES.fontSize.slice().sort((a, b) => a - b).map((n) => [n, String(n)])),
+          pickRow('Line Numbers', 'lineNumbers', [['on', 'On'], ['relative', 'Relative'], ['off', 'Off']]),
+          switchRow('Word Wrap', 'wrap'),
+          switchRow('Minimap', 'minimap'),
+          switchRow('Sticky Scroll', 'sticky'),
+          switchRow('Show Whitespace', 'whitespace'),
+          switchRow('Indent Guides', 'guides'),
+          switchRow('Bracket Colors', 'bracketColors'),
+          switchRow('Smooth Caret', 'smoothCaret')),
+      ];
+      // The rest is the language server's to act on, where there is one.
+      if (NT.lsp.available()) {
+        const off = Object.keys(EP.data.lint).length;
+        kids.push(
+          header('Analysis'),
+          h('div.list',
+            pickRow('Type Checking', 'mode', [['nonstrict', 'Nonstrict'], ['strict', 'Strict'], ['nocheck', 'Off']]),
+            row({ title: 'Lint Rules', value: off ? `${off} Off` : 'All On', chevron: true, onClick: () => NT.nav.go('/settings/editor/lint') })),
+          header('Completion'),
+          h('div.list',
+            switchRow('Add Parentheses', 'parens'),
+            switchRow('Fill Arguments', 'fillArgs'),
+            switchRow('Parameter Hints', 'signatures')),
+          header('Inlay Hints'),
+          h('div.list',
+            pickRow('Parameter Names', 'hintNames', [['none', 'Off'], ['literals', 'Literals'], ['all', 'All']]),
+            switchRow('Variable Types', 'hintVars'),
+            switchRow('Parameter Types', 'hintParams'),
+            switchRow('Return Types', 'hintReturns')));
+      }
+      reset = h('div.list', { style: { marginTop: '26px' }, hidden: !EP.changed() }, row({ title: 'Reset', accent: true, onClick: async (e) => {
+        const ok = await UI.confirm({ title: 'Reset Editor Settings?', confirmLabel: 'Reset', destructive: true, source: e.currentTarget });
+        if (!ok) return;
+        EP.reset();
+        render();
+      } }));
+      kids.push(reset);
+      body.replaceChildren(...kids);
+    }
+
+    // Reset is there once there is something to reset.
+    page.listen('editor', () => { if (reset) reset.hidden = !EP.changed(); });
+    page.onShow = render;
+    return page;
+  };
+
+  P.lintRules = function () {
+    const page = makePage({ title: 'Lint Rules', back: true, narrow: true, hideTabbar: true });
+    // Named as a problem names them ("LocalUnused: …"), with the words apart.
+    page.inner.append(h('div.list', EP.LINTS.map((name) => {
+      const title = name.replace(/([a-z])([A-Z])/g, '$1 $2');
+      return h('div.row', h('span.row-title', title), UI.toggle(EP.data.lint[name] !== false, (on) => {
+        const lint = Object.assign({}, EP.data.lint);
+        if (on) delete lint[name];
+        else lint[name] = false;
+        EP.set({ lint });
+      }, title).el);
+    })));
     return page;
   };
 
@@ -1228,7 +1440,7 @@
         body.replaceChildren(emptyState('list', 'Not Signed In', null, { label: 'Sign In', onClick: signIn }));
         return;
       }
-      if (stamp === null) body.replaceChildren(h('div.list', skeletons(5, 60)));
+      if (stamp === null) hold(body, ph.list(6, { icon: true, sub: true, value: true }));
       let events, mine, all;
       try {
         [events, mine, all] = await Promise.all([
@@ -1238,7 +1450,7 @@
         ]);
       } catch (e) {
         stamp = null;
-        body.replaceChildren(emptyState('list', 'Audit Log Unavailable', null, { label: 'Try Again', onClick: load, style: 'gray' }));
+        settle(body, [emptyState('list', 'Audit Log Unavailable', null, { label: 'Try Again', onClick: load, style: 'gray' })]);
         return;
       }
       events = (Array.isArray(events) ? events : [])
@@ -1249,9 +1461,9 @@
       const fresh = JSON.stringify([events, [...scripts].map(([id, s]) => [id, s.name])]);
       if (fresh === stamp) return;
       stamp = fresh;
-      body.replaceChildren(events.length
+      settle(body, [events.length
         ? h('div.list', events.map((ev) => eventRow(ev, scripts)))
-        : emptyState('list', 'No Activity Yet'));
+        : emptyState('list', 'No Activity Yet')]);
     }
 
     page.onShow = load;

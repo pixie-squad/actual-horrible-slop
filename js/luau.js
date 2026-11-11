@@ -119,6 +119,160 @@
     return s;
   }
 
+  /* ---------- Blocks ----------
+     Which blocks are open at a point in the text, read the way the highlighter reads
+     it: comments and strings are stepped over, and an "if" that is a value
+     (local x = if a then b else c) is told from one that is a statement, since only
+     the statement has an "end". */
+
+  // An "if" straight after one of these is a value.
+  const VALUE_AFTER = new Set(['return', 'and', 'or', 'not', 'in', 'while', 'until', 'if', 'elseif']);
+  const VALUE_SIGN = /[=(,{[+\-*/%^<~#&|]$/;
+  const QUOTES = new Set(['"', "'", '`']);
+
+  // → { open: [{ word, at, body }], last: { text, word, value, at }, inside }
+  //   open    the blocks not closed before `end`, outermost first; `body` is where a
+  //           function's body starts, once its parameter list is closed
+  //   last    the last word or sign before `end`; `value` on a then / else of an "if" that is a value
+  //   inside  `end` is in the middle of a long comment or a string
+  function blocks(src, end = src.length) {
+    const open = [];
+    const conds = []; // every "if" not finished yet: true for a value
+    let last = null, inside = false;
+    let fn = null;    // the function whose parameter list is being read
+    let depth = 0;
+    let fresh = true; // nothing but space on this line so far
+    let i = 0;
+    const until = (stop) => {
+      if (stop > end) inside = true;
+      i = stop;
+    };
+    while (i < end) {
+      const c = src[i];
+      if (c === '\n') { fresh = true; i++; continue; }
+      if (c === ' ' || c === '\t' || c === '\r') { i++; continue; }
+
+      if (c === '-' && src[i + 1] === '-') {
+        LONG_OPEN.lastIndex = i + 2;
+        const m = LONG_OPEN.exec(src);
+        if (m) {
+          const close = src.indexOf(']' + m[1] + ']', i + 2 + m[0].length);
+          until(close < 0 ? src.length + 1 : close + m[1].length + 2);
+        } else {
+          // The end of a line comment is the end of its line: not in the middle of anything.
+          const nl = src.indexOf('\n', i);
+          i = nl < 0 ? src.length : nl;
+        }
+        continue;
+      }
+      if (c === '[') {
+        LONG_OPEN.lastIndex = i;
+        const m = LONG_OPEN.exec(src);
+        if (m) {
+          const close = src.indexOf(']' + m[1] + ']', i + m[0].length);
+          last = { text: '""', at: i };
+          fresh = false;
+          until(close < 0 ? src.length + 1 : close + m[1].length + 2);
+          continue;
+        }
+      }
+      if (QUOTES.has(c)) {
+        let j = i + 1;
+        while (j < src.length && src[j] !== c && src[j] !== '\n') j += src[j] === '\\' ? 2 : 1;
+        last = { text: '""', at: i };
+        fresh = false;
+        // Without its closing quote it runs to the end of the line, and the cursor there is still in it.
+        until(src[j] === c ? j + 1 : Math.min(j, src.length) + 1);
+        continue;
+      }
+
+      IDENT.lastIndex = i;
+      const id = IDENT.exec(src);
+      if (id) {
+        const word = id[0];
+        const member = !!last && (last.text === '.' || last.text === ':');
+        const token = { text: word, word: !member && KEYWORDS.has(word), at: i };
+        if (token.word) {
+          const owner = conds.length ? conds[conds.length - 1] : false;
+          if (word === 'function') {
+            const entry = { word, at: i, body: null };
+            open.push(entry);
+            fn = { entry, depth };
+          } else if (word === 'do' || word === 'repeat') {
+            open.push({ word, at: i, body: null });
+          } else if (word === 'if') {
+            let value = false;
+            if (last && last.word) value = VALUE_AFTER.has(last.text) || ((last.text === 'then' || last.text === 'else') && !!last.value);
+            // ">" also closes a type's parameters; only one that leaves the line unfinished compares.
+            else if (last && last.text === '>') value = !fresh;
+            else if (last) value = VALUE_SIGN.test(last.text);
+            conds.push(value);
+            if (!value) open.push({ word, at: i, body: null });
+            token.value = value;
+          } else if (word === 'then' || word === 'elseif') {
+            token.value = owner;
+          } else if (word === 'else') {
+            token.value = owner;
+            if (owner) conds.pop(); // a value ends with its else
+          } else if (word === 'end') {
+            const top = open.pop();
+            if (top && fn && fn.entry === top) fn = null;
+            if (top && top.word === 'if') while (conds.length && conds.pop());
+          } else if (word === 'until') {
+            if (open.length && open[open.length - 1].word === 'repeat') open.pop();
+          }
+        }
+        last = token;
+        fresh = false;
+        i += word.length;
+        continue;
+      }
+
+      NUMBER.lastIndex = i;
+      const num = NUMBER.exec(src);
+      if (num) {
+        last = { text: '0', at: i };
+        fresh = false;
+        i += num[0].length;
+        continue;
+      }
+
+      let text = c;
+      if (c === '.' && src[i + 1] === '.') text = src[i + 2] === '.' ? '...' : '..';
+      else if (c === ':' && src[i + 1] === ':') text = '::';
+      else if (c === '(') depth++;
+      else if (c === ')') {
+        depth--;
+        if (fn && depth === fn.depth) {
+          fn.entry.body = i + 1;
+          fn = null;
+        }
+      }
+      // "..." is a value like any name, not the end of something unfinished.
+      last = { text: text === '...' ? '0' : text, at: i };
+      fresh = false;
+      i += text.length;
+    }
+    return { open, last, inside };
+  }
+
+  // Would a new line at `at` want an "end" under it? True when what is right before
+  // it opens a block (then, do, a function's head) and the text as a whole has a block
+  // without its end. With every block closed there is nothing to add: the line is
+  // being opened inside a block that is already whole.
+  function wantsEnd(src, at) {
+    const here = blocks(src, at);
+    const top = here.open[here.open.length - 1];
+    if (here.inside || !here.last || !top) return false;
+    const { last } = here;
+    let opens = false;
+    if (last.word && last.text === 'then') opens = !last.value;
+    else if (last.word && last.text === 'do') opens = true;
+    // After the parameters there may be the type it returns, and nothing else yet.
+    else if (top.word === 'function' && top.body !== null) opens = /^[ \t]*(:[^\n]*?)?[ \t]*(--[^\n]*)?$/.test(src.slice(top.body, at));
+    return opens && blocks(src).open.length > 0;
+  }
+
   function viewer(source) {
     const src = source || '';
     const pre = h('pre.code-hl');
@@ -207,5 +361,5 @@
     };
   }
 
-  NT.luau = { highlight, viewer, editor };
+  NT.luau = { highlight, viewer, editor, blocks, wantsEnd };
 })();

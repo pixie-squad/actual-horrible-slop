@@ -247,6 +247,9 @@
           'editorWarning.foreground': token('--orange', '#ff8d28'),
           'editorInfo.foreground': token('--blue', '#0088ff'),
           'editorHint.foreground': '#' + c.c,
+          // What the language server writes between the words (types, parameter names).
+          'editorInlayHint.foreground': '#' + c.c,
+          'editorInlayHint.background': c.line,
           'editorUnnecessaryCode.opacity': '#00000099',
           'editor.rangeHighlightBackground': c.sel + '40',
           'editor.wordHighlightBackground': c.sel + '55',
@@ -297,6 +300,77 @@
   // Every mounted editor keeps its own set of files, told apart by this name in their addresses.
   const spaces = new Map();
   let spaceSeq = 0;
+
+  /* ---------- Settings ----------
+     What someone has set (editor-prefs.js), as Monaco's own options. A mounted editor
+     takes them when it is made and again whenever one changes. */
+
+  function tuned(readOnly) {
+    const p = NT.editorPrefs.data;
+    return {
+      fontSize: p.fontSize,
+      lineHeight: Math.round((p.fontSize * 20) / 13),
+      tabSize: p.tabSize,
+      insertSpaces: p.spaces,
+      detectIndentation: p.detectIndent,
+      wordWrap: p.wrap ? 'on' : 'off',
+      lineNumbers: p.lineNumbers,
+      minimap: { enabled: p.minimap },
+      stickyScroll: { enabled: p.sticky },
+      renderWhitespace: p.whitespace ? 'all' : 'selection',
+      guides: { indentation: p.guides, bracketPairs: false },
+      bracketPairColorization: { enabled: p.bracketColors },
+      cursorSmoothCaretAnimation: p.smoothCaret ? 'on' : 'off',
+      autoClosingBrackets: p.closeBrackets ? 'languageDefined' : 'never',
+      autoClosingQuotes: p.closeQuotes ? 'languageDefined' : 'never',
+      quickSuggestions: !readOnly && p.suggest,
+      suggestOnTriggerCharacters: p.suggest,
+      acceptSuggestionOnEnter: p.acceptEnter,
+      parameterHints: { enabled: p.signatures },
+      inlayHints: { enabled: NT.editorPrefs.hints() ? 'on' : 'off' },
+    };
+  }
+
+  // How a file is indented is the file's own: read from its text, or as set.
+  function indent(model) {
+    const p = NT.editorPrefs.data;
+    if (p.detectIndent) model.detectIndentation(p.spaces, p.tabSize);
+    else model.updateOptions({ insertSpaces: p.spaces, tabSize: p.tabSize, indentSize: p.tabSize });
+    model.updateOptions({ bracketColorizationOptions: { enabled: p.bracketColors, independentColorPoolPerBracketType: false } });
+  }
+
+  // Enter right after "then", "do" or a function's head also puts the "end" under the
+  // new line, when the block has none (NT.luau.wantsEnd). → false when this is not that.
+  function closeBlock(monaco, editor) {
+    const model = editor.getModel();
+    const sel = editor.getSelection();
+    if (!NT.editorPrefs.data.closeBlocks || !model || !sel || !sel.isEmpty() || model.getLanguageId() !== 'luau') return false;
+    const at = sel.getPosition();
+    const line = model.getLineContent(at.lineNumber);
+    const rest = line.slice(at.column - 1);
+    // Only with nothing after the cursor but what closes the call the block is in:
+    // foo(function()|) becomes foo(function() … end).
+    if (!/^[ \t]*[)\]},;]*[ \t]*$/.test(rest)) return false;
+    // Both read with \n line endings, whatever the model keeps, so the place is the same in each.
+    const LF = monaco.editor.EndOfLinePreference.LF;
+    const before = model.getValueInRange({ startLineNumber: 1, startColumn: 1, endLineNumber: at.lineNumber, endColumn: at.column }, LF);
+    if (!NT.luau.wantsEnd(model.getValue(LF), before.length)) return false;
+    const base = line.match(/^[ \t]*/)[0];
+    const o = model.getOptions();
+    const body = base + (o.insertSpaces ? ' '.repeat(o.indentSize) : '\t');
+    const gap = rest.match(/^[ \t]*/)[0].length;
+    const caret = new monaco.Selection(at.lineNumber + 1, body.length + 1, at.lineNumber + 1, body.length + 1);
+    // One step to undo, apart from the typing before it.
+    editor.pushUndoStop();
+    editor.executeEdits('nt.end', [{
+      range: new monaco.Range(at.lineNumber, at.column, at.lineNumber, at.column + gap),
+      text: '\n' + body + '\n' + base + 'end',
+      forceMoveMarkers: true,
+    }], [caret]);
+    editor.pushUndoStop();
+    editor.revealPosition(caret.getPosition());
+    return true;
+  }
 
   // Monaco builds its popups itself, the first time each is needed. As they arrive
   // they are given the app's glass: the same material and lens as its own menus.
@@ -381,6 +455,7 @@
       const model = monaco.editor.createModel(text, /\.json$/i.test(path) ? 'json' : 'luau', address('project', path));
       // Scripts are stored with plain \n line endings whatever the platform.
       model.setEOL(monaco.editor.EndOfLineSequence.LF);
+      indent(model);
       models.set(path, model);
       paths.set(model, path);
       serial.set(model, ++made);
@@ -418,27 +493,19 @@
 
     // Row height of the suggestion list comes from the stylesheet (taller for touch).
     const suggestRow = parseFloat(getComputedStyle(host).getPropertyValue('--sg-row')) || 34;
-    const editor = monaco.editor.create(host, {
+    const editor = monaco.editor.create(host, Object.assign({
       model: models.get(shown),
       theme: document.documentElement.dataset.theme === 'dark' ? 'nt-dark' : 'nt-light',
       readOnly: !!opts.readOnly,
       domReadOnly: !!opts.readOnly,
       automaticLayout: true,
       fontFamily: FONT,
-      fontSize: 13,
-      lineHeight: 20,
       fontLigatures: false,
       letterSpacing: 0,
-      tabSize: 4,
-      insertSpaces: false,
-      detectIndentation: true,
       padding: { top: 14, bottom: 14 },
-      minimap: { enabled: false },
-      stickyScroll: { enabled: false },
       scrollBeyondLastLine: false,
       smoothScrolling: true,
       cursorBlinking: 'smooth',
-      cursorSmoothCaretAnimation: 'on',
       cursorWidth: 2,
       roundedSelection: true,
       renderLineHighlight: opts.readOnly ? 'none' : 'line',
@@ -451,26 +518,44 @@
       overviewRulerBorder: false,
       hideCursorInOverviewRuler: true,
       scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false },
-      guides: { indentation: true, bracketPairs: false },
-      bracketPairColorization: { enabled: false },
       matchBrackets: 'always',
-      wordWrap: 'off',
       contextmenu: true,
       useShadowDOM: false,
       fixedOverflowWidgets: true,
       unicodeHighlight: { ambiguousCharacters: false, invisibleCharacters: false },
-      quickSuggestions: !opts.readOnly,
       suggestLineHeight: suggestRow,
       suggestFontSize: 14,
       hover: { delay: 350, above: false },
-      inlayHints: { enabled: 'off' },
       accessibilitySupport: 'auto',
       ariaLabel: opts.readOnly ? 'Script source' : 'Script editor',
-    });
+    }, tuned(!!opts.readOnly)));
     let popups = dressPopups(editor.getDomNode());
+    const retune = () => {
+      editor.updateOptions(tuned(!!opts.readOnly));
+      for (const model of models.values()) indent(model);
+    };
+    NT.bus.on('editor', retune);
     // An action belongs to this editor alone; a command would answer in every editor.
     if (opts.onSave) {
       editor.addAction({ id: 'nt.save', label: 'Save', keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS], run: () => opts.onSave() });
+    }
+
+    if (!opts.readOnly) {
+      editor.addAction({
+        id: 'nt.enter',
+        label: 'New Line',
+        keybindings: [monaco.KeyCode.Enter],
+        // Whenever the suggestion list does not take Enter for itself (Monaco's rule for
+        // that is: it is open, Enter accepts, and accepting would change the text).
+        keybindingContext: ['!suggestWidgetVisible', '!acceptSuggestionOnEnter', '!suggestionMakesTextEdit']
+          .map((free) => `editorTextFocus && !editorReadonly && !editorHasMultipleSelections && ${free}`).join(' || '),
+        run: () => {
+          // Whichever editor the key was pressed in, should two be alive at once.
+          const typing = editor.hasTextFocus() ? editor : monaco.editor.getEditors().find((e) => e.hasTextFocus()) || editor;
+          // Whatever it is not, it is Enter as Monaco types it, with its own indenting.
+          if (!closeBlock(monaco, typing)) typing.trigger('keyboard', 'type', { text: '\n' });
+        },
+      });
     }
 
     function show(model, at) {
@@ -585,6 +670,7 @@
       focus() { editor.focus(); },
       dispose() {
         spaces.delete(id);
+        NT.bus.off('editor', retune);
         watch.dispose();
         popups.disconnect();
         editor.dispose();

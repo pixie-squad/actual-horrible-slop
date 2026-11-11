@@ -129,7 +129,8 @@
     // the draft up again. It holds the whole project.
     const keepDraft = () => store.set(draftKey, { files: snapshot().files, minify, base, t: Date.now() });
     const stash = debounce(keepDraft, 300);
-    const autosave = debounce(() => { if (!clash) save(); }, 1000);
+    // With autosave off the edits still go to the draft; Save and Back send them.
+    const autosave = debounce(() => { if (!clash && NT.editorPrefs.data.autosave) save(); }, 1000);
     const changed = () => {
       failed = false;
       paint();
@@ -515,6 +516,8 @@
           !under && { label: 'Script Page', icon: 'doc', onSelect: () => NT.nav.go(`/scripts/${id}`) },
           !script.published_at && { label: 'Publish', icon: 'send', onSelect: async () => { if (await commit(false, more)) publishScript(script, () => { script.published_at = new Date().toISOString(); }); } },
           (!under || !script.published_at) && '-',
+          { label: 'Editor Settings', icon: 'gear', onSelect: () => NT.nav.go('/settings/editor') },
+          '-',
           { label: 'Delete', icon: 'trash', danger: true, onSelect: () => deleteScript(script, () => { deleted = true; store.remove(draftKey); NT.explorer.forget(id); NT.nav.back(); }, more) },
         ]);
       });

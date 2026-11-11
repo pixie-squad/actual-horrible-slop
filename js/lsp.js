@@ -4,7 +4,9 @@
   The local server runs luau-lsp for a signed-in session and talks to it over a
   WebSocket, one JSON-RPC message per frame (ext/lsp.js states the contract). This is
   that client and its wiring into Monaco: problems as markers, completion, hovers,
-  parameter hints, go to definition, references, rename and the symbol list.
+  parameter hints, inlay hints, go to definition, references, rename and the symbol
+  list. How strictly it checks and which lint rules are on is what the editor's
+  settings say (editor-prefs.js), sent when a session starts and whenever they change.
 
     NT.lsp.available()    is there a language server to talk to?
     NT.lsp.attach(space)  start a session for a mounted editor (monaco.js); → { dispose() }
@@ -30,6 +32,7 @@
   const sessions = new Map(); // the name in a model's address (see monaco.js) → session
   const defs = new Map();     // definition file name → Promise of its text
   let registered = false;
+  let refreshHints = null;    // asks Monaco to read the inlay hints again, once it can
 
   const isLuau = (path) => !/\.json$/i.test(path);
   const bytes = (text) => new TextEncoder().encode(text).length;
@@ -187,13 +190,32 @@
       if (socket) socket.close(1000);
     }
 
+    // How strictly to check, which lint rules are on, what to offer (editor-prefs.js).
+    // The server takes it at any time; one that does not know the message is not sent it.
+    let told = '';
+    function tune() {
+      if (!info().settings) return Promise.resolve(null);
+      const choices = NT.editorPrefs.server();
+      told = JSON.stringify(choices);
+      return ask('$/nt/settings', choices);
+    }
+    const onPrefs = () => {
+      // Most settings are the editor's alone.
+      if (JSON.stringify(NT.editorPrefs.server()) === told) return;
+      if (!socket || socket.readyState !== 1) return void wake(); // goes with the next start
+      tune().then(() => { if (ready && refreshHints) refreshHints(); });
+    };
+    NT.bus.on('editor', onPrefs);
+
     async function start(ws) {
+      tune();
       const answer = await ask('initialize', { processId: null, rootUri: 'file:///project', capabilities: {} });
       if (socket !== ws || !answer || answer.error) return;
       notify('initialized', {});
       mirror();
       for (const path of space.paths()) if (isLuau(path)) openDocument(path);
       ready = true;
+      if (refreshHints) refreshHints();
       // A session that lasts has recovered; one that keeps dropping waits longer each time.
       steady = setTimeout(() => { attempt = 0; }, 10000);
     }
@@ -302,6 +324,7 @@
       dispose() {
         gone = true;
         clearTimeout(retry);
+        NT.bus.off('editor', onPrefs);
         offs.forEach((off) => off());
         window.removeEventListener('pagehide', onHide);
         window.removeEventListener('pageshow', onShow);
@@ -418,6 +441,32 @@
     L.registerDefinitionProvider('luau', { provideDefinition: locate('textDocument/definition') });
     L.registerTypeDefinitionProvider('luau', { provideTypeDefinition: locate('textDocument/typeDefinition') });
     L.registerReferenceProvider('luau', { provideReferences: locate('textDocument/references', true) });
+
+    // Types and parameter names written between the words. Which of them is the
+    // server's to decide, from the settings; with all of them off it is not asked.
+    const hintsChanged = new monaco.Emitter();
+    refreshHints = () => hintsChanged.fire();
+    L.registerInlayHintsProvider('luau', {
+      onDidChangeInlayHints: hintsChanged.event,
+      async provideInlayHints(model, range, token) {
+        const s = NT.editorPrefs.hints() ? of(model) : null;
+        const res = s && await s.request('textDocument/inlayHint', { textDocument: { uri: s.uriOf(model) }, range: fromRange(range) }, token);
+        if (!Array.isArray(res)) return null;
+        return {
+          hints: res.filter((hint) => hint && hint.position && hint.label != null).map((hint) => ({
+            position: { lineNumber: hint.position.line + 1, column: hint.position.character + 1 },
+            label: typeof hint.label === 'string' ? hint.label : hint.label.map((part) => part.value).join(''),
+            kind: hint.kind,
+            paddingLeft: !!hint.paddingLeft,
+            paddingRight: !!hint.paddingRight,
+            tooltip: prose(hint.tooltip),
+            // Double-click writes the type into the code.
+            textEdits: hint.textEdits && hint.textEdits.map((e) => ({ range: toRange(e.range), text: e.newText })),
+          })),
+          dispose() {},
+        };
+      },
+    });
 
     L.registerDocumentHighlightProvider('luau', {
       async provideDocumentHighlights(model, position, token) {

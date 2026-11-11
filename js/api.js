@@ -5,7 +5,9 @@
          server.js (same endpoints and payloads the original site uses).
   demo – an in-browser store seeded from data.js and saved to localStorage.
 
-  Pages only ever call NT.api.*, so they behave the same on either.
+  Pages only ever call NT.api.*, so they behave the same on either. Behind the local
+  server the app is live, signed in or not; the sample data is what there is without
+  that server, and otherwise only what someone asks to look around in (demoSignIn).
 
   The local server keeps nothing. What the app adds to the service is kept in the
   service's own scripts or in this browser:
@@ -514,12 +516,25 @@
   let db = null;
   const persist = debounce(() => store.set(DEMO_KEY, db), 150);
 
+  // Looking around on sample data is asked for (the sign-in sheet), never fallen into:
+  // a session that ran out leaves the app signed out, not signed in as someone made up.
+  // It lasts as long as the tab does.
+  const LOOK_KEY = 'nt.look';
+  const looking = () => {
+    try { return sessionStorage.getItem(LOOK_KEY) === '1'; } catch (e) { return false; }
+  };
+  const look = (on) => {
+    try {
+      if (on) sessionStorage.setItem(LOOK_KEY, '1');
+      else sessionStorage.removeItem(LOOK_KEY);
+    } catch (e) { /* no storage: it lasts as long as the page */ }
+  };
+
   function loadDemo() {
     db = store.get(DEMO_KEY, null);
-    if (!db || db.version !== 3) {
-      db = NT.seed();
-      store.set(DEMO_KEY, db);
-    }
+    if (!db || db.version !== 3) db = NT.seed();
+    db.signedIn = looking();
+    store.set(DEMO_KEY, db);
   }
 
   const lag = () => wait(140 + Math.random() * 220);
@@ -584,6 +599,14 @@
             if (res.ok) {
               this.session = await res.json();
               this.mode = 'live';
+              look(false);
+              db.signedIn = false;
+              return;
+            }
+            // Signed out of the real service. That is what the app shows.
+            if (!db.signedIn) {
+              this.mode = 'live';
+              this.session = null;
               return;
             }
           }
@@ -614,6 +637,8 @@
       forget();
       this.session = await live('/users/me');
       this.mode = 'live';
+      look(false);
+      db.signedIn = false;
       log('UserLogin', this.session.user_id);
     },
     async register(name, username, password) {
@@ -622,10 +647,14 @@
       forget();
       this.session = await live('/users/me');
       this.mode = 'live';
+      look(false);
+      db.signedIn = false;
       log('UserRegister', this.session.user_id);
     },
+    // Look around: the sample data, as its sample user.
     async demoSignIn() {
       await lag();
+      look(true);
       db.signedIn = true;
       persist();
       this.mode = 'demo';
@@ -639,9 +668,10 @@
         } catch (e) { /* session may already be gone */ }
         forget();
       } else await lag();
+      look(false);
       db.signedIn = false;
       persist();
-      this.mode = 'demo';
+      this.mode = this.liveAvailable ? 'live' : 'demo';
       this.session = null;
     },
     async changePassword(oldPassword, newPassword) {

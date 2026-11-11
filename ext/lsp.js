@@ -24,6 +24,19 @@
   when sent without one. Files open in the editor go through didOpen / didChange /
   didClose as usual and take precedence over the mirror.
 
+  How strictly it checks and what it offers is the client's to say, within a fixed
+  list, with $/nt/settings at any time, before initialize included:
+
+    { mode: "nonstrict" | "strict" | "nocheck",
+      lint: { LocalUnused: false, … },                    rules to turn off, by Luau's names
+      completion: { addParentheses, fillCallArguments },  booleans
+      inlayHints: { parameterNames: "none" | "literals" | "all",
+                    variableTypes, parameterTypes, functionReturnTypes } }
+
+  Every part may be left out and is then as this server sets it. Anything not on the
+  list is refused (bad-settings). Sent with an id it is answered (result null) once
+  luau-lsp has taken the change, and the open documents are checked again.
+
   luau-lsp runs on the "standard" platform with types.d.luau then globals.d.luau
   loaded, no Roblox globals, push diagnostics, and no FunctionUnused warning for the
   global functions the game calls (tick). Go-to-definition and go-to-type-definition
@@ -151,7 +164,7 @@ function typeNames(code) {
 /* ---------- luau-lsp configuration ---------- */
 
 // Answered to workspace/configuration and also given with --settings, so it holds
-// before the first answer arrives. The client cannot change it.
+// before the first answer arrives. A client changes only what TUNABLE lists.
 const SETTINGS = {
   platform: { type: 'standard' },
   sourcemap: { enabled: false, autogenerate: false },
@@ -171,6 +184,55 @@ const SETTINGS = {
   plugins: { enabled: false, paths: [] },
 };
 const SETTINGS_FILE = JSON.stringify(Object.fromEntries(Object.entries(SETTINGS).map(([k, v]) => ['luau-lsp.' + k, v])));
+
+// What a client may set ($/nt/settings): for each, a type or the values it can take.
+const TUNABLE = {
+  completion: { addParentheses: 'boolean', fillCallArguments: 'boolean' },
+  inlayHints: { parameterNames: ['none', 'literals', 'all'], variableTypes: 'boolean', parameterTypes: 'boolean', functionReturnTypes: 'boolean' },
+};
+// How strictly Luau checks, and its lint rules, are not settings of luau-lsp's but a
+// .luaurc at the project's root. No project path starts with a dot, so it is never
+// one of the project's files.
+const RC = '.luaurc';
+const MODES = ['nonstrict', 'strict', 'nocheck']; // the first is what Luau does unasked
+const LINTS = new Set(['UnknownGlobal', 'DeprecatedGlobal', 'GlobalUsedAsLocal', 'LocalShadow', 'SameLineStatement', 'MultiLineStatement', 'LocalUnused', 'FunctionUnused', 'ImportUnused', 'BuiltinGlobalWrite', 'PlaceholderRead', 'UnreachableCode', 'UnknownType', 'ForRange', 'UnbalancedAssignment', 'ImplicitReturn', 'DuplicateLocal', 'FormatString', 'TableLiteral', 'UninitializedLocal', 'DuplicateFunction', 'DeprecatedApi', 'TableOperations', 'DuplicateCondition', 'MisleadingAndOr', 'CommentDirective', 'IntegerParsing', 'ComparisonPrecedence', 'RedundantNativeAttribute']);
+
+const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const plain = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+
+// A client's choices, checked. → { settings, rc }: luau-lsp's settings with them in,
+// and the text of the .luaurc that says the rest ('' when there is nothing to say).
+function tuned(p) {
+  const bad = (what) => new Refused(ERR.params, 'bad-settings', { setting: String(what).slice(0, 100) });
+  for (const key of Object.keys(p)) if (key !== 'mode' && key !== 'lint' && !own(TUNABLE, key)) throw bad(key);
+  const settings = Object.assign({}, SETTINGS);
+  for (const [section, fields] of Object.entries(TUNABLE)) {
+    if (p[section] === undefined) continue;
+    if (!plain(p[section])) throw bad(section);
+    const next = Object.assign({}, SETTINGS[section]);
+    for (const [name, value] of Object.entries(p[section])) {
+      const kind = own(fields, name) ? fields[name] : null;
+      if (!kind || (Array.isArray(kind) ? !kind.includes(value) : typeof value !== kind)) throw bad(`${section}.${name}`);
+      next[name] = value;
+    }
+    settings[section] = next;
+  }
+  const rc = {};
+  if (p.mode !== undefined) {
+    if (!MODES.includes(p.mode)) throw bad('mode');
+    if (p.mode !== MODES[0]) rc.languageMode = p.mode;
+  }
+  if (p.lint !== undefined) {
+    if (!plain(p.lint)) throw bad('lint');
+    const off = {};
+    for (const [name, on] of Object.entries(p.lint)) {
+      if (!LINTS.has(name) || typeof on !== 'boolean') throw bad(`lint.${name}`);
+      if (!on) off[name] = false;
+    }
+    if (Object.keys(off).length) rc.lint = off;
+  }
+  return { settings, rc: Object.keys(rc).length ? JSON.stringify(rc) : '' };
+}
 
 // What luau-lsp is told the client can do. No pull diagnostics (it then pushes
 // them), UTF-16 positions (as in JavaScript strings), plain Location results.
@@ -381,6 +443,9 @@ class Session {
     this.docChars = 0;
     this.mirror = new Map();   // files on disk: project path → text
     this.unannounced = [];     // disk changes made before luau-lsp was initialized
+    this.settings = SETTINGS;  // luau-lsp's, with what the client chose ($/nt/settings)
+    this.rc = '';              // the .luaurc on disk ('' for none)
+    this.configured = null;    // called when luau-lsp next asks for its settings
     this.queued = 0;
     this.second = 0;
     this.inSecond = 0;
@@ -429,6 +494,7 @@ class Session {
     this.ended = true;
     sessions.delete(this);
     clearTimeout(this.idle);
+    if (this.configured) this.configured();
     for (const entry of this.pending.values()) if (entry.internal) entry.internal(null);
     this.pending.clear();
     this.byClient.clear();
@@ -689,6 +755,11 @@ class Session {
 
   async custom(msg, params, isRequest) {
     if (!params || typeof params !== 'object' || Array.isArray(params)) throw new Refused(ERR.params, 'bad-params');
+    if (msg.method === '$/nt/settings') {
+      await this.configure(params);
+      if (isRequest) this.toClient({ jsonrpc: '2.0', id: msg.id, result: null }, true);
+      return;
+    }
     let next;
     try {
       next = this.planMirror(msg.method, params);
@@ -703,6 +774,42 @@ class Session {
       throw new Refused(ERR.internal, 'write-failed');
     }
     if (isRequest) this.toClient({ jsonrpc: '2.0', id: msg.id, result: null }, true);
+  }
+
+  // $/nt/settings: how this session's luau-lsp checks and what it offers.
+  async configure(p) {
+    const next = tuned(p);
+    const same = JSON.stringify(next.settings) === JSON.stringify(this.settings);
+    this.settings = next.settings;
+    let change = null;
+    if (next.rc !== this.rc) {
+      const file = path.join(this.projectDir, RC);
+      try {
+        if (next.rc) await fs.promises.writeFile(file, next.rc);
+        else await fs.promises.rm(file, { force: true });
+      } catch (e) {
+        throw new Refused(ERR.internal, 'write-failed');
+      }
+      change = { uri: `${this.rootUri}/${RC}`, type: !next.rc ? 3 : this.rc ? 2 : 1 };
+      this.rc = next.rc;
+    }
+    if (this.ended || (same && !change)) return;
+    // Before luau-lsp is initialized there is nothing to tell it: it reads both then.
+    if (this.phase !== 'ready') {
+      if (change) this.unannounced.push(change);
+      return;
+    }
+    // Told that its settings changed, luau-lsp asks for them again. The client's
+    // answer waits for that, so whatever it asks next is answered under the new ones.
+    if (!same) {
+      let timer = null;
+      const asked = new Promise((resolve) => { this.configured = resolve; });
+      this.toServer({ jsonrpc: '2.0', method: 'workspace/didChangeConfiguration', params: { settings: null } });
+      await Promise.race([asked, new Promise((resolve) => { timer = setTimeout(resolve, INTERNAL_WAIT); })]);
+      clearTimeout(timer);
+      this.configured = null;
+    }
+    if (change && !this.ended) this.announce([change]);
   }
 
   // The mirror as it should be after this change, checked against the project rules.
@@ -859,7 +966,8 @@ class Session {
     switch (msg.method) {
       case 'workspace/configuration': {
         const items = msg.params && Array.isArray(msg.params.items) ? msg.params.items : [];
-        result = items.map((item) => (item && item.section === 'luau-lsp' ? SETTINGS : null));
+        result = items.map((item) => (item && item.section === 'luau-lsp' ? this.settings : null));
+        if (this.configured) this.configured();
         break;
       }
       case 'workspace/workspaceFolders':
@@ -1099,6 +1207,7 @@ module.exports = {
       defs: DEFS_URI,
       definitions: (DEFS || []).map((d) => d.name),
       signIn: true,
+      settings: true, // $/nt/settings is understood
       limits: {
         messageBytes: MAX_MESSAGE,
         files: PROJECT.maxFiles,

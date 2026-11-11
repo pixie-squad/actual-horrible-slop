@@ -28,6 +28,8 @@
     if ((m = pn.match(/^\/users\/([^/]+)\/maps$/))) return { path: '/maps', tab: true, root: '/maps', make: () => P.maps() };
     if ((m = pn.match(/^\/users\/([^/]+)(?:\/scripts)?$/) || pn.match(/^\/(@[^/]+)(?:\/scripts)?$/))) return { path: pn, root: '/scripts', make: () => P.user(decode(m[1])) };
     if (pn === '/settings') return { path: pn, root: '/profile', make: () => P.settings() };
+    if (pn === '/settings/editor') return { path: pn, root: '/profile', parents: ['/settings'], make: () => P.editorSettings() };
+    if (pn === '/settings/editor/lint') return { path: pn, root: '/profile', parents: ['/settings', '/settings/editor'], make: () => P.lintRules() };
     if (pn === '/login' || pn === '/register') return { path: '/', tab: true, root: '/', modal: pn.slice(1), make: () => P.home() };
     if (pn === '/logout') return { path: '/', tab: true, root: '/', action: 'logout', make: () => P.home() };
     return { path: pn, root: '/', make: () => P.notFound() };

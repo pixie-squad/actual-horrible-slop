@@ -456,6 +456,11 @@
 .btn.danger.filled { background: var(--red); color: #fff; }
 .btn.small { height: 34px; padding: 0 14px; font-size: 15px; }
 .btn.block { display: flex; width: 100%; }
+/* A way on that is not the point of the screen: small text, no shape of its own. */
+.text-btn { position: relative; align-self: center; padding: 4px 10px; border-radius: 999px; font-size: 13px; line-height: 18px; color: var(--label-2); transition: opacity 0.15s; }
+.text-btn::after { content: ""; position: absolute; inset: -9px 0; }
+.text-btn:active { opacity: 0.5; }
+@media (hover: hover) { .text-btn:hover { color: var(--label); } }
 
 /* Glass action resting in the page. */
 .pill-btn {
@@ -575,13 +580,38 @@ button.row:active, a.row:active { background: var(--fill); }
 }
 .callout .icon { color: var(--orange); margin-top: 1px; }
 
-.skel {
-  border-radius: var(--r-card);
-  background: linear-gradient(100deg, var(--fill) 30%, var(--fill-2) 50%, var(--fill) 70%);
-  background-size: 300% 100%;
-  animation: shimmer 1.5s linear infinite;
+/* Placeholders. Content that has not arrived yet is its own layout with the words and
+   the artwork left out: the same elements at the same sizes, so nothing moves when it
+   comes. `.ph` marks a piece; what is inside it breathes, its surface holds still. */
+.ph-layer { pointer-events: none; -webkit-user-select: none; user-select: none; }
+.ph-layer .carousel { overflow: hidden; }
+.grid > .ph-layer { grid-column: 1 / -1; }
+.ph > *, .ph-ink { animation: ph-breathe 1.8s ease-in-out infinite; animation-delay: calc(var(--i, 0) * 45ms); }
+@keyframes ph-breathe { 50% { opacity: 0.5; } }
+
+/* A word or a line of text. It sits in the element the text would, and takes its size from it. */
+.ph-bar {
+  display: inline-block;
+  flex: none;
+  vertical-align: middle;
+  width: var(--w, 60%);
+  max-width: 100%;
+  height: 0.66em;
+  border-radius: 0.3em;
+  background: var(--fill-2);
 }
-@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -50% 0; } }
+/* Artwork, a symbol, a button. */
+.ph-block, .ph .cover { background: var(--fill); }
+.ph.cover { background: var(--surface); }
+.ph.cover::after { content: none; }
+.ph .art-btn, .ph .pill-btn { padding: 0; border-radius: 999px; }
+/* A shadow would push the dissolving layer's edge off the pixel grid and soften every edge in it. */
+.script-card.ph { box-shadow: none; }
+
+/* The content has arrived and lies underneath; the placeholder dissolves into it. Added
+   light is a true cross-fade: where both are the same surface, nothing changes at all. */
+.ph-host { position: relative; isolation: isolate; }
+.ph-layer.is-clearing { position: absolute; inset: 0 0 auto 0; z-index: 1; mix-blend-mode: plus-lighter; }
 
 .rise { animation: rise var(--dur-smooth) var(--spring-smooth) both; animation-delay: calc(var(--i, 0) * 38ms); }
 @keyframes rise { from { opacity: 0; transform: translateY(16px) scale(0.98); } }
@@ -676,7 +706,7 @@ button.row:active, a.row:active { background: var(--fill); }
 
 .filter-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
 .filter-bar .seg { flex: 1; max-width: 420px; }
-.count-line { margin: 12px 4px 10px; }
+.count-line { margin: 12px 4px 10px; min-height: 18px; }
 
 /* ---------- Script detail ---------- */
 
@@ -798,6 +828,7 @@ button.row:active, a.row:active { background: var(--fill); }
 
 .profile-head { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 8px 0 6px; }
 .profile-head .avatar { box-shadow: 0 10px 30px rgb(0 0 0 / 0.16); }
+.profile-head .avatar.ph-block { box-shadow: none; }
 .profile-head h1 { margin-top: 14px; font-size: 28px; line-height: 34px; font-weight: 700; letter-spacing: var(--track-display); }
 .profile-head .handle { color: var(--label-2); font-size: 17px; }
 .stats { display: flex; gap: 10px; margin-top: 18px; width: 100%; max-width: 420px; }

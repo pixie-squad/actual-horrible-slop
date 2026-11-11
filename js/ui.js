@@ -662,13 +662,14 @@
     const error = h('p.form-error', { role: 'alert' });
     const submit = h('button.btn.filled.block', { type: 'submit' }, 'Log In');
     const seg = UI.segmented([{ value: 'login', label: 'Log In' }, { value: 'register', label: 'Create Account' }], mode, (v) => { mode = v; sync(); });
-    const onDemo = api.mode === 'demo' && !!api.session;
+    // The sample data is a quiet way past the form, not a second way to sign in.
+    const looking = api.mode === 'demo' && !!api.session;
     const form = h('form.form-stack', { novalidate: true },
       seg.el,
       h('div.list', name.row, username.row, password.row),
       error,
       submit,
-      onDemo ? null : h('button.btn.gray.block', { type: 'button', onclick: useDemo }, 'Use Demo Account'));
+      looking ? null : h('button.text-btn', { type: 'button', onclick: lookAround }, 'Just look around'));
 
     function sync() {
       name.row.hidden = mode !== 'register';
@@ -680,7 +681,7 @@
 
     const sheet = UI.sheet({ title: 'Sign In', body: form });
 
-    async function useDemo() {
+    async function lookAround() {
       await api.demoSignIn();
       sheet.close();
       NT.nav.reset();

@@ -85,6 +85,9 @@ Prefer space and grouping to a line. Where a line is right:
   on the content it belongs to (`NT.media.editable`, `align: 'center'`).
 - An animation is right in every frame, not only once it has settled. The last
   animated frame and the frame after the swap are identical.
+- Content that has not arrived is its own layout with the words and artwork left out,
+  never a blank block (`ph`, `hold`). It dissolves into the content in place; nothing
+  moves (`settle`).
 - An action never navigates as a side effect.
 - Defaults are the quiet state: closed, collapsed, unselected.
 
