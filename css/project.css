@@ -14,79 +14,145 @@
 .editor-side > .explorer { width: 260px; height: 100%; }
 @media (max-width: 819.98px) { .editor-side { display: none; } }
 
-/* ---------- Explorer ---------- */
+/* ---------- Explorer ----------
+   A finger needs 44px to land on. Where there is no touch screen at all a pointer does
+   with less, and a tree is better for the rows it then has room to show. */
 
-.explorer { display: flex; flex-direction: column; min-height: 0; -webkit-user-select: none; user-select: none; }
+.explorer { --row: 44px; display: flex; flex-direction: column; min-height: 0; -webkit-user-select: none; user-select: none; }
+@media not (any-pointer: coarse) { .explorer { --row: 32px; } }
 .sheet-body > .explorer { border-radius: var(--r-card); background: var(--surface); }
 
-/* Rows sit 6px inside the card, so their corners are the card's less that (26 − 6). */
-.ex-bar { flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 6px 0; }
-.ex-new, .ex-more { display: flex; align-items: center; height: 44px; border-radius: 20px; transition: background 0.15s; }
-.ex-new { flex: 1; min-width: 0; gap: 10px; padding: 0 12px; font-size: 15px; line-height: 20px; font-weight: 500; color: var(--accent); }
-.ex-more { flex: none; justify-content: center; width: 44px; color: var(--label-2); }
+/* Everything sits 6px inside the card, so its corners are the card's less that (26 − 6). */
+.ex-bar { flex: none; display: flex; align-items: center; gap: 2px; padding: 6px 6px 2px; }
+.ex-gap { flex: 1; }
+.ex-btn { flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; color: var(--label-2); transition: background 0.15s, transform var(--dur-bouncy) var(--spring-bouncy); }
+.ex-btn.new { color: var(--accent); }
+.ex-btn:active { transform: scale(0.9); transition-duration: 0.15s, 0.12s; transition-timing-function: ease, var(--ease-out); }
+@media not (any-pointer: coarse) { .ex-btn { width: 34px; height: 34px; } }
 
 .ex-tree { flex: 1; min-height: 0; overflow-y: auto; padding: 0 6px 6px; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--fill-2) transparent; }
+.ex-root { position: relative; min-height: 100%; border-radius: 20px; transition: background 0.15s; }
+
 .ex-row {
   --depth: 0;
-  --pad: calc(12px + var(--depth) * 16px);
   position: relative;
+  z-index: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 0 12px 0 var(--pad);
+  gap: 7px;
+  height: var(--row);
+  padding: 0 calc((var(--row) - 28px) / 2) 0 calc(8px + var(--depth) * 18px);
   border-radius: 20px;
   font-size: 15px;
   line-height: 20px;
   color: var(--label);
   cursor: pointer;
   -webkit-touch-callout: none;
-  transition: background 0.15s;
 }
-/* A hairline between rows, inset to the text; none above the first or below the last. */
-.ex-row + .ex-row::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  left: calc(var(--pad) + 46px);
-  right: 12px;
-  height: var(--hairline);
-  background: var(--sep);
-  transition: opacity 0.15s;
-}
-.ex-row .icon { color: var(--label-2); }
-.ex-twist { flex: none; display: grid; place-items: center; width: 12px; height: 20px; }
-.ex-twist .icon { color: var(--label-3); transition: transform 0.24s var(--ease-out); }
-.ex-row[aria-expanded="true"] > .ex-twist .icon { transform: rotate(90deg); }
+/* What lights a row: pointed at, pressed, chosen. It is its own layer, so it can travel
+   from the row that was chosen to the one that is (explorer.js). */
+.ex-row::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; transition: background 0.15s; }
+.ex-row.ex-snap::before { transition: none; }
+.ex-row > .icon { color: var(--label-2); }
+.ex-twist { flex: none; display: grid; place-items: center; width: 16px; height: 20px; }
+.ex-twist .icon { color: var(--label-3); transition: transform var(--dur-bouncy) var(--spring-bouncy); }
+.ex-node.is-open > .ex-row .ex-twist .icon { transform: rotate(90deg); }
 .ex-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* The open file takes the accent. */
-.ex-row.is-open, .ex-row.is-open > .icon { color: var(--accent); }
+/* The open file takes the accent. What was cut waits, dimmed, to be pasted. */
+.ex-row.is-current, .ex-row.is-current > .icon { color: var(--accent); }
+.ex-row.is-cut > .icon, .ex-row.is-cut > .ex-name { opacity: 0.45; }
 
 /* Unsaved edits, or a problem inside: a small dot, nothing more. */
 .ex-mark { flex: none; width: 6px; height: 6px; border-radius: 50%; }
 .ex-row[data-mark="edited"] > .ex-mark { background: var(--label-3); }
 .ex-row[data-mark="error"] > .ex-mark { background: var(--red); }
 
+/* The row's menu button: there while the row is pointed at or has the keyboard, and for
+   as long as its menu is about (.pop-source, ui.js). A held finger gets the menu without it. */
+.ex-dots { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; color: var(--label-2); transition: opacity 0.15s, background 0.15s; }
+.ex-row:not(:hover):not(:focus-visible) > .ex-dots:not(.pop-source),
+.ex-row.ex-edit > .ex-dots:not(.pop-source) { opacity: 0; pointer-events: none; }
+@media (hover: none) { .ex-row > .ex-dots:not(.pop-source) { opacity: 0; pointer-events: none; } }
+
 @media (hover: hover) {
-  .ex-row:not(.ex-edit):hover, .ex-new:hover, .ex-more:hover { background: var(--fill); }
+  .ex-row:not(.ex-edit):hover::before, .ex-btn:hover { background: var(--fill); }
+  .ex-dots:hover { background: var(--fill-2); color: var(--label); }
 }
-.ex-row:not(.ex-edit):active, .ex-new:active, .ex-more:active { background: var(--fill-2); }
-/* The line gives way to a row that is lit, on both of its sides. */
-.ex-row:hover::before, .ex-row:hover + .ex-row::before,
-.ex-row:active::before, .ex-row:active + .ex-row::before,
-.ex-row:focus-visible::before, .ex-row:focus-visible + .ex-row::before { opacity: 0; }
-.ex-row:focus-visible, .ex-new:focus-visible, .ex-more:focus-visible { outline-offset: -3px; }
+.ex-row:not(.ex-edit):active::before, .ex-btn:active { background: var(--fill-2); }
+/* (Nothing here depends on the state of the tree around it: a rule that did would
+   restyle every row each time the keyboard came or went.) */
+.ex-row.is-sel::before { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+/* Chosen rows that touch are one block. */
+.ex-row.joins-up::before { border-top-left-radius: 0; border-top-right-radius: 0; }
+.ex-row.joins-down::before { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.ex-row:focus-visible { outline-width: 2px; outline-offset: -2px; }
+.ex-btn:focus-visible { outline-offset: -3px; }
+
+/* A folder's contents, and the line that says how deep they are. While the folder opens
+   or closes the outer box is a clip that slides over the inner one (explorer.js); one
+   that is closing is already out of the way of the rows after it. */
+.ex-node { position: relative; border-radius: 20px; transition: background 0.15s; }
+.ex-kids { --depth: 0; }
+.ex-kids.is-folding { overflow: hidden; }
+.ex-kids.is-leaving { position: absolute; top: var(--row); left: 0; right: 0; }
+.ex-kids-in { position: relative; }
+.ex-kids-in::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(16px + var(--depth) * 18px - var(--hairline) / 2);
+  width: var(--hairline);
+  background: var(--sep);
+  pointer-events: none;
+}
+
+/* A row on its way out stays where it was while it goes. */
+.ex-ghosts { position: absolute; inset: 0; pointer-events: none; }
+.ex-ghost { position: absolute; }
 
 /* A row that is being named. What is wrong with the name is said under the field. */
-.ex-row.ex-edit { flex-wrap: wrap; row-gap: 0; cursor: default; }
-.ex-input { flex: 1; min-width: 0; height: 32px; margin: 6px -6px 6px -4px; padding: 0 8px; border-radius: 10px; background: var(--fill); font-size: 15px; -webkit-user-select: text; user-select: text; }
+.ex-row.ex-edit { height: auto; min-height: var(--row); flex-wrap: wrap; row-gap: 0; cursor: default; }
+.ex-row.ex-edit > .ex-name, .ex-row.ex-edit > .ex-mark { display: none; }
+/* Its text starts where the name's did. */
+.ex-input { flex: 1; min-width: 0; height: calc(var(--row) - 6px); margin: 3px 4px 3px -6px; padding: 0 8px 0 6px; border-radius: calc(var(--row) / 2 - 3px); background: var(--fill); font-size: 15px; -webkit-user-select: text; user-select: text; }
 .ex-input::placeholder { color: var(--label-3); }
-.ex-error { flex: 0 0 100%; margin: -2px 0 8px; padding-left: 38px; font-size: 13px; line-height: 18px; color: var(--red); }
+.ex-error { flex: 0 0 100%; margin: -1px 0 6px; padding-left: 48px; font-size: 13px; line-height: 18px; color: var(--red); }
 .ex-error:empty { display: none; }
 @media (hover: hover) {
   .ex-input:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 65%, transparent); outline-offset: 0; }
 }
+
+/* Dragging: what is carried dims where it was and rides with the pointer; the folder
+   it would land in lights up. */
+.ex-node.is-dragging, .ex-row.is-dragging { opacity: 0.35; }
+.ex-node.is-drop, .ex-root.is-drop { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.ex-drag {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  max-width: 240px;
+  padding: 0 12px 0 10px;
+  border-radius: 17px;
+  background: var(--surface-2);
+  box-shadow: var(--glass-shadow);
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--label);
+  pointer-events: none;
+  transform-origin: 0 50%;
+  will-change: transform;
+}
+.ex-drag .icon { color: var(--label-2); }
+.ex-drag span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ex-drag b { flex: none; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--accent); color: #fff; font-size: 13px; line-height: 20px; font-weight: 600; text-align: center; }
+.ex-drag.is-copy::after { content: "+"; flex: none; font-weight: 700; color: var(--accent); }
 
 /* ---------- Back from a definition file ----------
    A control floating over the code, so it is glass. */

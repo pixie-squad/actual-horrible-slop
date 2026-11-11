@@ -27,9 +27,11 @@
   (ext/core.js), the tree, how a require finds its file, and the calls.
 
     NT.project.multi()                  can a script have more than one file here?
-    NT.project.fix(paths, text)         what was typed, as the path it means
-    NT.project.problem(paths, p, old)   why p cannot be a file (old: the one being renamed), or ''
-    NT.project.tree(paths)              [{ name, path, kids }] with folders first; kids is null on a file
+    NT.project.fix(paths, text, folder) what was typed, as the path it means
+    NT.project.problem(paths, p, old, { folder, dirs })
+                                        why p cannot be a file or folder (old: the one being renamed), or ''
+    NT.project.tree(paths, dirs)        [{ name, path, kids }] with folders first; kids is null on a file
+                                        (dirs: folders to show that have no file in them)
     NT.project.resolve(paths, from, s)  the file require(s) in `from` means, or null
     NT.project.load(id, content)        → { files, minify, base, built, inSync } or null
     NT.project.store(id, files, minify, base)
@@ -54,16 +56,17 @@
   // Marks which text a demo bundle was, without keeping a second copy of it.
   const sum = (text) => NT.util.hash(text) + ':' + text.length;
 
-  // The same answer ext/core.js badPath gives.
-  function badPath(p) {
+  // The same answer ext/core.js badPath gives. A folder has no extension to check, and
+  // has to leave a level for the file that makes it real.
+  function badPath(p, folder) {
     const lim = limits();
     if (typeof p !== 'string' || !p || p.length > 200) return 'path';
     const parts = p.split('/');
-    if (parts.length > lim.maxDepth) return 'depth';
+    if (parts.length > lim.maxDepth - (folder ? 1 : 0)) return 'depth';
     for (const part of parts) {
       if (!SEGMENT.test(part) || part.endsWith('.') || part.includes('..') || RESERVED.test(part)) return 'name';
     }
-    if (!lim.extensions.includes(ext(p))) return 'extension';
+    if (!folder && !lim.extensions.includes(ext(p))) return 'extension';
     return null;
   }
 
@@ -133,11 +136,12 @@
 
     // What was typed, as a path: slashes either way, no extension means a Luau file,
     // and a folder that already exists keeps the spelling it has.
-    fix(paths, text) {
-      let p = String(text).trim().replace(/\\/g, '/').replace(/^\.?\/+/, '');
-      if (p && !/\.[^./]+$/.test(p) && !p.endsWith('/')) p += '.luau';
+    // `folder`: a folder's path, which gets no extension.
+    fix(paths, text, folder) {
+      let p = String(text).trim().replace(/\\/g, '/').replace(/^\.?\/+/, '').replace(/\/+$/, folder ? '' : '/');
+      if (!folder && p && !/\.[^./]+$/.test(p) && !p.endsWith('/')) p += '.luau';
       const parts = p.split('/');
-      for (let i = 1; i < parts.length; i++) {
+      for (let i = 1; i < parts.length + (folder ? 1 : 0); i++) {
         const want = parts.slice(0, i).join('/').toLowerCase() + '/';
         const have = paths.find((x) => x.toLowerCase().startsWith(want));
         if (have) parts.splice(0, i, ...have.split('/').slice(0, i));
@@ -145,10 +149,11 @@
       return parts.join('/');
     },
 
-    problem(paths, p, old) {
+    // o.folder: p (and old) is a folder; o.dirs: folders that have no file in them yet.
+    problem(paths, p, old, o = {}) {
       const lim = limits();
       if (!p) return 'Enter a name';
-      const bad = badPath(p);
+      const bad = badPath(p, o.folder);
       if (bad === 'path') return 'Too long';
       if (bad === 'depth') return `At most ${lim.maxDepth} levels`;
       if (bad === 'name') {
@@ -160,15 +165,24 @@
       }
       if (bad === 'extension') return 'Ends in .luau, .lua or .json';
       const key = p.toLowerCase();
-      const others = paths.filter((x) => x !== old).map((x) => x.toLowerCase());
-      if (others.includes(key)) return 'Already exists';
-      if (others.some((x) => x.startsWith(key + '/'))) return 'A folder has that name';
-      if (others.some((x) => key.startsWith(x + '/'))) return 'A file has that name';
-      if (!old && paths.length >= lim.maxFiles) return `At most ${lim.maxFiles} files`;
+      const was = old == null ? null : old.toLowerCase();
+      // What is being renamed is not in its own way; a folder takes what is in it along.
+      const apart = (x) => was == null || (o.folder ? x !== was && !x.startsWith(was + '/') : x !== was);
+      if (o.folder && was != null && key.startsWith(was + '/')) return 'Can’t go inside itself';
+      const files = paths.map((x) => x.toLowerCase()).filter(apart);
+      const folders = new Set();
+      for (const x of files.concat((o.dirs || []).map((d) => d.toLowerCase() + '/').filter((d) => apart(d.slice(0, -1))))) {
+        for (let i = x.indexOf('/'); i > 0; i = x.indexOf('/', i + 1)) folders.add(x.slice(0, i));
+      }
+      if (files.includes(key)) return o.folder ? 'A file has that name' : 'Already exists';
+      if (folders.has(key)) return o.folder ? 'Already exists' : 'A folder has that name';
+      if (files.some((x) => key.startsWith(x + '/'))) return 'A file has that name';
+      if (!o.folder && old == null && paths.length >= lim.maxFiles) return `At most ${lim.maxFiles} files`;
       return '';
     },
 
-    tree(paths) {
+    // dirs: folders to show although no file is in them.
+    tree(paths, dirs) {
       const root = { kids: [] };
       const folders = new Map([['', root]]);
       const folder = (path) => {
@@ -179,6 +193,7 @@
         }
         return folders.get(path);
       };
+      for (const path of dirs || []) folder(path);
       for (const path of paths) folder(folderOf(path)).kids.push({ name: path.slice(path.lastIndexOf('/') + 1), path, kids: null });
       const order = (a, b) => (!!b.kids - !!a.kids) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
       for (const node of folders.values()) node.kids.sort(order);

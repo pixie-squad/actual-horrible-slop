@@ -185,6 +185,9 @@
 
     const frame = (g) => ({ left: g.left + 'px', top: g.top + 'px', width: g.width + 'px', height: g.height + 'px', borderRadius: g.radius + 'px' });
     Object.assign(panel.style, frame(to));
+    // Marked for as long as its popover is about, so a control that is only shown at
+    // times (a row's menu button) is there to open from and to collapse back into.
+    if (src) src.classList.add('pop-source');
     if (src) src.style.visibility = 'hidden';
     // No colour split here: the panel changes size on every frame of its morph, and the
     // three-pass filter cannot keep up with that. Its thick fill would hide the fringe anyway.
@@ -239,6 +242,7 @@
         document.removeEventListener('keydown', onKey, true);
         panel.remove();
         catcher.remove();
+        if (src) src.classList.remove('pop-source');
       },
       close(instant) {
         if (done) return;
@@ -259,6 +263,7 @@
           panel.remove();
           catcher.remove();
           if (src) src.style.visibility = '';
+          if (src) src.classList.remove('pop-source');
           handover.forEach((a) => a.cancel());
           if (restore && unfocused()) refocus(opener);
           NT.tone.touch();
@@ -295,7 +300,18 @@
       },
     };
 
-    catcher.addEventListener('pointerdown', (e) => { e.preventDefault(); pop.close(); });
+    catcher.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      // The press that dismisses is spent. A finger's tap is aimed again once it lifts,
+      // and would otherwise land on whatever the popover was covering.
+      const spent = (ev) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+      };
+      document.addEventListener('click', spent, { capture: true, once: true });
+      document.addEventListener('pointerdown', () => document.removeEventListener('click', spent, true), { capture: true, once: true });
+      pop.close();
+    });
     document.addEventListener('keydown', onKey, true);
     activePop = pop;
     return pop;

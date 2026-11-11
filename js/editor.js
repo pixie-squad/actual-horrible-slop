@@ -293,24 +293,17 @@
     /* ----- Explorer ----- */
 
     const ctx = {
-      folded: new Set(),
+      id,
       paths: () => ed.paths(),
       current: () => ed.path,
       mark: (path) => (failing.has(path) ? 'error' : fileDirty(path) ? 'edited' : ''),
+      text: (path) => ed.text(path),
       open: (path) => ed.open(path),
-      create(path) {
-        ed.add(path, '');
-        ed.open(path);
-        changed();
-      },
-      rename(from, to) {
-        ed.rename(from, to);
-        changed();
-      },
-      remove(path) {
-        ed.remove(path);
-        changed();
-      },
+      create: (path, text) => ed.add(path, text || ''),
+      rename: (from, to) => ed.rename(from, to),
+      remove: (path) => ed.remove(path),
+      changed: () => changed(),
+      redraw: () => views.forEach((view) => view.refresh()),
       minify: () => minify,
       setMinify(on) {
         minify = on;
@@ -324,8 +317,9 @@
       sideOpen = open;
       filesBtn.setAttribute('aria-expanded', String(open));
       if (open && !sideView) {
-        // With a pointer the code takes the keyboard back once a file is picked.
-        sideView = NT.explorer(ctx, { onPick: () => { if (window.matchMedia('(hover: hover)').matches) ed.focus(); } });
+        // The tree keeps the keyboard while files are looked through; Enter, a second
+        // click or a new file hands it to the code.
+        sideView = NT.explorer(ctx, { onPick: (path, into) => { if (into) ed.focus(); } });
         views.add(sideView);
         side.append(sideView.el);
       }
@@ -521,7 +515,7 @@
           !under && { label: 'Script Page', icon: 'doc', onSelect: () => NT.nav.go(`/scripts/${id}`) },
           !script.published_at && { label: 'Publish', icon: 'send', onSelect: async () => { if (await commit(false, more)) publishScript(script, () => { script.published_at = new Date().toISOString(); }); } },
           (!under || !script.published_at) && '-',
-          { label: 'Delete', icon: 'trash', danger: true, onSelect: () => deleteScript(script, () => { deleted = true; store.remove(draftKey); NT.nav.back(); }, more) },
+          { label: 'Delete', icon: 'trash', danger: true, onSelect: () => deleteScript(script, () => { deleted = true; store.remove(draftKey); NT.explorer.forget(id); NT.nav.back(); }, more) },
         ]);
       });
       // Saving keeps you where you are; only Back leaves.
