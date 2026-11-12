@@ -74,10 +74,11 @@
     download: '<path d="M12 4v11"/><path d="m8 11 4 4 4-4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/>',
   };
 
+  // data-icon names the drawing, so a style can put its own picture in its place.
   NT.icon = function (name, size = 24) {
     const t = document.createElement('template');
     t.innerHTML =
-      `<svg class="icon" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" ` +
+      `<svg class="icon" data-icon="${name}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" ` +
       `stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
     return t.content.firstChild;
   };

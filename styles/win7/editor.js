@@ -2,7 +2,7 @@
   Windows 7's editor: a script, opened as a project, in a window.
 
   What is saved, when, and what the status bar says when that goes wrong is the
-  session's (js/session.js). This is the window around it: the menu bar and toolbar,
+  session's (js/session.js). This is the window around it: the command bar,
   the file tree (js/explorer.js) in a pane on the left, the code (js/monaco.js) and the
   status bar. The language server (js/lsp.js) reads along where there is one.
 */
@@ -138,7 +138,7 @@
     function menus() {
       win.setMenus([
         {
-          label: 'Organize',
+          label: 'File',
           items: () => [
             { label: 'Save', disabled: saveBtn.disabled, onSelect: () => S.commit(true) },
             !script.published_at && { label: 'Publish', onSelect: publish },

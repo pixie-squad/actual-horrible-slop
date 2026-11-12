@@ -248,12 +248,17 @@
   };
 
   /* ---------- Appearance preferences ----------
-     Theme and accent are every style's. `style` is which one (styles.js); frost and
-     solid are Liquid Glass's own and mean nothing elsewhere. */
+     Theme and accent are every style's. `style` is which one (styles.js); frost is
+     Liquid Glass's own; solid (no transparency) is for the styles that have glass;
+     wallpaper is the desktop picture chosen in each style that has a desktop, by the
+     style's id (on <html> as data-wall; with none chosen the style shows its own). */
 
   const darkQuery = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
   NT.prefs = {
-    data: Object.assign({ theme: 'system', accent: 'blue', frost: 0.3, solid: false }, U.store.get('nt.prefs', {})),
+    data: Object.assign({ theme: 'system', accent: 'blue', frost: 0.3, solid: false, wallpaper: {} }, U.store.get('nt.prefs', {})),
+    // The desktop picture of the style in use: its name, or '' for the style's own.
+    get wall() { return (this.data.wallpaper || {})[NT.styles.current] || ''; },
+    setWall(name) { this.set({ wallpaper: Object.assign({}, this.data.wallpaper, { [NT.styles.current]: name }) }); },
     set(patch) {
       Object.assign(this.data, patch);
       U.store.set('nt.prefs', this.data);
@@ -266,6 +271,8 @@
       d.dataset.accent = this.data.accent;
       d.style.setProperty('--frost', this.data.frost);
       d.toggleAttribute('data-solid', !!this.data.solid);
+      if (this.wall) d.dataset.wall = this.wall;
+      else delete d.dataset.wall;
       // A style says what colour the browser's own bars take with --theme-color. Read
       // only when the theme or accent changes: asking forces every style to be worked
       // out, which a slider being dragged must not do on each step.

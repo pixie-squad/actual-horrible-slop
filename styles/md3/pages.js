@@ -218,7 +218,7 @@
         h('span.m-eyebrow', o.eyebrow),
         h('h2', nameOf(s)),
         h('p', o.meta),
-        h('div.m-actions', o.actions.map(([label, icon, onClick, primary]) => M.button(label, (e) => { e.stopPropagation(); onClick(); }, { icon, variant: primary ? 'filled' : 'tonal' })))));
+        h('div.m-actions', o.actions.map(([label, icon, onClick, primary]) => M.button(label, (e) => { e.stopPropagation(); onClick(); }, { icon, size: 'md', variant: primary ? 'filled' : 'elevated' })))));
     const open = () => NT.nav.go(`/scripts/${s.script_id}`);
     card.addEventListener('click', (e) => { if (!e.target.closest('button')) open(); });
     onActivate(card, open);

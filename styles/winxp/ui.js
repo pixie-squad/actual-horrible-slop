@@ -2,10 +2,10 @@
   Windows XP: the parts everything here is built from.
 
   Windows on a desktop, each with a title bar, a menu bar, a toolbar, a client area and
-  a status bar; the task pane down the left of a window that shows a place; dialog
+  a status bar; the Address bar and the task pane of a window that shows a place; dialog
   boxes and message boxes over them; popup menus; and the common controls: push
-  buttons, check boxes, option buttons, edit fields, drop-down lists, trackbars, tabs,
-  group boxes and the list view.
+  buttons, toolbar buttons, check boxes, option buttons, edit fields, drop-down lists,
+  trackbars, tabs, group boxes and the list view.
 
     NT.xp (W)            the kit, for this style's pages
     NT.ui                 what the core asks of a style: toast, confirm, menu
@@ -26,20 +26,15 @@
   /* ---------- Glyphs: small marks drawn in the text colour ---------- */
 
   const GLYPHS = {
-    min: 'M2 8h6v2H2z',
-    max: 'M1 1h9v9H1zM2 3v6h7V3z',
-    restore: 'M3 0h7v7H8V6h1V2H4v1H3zM1 3h7v7H1zM2 5v4h5V5z',
-    close: 'M1 2h2v1h1v1h2V3h1V2h2v1H8v1H7v1H6v1h1v1h1v1h1v1H7V9H6V8H4v1H3v1H1V9h1V8h1V7h1V6H3V5H2V4H1z',
     down: 'M0 2h7v1H6v1H5v1H4v1H3V5H2V4H1V3H0z',
     up: 'M3 2h1v1h1v1h1v1h1v1H0V5h1V4h1V3h1z',
     right: 'M2 0v7h1V6h1V5h1V4h1V3H5V2H4V1H3V0z',
     check: 'M0 3h1v1h1v1h1V4h1V3h1V2h1V1h1v2H6v1H5v1H4v1H3v1H2V6H1V5H0z',
     bullet: 'M2 1h3v1h1v3H5v1H2V5H1V2h1z',
   };
-  W.glyph = function (name, w = 11, hgt = 11) {
-    const box = { min: '0 0 11 11', max: '0 0 11 11', restore: '0 0 11 11', close: '0 0 11 11', down: '0 0 7 7', up: '0 0 7 7', right: '0 0 7 7', check: '0 0 7 7', bullet: '0 0 7 7' }[name];
+  W.glyph = function (name, w = 7, hgt = 7) {
     const t = document.createElement('template');
-    t.innerHTML = `<svg class="w-glyph" width="${w}" height="${hgt}" viewBox="${box}" shape-rendering="crispEdges" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="${GLYPHS[name]}"/></svg>`;
+    t.innerHTML = `<svg class="w-glyph" width="${w}" height="${hgt}" viewBox="0 0 7 7" shape-rendering="crispEdges" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="${GLYPHS[name]}"/></svg>`;
     return t.content.firstChild;
   };
 
@@ -58,11 +53,10 @@
   // at: an element (the menu drops from its lower left corner; { align: 'right' } from
   // its lower right) or { x, y }.
   // items: { label, onSelect, checked, radio, disabled, pix } | '-' | falsy (left out)
-  // opts: { align, owner, onClose, onSide, icons (their size: items show their `pix`), cls, band }
+  // opts: { align, owner, onClose, onSide, cls }. An item's `pix` is its picture, in the gutter its mark would be in.
   W.menu = function (at, items, opts = {}) {
     W.closeMenu();
     const list = h('div.w-menu', { role: 'menu', tabIndex: -1 });
-    const marks = items.some((it) => it && it !== '-' && it.checked != null);
     let closed = false;
     const back = document.activeElement;
     const menu = {
@@ -100,14 +94,11 @@
         },
         onpointerenter: (e) => { if (!e.currentTarget.disabled) e.currentTarget.focus({ preventScroll: true }); },
       },
-        marks ? h('i.w-menu-mark', it.checked ? W.glyph(it.radio === false ? 'check' : 'bullet', 7, 7) : null) : null,
-        opts.icons ? h('i.w-menu-icon', it.pix ? W.icon(it.pix, opts.icons) : null) : null,
+        h('i.w-menu-mark', it.checked ? W.glyph(it.radio === false ? 'check' : 'bullet', 7, 7) : it.pix ? W.icon(it.pix, 16) : null),
         h('span', it.label)));
     }
     if (list.lastChild && list.lastChild.classList.contains('w-menu-sep')) list.lastChild.remove();
     if (opts.cls) list.classList.add(opts.cls);
-    // The Start menu's band of text up its left side.
-    if (opts.band) list.prepend(h('div.w-menu-band', { 'aria-hidden': 'true' }, h('span', opts.band)));
 
     W.layers.pop.append(list);
     // Where it fits: below the control, or above it; never off the screen.
@@ -162,6 +153,15 @@
     }, h('span', label));
   };
 
+  // A toolbar's button: flat until the pointer is on it, a picture and, where it helps, its word.
+  // opts: { size (of the picture: 16, or 24 in an Explorer bar), text: false (the word is its
+  //         tooltip only), menu (it drops one: the small arrow), disabled, cls }
+  W.tool = function (label, pix, onClick, opts = {}) {
+    return h('button.w-tool' + (opts.text === false ? '' : '.has-text') + (opts.cls || ''), {
+      type: 'button', disabled: !!opts.disabled, title: label, 'aria-label': label, onclick: onClick || null,
+    }, pix ? W.icon(pix, opts.size || 16) : null, h('span', label), opts.menu ? W.glyph('down', 7, 7) : null);
+  };
+
   W.check = function (label, checked, onChange) {
     const input = h('input', { type: 'checkbox', checked: !!checked });
     input.addEventListener('change', () => { if (onChange) onChange(input.checked); });
@@ -199,7 +199,7 @@
   W.combo = function (options, value, onChange, label) {
     let cur = value;
     const text = h('span.w-combo-text');
-    const el = h('button.w-combo', { type: 'button', 'aria-haspopup': 'listbox', 'aria-label': label || null }, text, h('i.w-combo-btn', W.glyph('down', 7, 7)));
+    const el = h('button.w-combo', { type: 'button', 'aria-haspopup': 'listbox', 'aria-label': label || null }, text, h('i.w-combo-btn'));
     const sync = () => { text.textContent = (options.find((o) => o[0] === cur) || options[0] || ['', ''])[1]; };
     let menu = null;
     el.addEventListener('click', () => {
@@ -232,7 +232,7 @@
 
   W.group = (legend, ...kids) => h('fieldset.w-group', legend ? h('legend', legend) : null, kids);
 
-  // The field code is shown in: Monaco fills `host`, and the frame around it is the bevel.
+  // The field code is shown in: Monaco fills `host`, inside a field's thin edge.
   W.code = function () {
     const host = h('div.w-code');
     return { host, el: h('div.w-code-frame', host) };
@@ -276,12 +276,13 @@
   /* ---------- Task pane ----------
      Down the left of a window that shows a place: what can be done here, where else to
      go, and what is chosen. A group's title folds it away.
-       groups: [{ title, items: () => [{ label, icon, onSelect, disabled } | node] }] */
-  W.tasks = function (groups) {
+       groups: [{ title, items: () => [{ label, icon, onSelect, disabled } | node] }]
+       o: { search: a field } – what the Search button swaps the groups for (pane.search(on)) */
+  W.tasks = function (groups, o = {}) {
     const el = h('aside.w-taskpane');
     const built = groups.map((g) => {
       const body = h('div.w-tp-body');
-      const head = h('button.w-tp-head', { type: 'button', 'aria-expanded': 'true' }, h('span', g.title), h('i.w-tp-chev', W.glyph('up', 7, 7)));
+      const head = h('button.w-tp-head', { type: 'button', 'aria-expanded': 'true' }, h('span', g.title), h('i.w-tp-chev'));
       const box = h('section.w-tp-group', head, body);
       head.addEventListener('click', () => {
         const open = head.getAttribute('aria-expanded') !== 'true';
@@ -300,7 +301,23 @@
       }
     };
     refresh();
-    return { el, refresh };
+    // Searching: the groups give way to the one that asks what to look for.
+    let finder = null, searching = false;
+    const search = (on) => {
+      if (!o.search) return;
+      searching = on;
+      if (!finder) {
+        finder = h('section.w-tp-group', h('div.w-tp-head', h('span', 'Search')), h('div.w-tp-body.w-tp-search', o.search));
+        el.prepend(finder);
+      }
+      finder.hidden = !on;
+      el.classList.toggle('is-search', on);
+      if (on) {
+        for (const { box } of built) box.hidden = true;
+        o.search.focus({ preventScroll: true });
+      } else refresh();
+    };
+    return { el, refresh: () => { if (!searching) refresh(); }, search };
   };
 
   /* ---------- List view (details) ----------
@@ -391,7 +408,10 @@
     };
     const popup = (item, at) => {
       const list = item && o.menu ? o.menu(item) : null;
-      if (list && list.length) W.menu(at, list);
+      if (!list || !list.length) return;
+      // What the menu is about stays lit while it is open.
+      el.classList.add('has-menu');
+      W.menu(at, list, { onClose: () => el.classList.remove('has-menu') });
     };
 
     body.addEventListener('pointerdown', (e) => {
@@ -462,15 +482,21 @@
 
   /* ---------- Windows ----------
      o: { title, icon, width, height, dialog (no minimise or maximise, not resizable),
+          place (it shows a place, as Explorer does: big toolbar buttons, the Address bar),
           menus: [{ label, items: () => [...] }], toolbar: [nodes], status: false (no status bar) } */
 
   const wins = [];   // every window on the desktop, lowest first
+  const MIN_W = 260, MIN_H = 180;
+  const EDGES = [['n', 0, -1], ['s', 0, 1], ['w', -1, 0], ['e', 1, 0], ['nw', -1, -1], ['ne', 1, -1], ['sw', -1, 1], ['se', 1, 1]];
   W.windows = () => wins.slice();
   W.active = () => {
     for (let i = wins.length - 1; i >= 0; i--) if (!wins[i].minimised) return wins[i];
     return null;
   };
   W.onChange = () => {}; // set by the shell: the taskbar follows
+  // What follows where the history is (the Back and Forward buttons of a window).
+  W.navSubs = new Set();
+  W.navChanged = () => W.navSubs.forEach((fn) => fn());
 
   function restack() {
     const top = W.active();
@@ -485,21 +511,22 @@
   W.window = function (o = {}) {
     const titleText = h('span.w-title-text', o.title || '');
     const iconHost = h('span.w-title-icon', W.icon(o.icon || 'app', 16));
-    const btn = (name, label, fn) => h('button.w-tb', { type: 'button', tabIndex: -1, 'aria-label': label, title: label, onclick: fn }, W.glyph(name));
+    const btn = (name, label, fn) => h('button.w-tb.' + name, { type: 'button', tabIndex: -1, 'aria-label': label, title: label, onclick: fn });
     const maxBtn = btn('max', 'Maximize', () => win.maximise(!win.maximised));
     const title = h('div.w-title', iconHost, titleText,
       o.dialog ? null : btn('min', 'Minimize', () => win.minimise()),
       o.dialog ? null : maxBtn,
       btn('close', 'Close', () => win.close()));
     const menubar = h('div.w-menubar', { role: 'menubar', hidden: true });
-    const toolbar = h('div.w-toolbar', { hidden: true });
+    const toolbar = h('div.w-toolbar' + (o.place ? '.big' : ''), { hidden: true });
+    const addr = h('div.w-addr', { hidden: true });
     const body = h('div.w-body');
     const notes = h('span.w-status-pane.main');
     const extra = h('span.w-status-pane.extra', { hidden: true });
     const grip = o.dialog ? null : h('i.w-grip');
     const status = o.status === false ? null : h('div.w-status', notes, extra, grip);
     const el = h('section.w-window' + (o.dialog ? '.w-dialog' : ''), { tabIndex: -1, role: o.dialog ? 'dialog' : null, 'aria-label': o.title || null },
-      title, menubar, toolbar, body, status);
+      title, menubar, toolbar, addr, body, status);
 
     const disposers = [];
     let noteTimer = 0, resting = '';
@@ -551,12 +578,25 @@
           });
           return b;
         });
-        menubar.replaceChildren(...buttons);
+        menubar.replaceChildren(...buttons, ...(o.place ? [h('i.w-throbber', { 'aria-hidden': 'true' })] : []));
       },
       setToolbar(...nodes) {
         const list = nodes.flat().filter(Boolean);
         toolbar.hidden = !list.length;
         toolbar.replaceChildren(...list);
+      },
+      // The Address bar of a window that shows a place: where it is, and the places to
+      // go to in the list it drops. places: () => menu items
+      setAddress(text, pix, places) {
+        addr.hidden = false;
+        const box = h('button.w-addr-box', { type: 'button', 'aria-haspopup': 'menu', 'aria-label': 'Address' }, W.icon(pix, 16), h('span', text), h('i.w-combo-btn'));
+        let menu = null;
+        box.addEventListener('click', () => {
+          if (menu) return void menu.close();
+          menu = W.menu(box, places(), { owner: box, onClose: () => { menu = null; } });
+          menu.el.style.minWidth = box.offsetWidth + 'px';
+        });
+        addr.replaceChildren(h('span.w-addr-label', 'Address'), box);
       },
       // What the status bar says at rest.
       setStatus(text) {
@@ -619,7 +659,7 @@
       maximise(on) {
         win.maximised = on;
         el.classList.toggle('is-max', on);
-        maxBtn.replaceChildren(W.glyph(on ? 'restore' : 'max'));
+        maxBtn.classList.toggle('is-restore', on);
         maxBtn.title = on ? 'Restore' : 'Maximize';
         maxBtn.setAttribute('aria-label', maxBtn.title);
       },
@@ -695,24 +735,39 @@
     });
     if (!o.dialog) title.addEventListener('dblclick', (e) => { if (!e.target.closest('.w-tb') && !narrow.matches) win.maximise(!win.maximised); });
 
-    if (grip) grip.addEventListener('pointerdown', (e) => {
-      if (e.button || win.maximised) return;
+    // Any edge or corner of the frame sizes the window, and so does the grip in the
+    // status bar. dx, dy: the edge taken (-1 the left or top one, 1 the right or bottom one).
+    const size = (dx, dy) => (e) => {
+      if (e.button || win.maximised || narrow.matches) return;
       e.preventDefault();
-      const r = el.getBoundingClientRect();
-      grip.setPointerCapture(e.pointerId);
+      const r = el.getBoundingClientRect(), host = el.parentNode.getBoundingClientRect();
+      const left = Math.round(r.left - host.left), top = Math.round(r.top - host.top);
+      const right = left + Math.round(r.width), bottom = top + Math.round(r.height);
+      const handle = e.currentTarget;
+      handle.setPointerCapture(e.pointerId);
       const move = (ev) => {
-        el.style.width = Math.max(260, Math.round(r.width + ev.clientX - e.clientX)) + 'px';
-        el.style.height = Math.max(180, Math.round(r.height + ev.clientY - e.clientY)) + 'px';
+        const mx = Math.round(ev.clientX - e.clientX), my = Math.round(ev.clientY - e.clientY);
+        let x = left, y = top, w = right - left, ht = bottom - top;
+        if (dx > 0) w = Math.max(MIN_W, w + mx);
+        if (dx < 0) { w = Math.max(MIN_W, w - mx); x = right - w; }
+        if (dy > 0) ht = Math.max(MIN_H, ht + my);
+        // The top edge stops at the top of the desktop: the title bar stays in reach.
+        if (dy < 0) { ht = clamp(ht - my, MIN_H, bottom); y = bottom - ht; }
+        Object.assign(el.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: ht + 'px' });
       };
       const up = () => {
-        grip.removeEventListener('pointermove', move);
-        grip.removeEventListener('pointerup', up);
-        grip.removeEventListener('pointercancel', up);
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
       };
-      grip.addEventListener('pointermove', move);
-      grip.addEventListener('pointerup', up);
-      grip.addEventListener('pointercancel', up);
-    });
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    };
+    if (!o.dialog) {
+      for (const [name, dx, dy] of EDGES) el.append(h('i.w-size.' + name, { 'aria-hidden': 'true', onpointerdown: size(dx, dy) }));
+      if (grip) grip.addEventListener('pointerdown', size(1, 1));
+    }
 
     el.addEventListener('keydown', (e) => {
       // Alt+F4 belongs to the browser's own window; Escape closes a dialog box.
@@ -934,10 +989,10 @@
       roundedSelection: false,
       padding: { top: 2, bottom: 2 },
       lineDecorationsWidth: 6,
-      scrollbar: { verticalScrollbarSize: 16, horizontalScrollbarSize: 16, useShadows: false },
+      scrollbar: { vertical: 'visible', horizontal: 'visible', verticalScrollbarSize: 17, horizontalScrollbarSize: 17, verticalHasArrows: true, horizontalHasArrows: true, arrowSize: 17, useShadows: false },
     },
-    // Monaco's own lists and boxes are the system's: grey, bevelled, the selection in
-    // the highlight colour.
+    // Monaco's own lists and boxes are the system's: the face colour, a thin edge, the
+    // selection in the highlight colour.
     codeTheme(t, dark) {
       const cs = getComputedStyle(document.documentElement);
       const tok = (name, fallback) => {
@@ -945,7 +1000,7 @@
         return /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
       };
       const face = tok('--face', dark ? '#3a3d45' : '#ece9d8'), text = tok('--text', dark ? '#e8e8e8' : '#000000');
-      const sel = tok('--sel', '#316ac5'), field = tok('--window', dark ? '#1b1d22' : '#ffffff');
+      const sel = tok('--hilight', '#316ac5'), field = tok('--window', dark ? '#1b1d22' : '#ffffff');
       Object.assign(t.colors, {
         'editorWidget.background': face,
         'editorWidget.foreground': text,

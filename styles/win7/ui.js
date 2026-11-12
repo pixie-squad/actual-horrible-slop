@@ -1,17 +1,18 @@
 /*
   Windows 7: the parts everything here is built from.
 
-  Windows of glass on a desktop, each with a title bar, an address row, a command bar,
+  Windows of glass on a desktop, each with a caption, an address row, a command bar,
   a client area and a status bar; the navigation pane down the left of a window that
-  shows a place; dialog boxes and message boxes over them; popup menus; and the common
+  shows a place and the details pane along its bottom; dialog boxes and message boxes
+  over them; popup menus; balloons from the notification area; and the common
   controls: push buttons, check boxes, option buttons, edit fields, drop-down lists,
   trackbars, tabs, group boxes and the list view.
 
     NT.w7 (W)            the kit, for this style's pages
     NT.ui                 what the core asks of a style: toast, confirm, menu
-    NT.look               still (nothing here moves), and how Monaco is dressed
+    NT.look               still (the core's own parts do not move), and how Monaco is dressed
 
-  Nothing animates: a window is there or it is not.
+  A window and a menu fade in, and a window fades out, as Windows 7's do (style.css).
 */
 (function () {
   'use strict';
@@ -22,6 +23,7 @@
 
   const narrow = window.matchMedia('(max-width: 700px)');
   const coarse = window.matchMedia('(any-pointer: coarse)');
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)');
 
   /* ---------- Glyphs: small marks drawn in the text colour ---------- */
 
@@ -40,6 +42,19 @@
     const box = { min: '0 0 11 11', max: '0 0 11 11', restore: '0 0 11 11', close: '0 0 11 11', down: '0 0 7 7', up: '0 0 7 7', right: '0 0 7 7', check: '0 0 7 7', bullet: '0 0 7 7' }[name];
     const t = document.createElement('template');
     t.innerHTML = `<svg class="w-glyph" width="${w}" height="${hgt}" viewBox="${box}" shape-rendering="crispEdges" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="${GLYPHS[name]}"/></svg>`;
+    return t.content.firstChild;
+  };
+
+  // The marks on the caption buttons: white, with a dark line round them (style.css).
+  const CAPTION = {
+    min: 'M1.5 6.5h9v3h-9z',
+    max: 'M1.5 1.5h10v8h-10zM3.5 4.5v3h6v-3z',
+    restore: 'M3.5 .5h8v7h-2v-2h-6zM5.5 3v.5h4V3zM1.5 3.500h8v6.500h-8zM3.500 6v2h4V6z',
+    close: 'M1.5 1h2.800L6.500 3.300 8.700 1h2.800L8 5l3.500 4H8.700L6.500 6.700 4.300 9H1.500L5 5z',
+  };
+  const caption = (name) => {
+    const t = document.createElement('template');
+    t.innerHTML = `<svg width="13" height="10" viewBox="0 0 13 10" aria-hidden="true"><path fill-rule="evenodd" d="${CAPTION[name]}"/></svg>`;
     return t.content.firstChild;
   };
 
@@ -62,7 +77,6 @@
   W.menu = function (at, items, opts = {}) {
     W.closeMenu();
     const list = h('div.w-menu', { role: 'menu', tabIndex: -1 });
-    const marks = items.some((it) => it && it !== '-' && it.checked != null);
     let closed = false;
     const back = document.activeElement;
     const menu = {
@@ -100,14 +114,12 @@
         },
         onpointerenter: (e) => { if (!e.currentTarget.disabled) e.currentTarget.focus({ preventScroll: true }); },
       },
-        marks ? h('i.w-menu-mark', it.checked ? W.glyph(it.radio === false ? 'check' : 'bullet', 7, 7) : null) : null,
-        opts.icons ? h('i.w-menu-icon', it.pix ? W.icon(it.pix, opts.icons) : null) : null,
+        // Every item has its place in the gutter, marked or not.
+        h('i.w-menu-mark', it.checked ? W.glyph(it.radio === false ? 'check' : 'bullet', 7, 7) : null),
         h('span', it.label)));
     }
     if (list.lastChild && list.lastChild.classList.contains('w-menu-sep')) list.lastChild.remove();
     if (opts.cls) list.classList.add(opts.cls);
-    // The Start menu's band of text up its left side.
-    if (opts.band) list.prepend(h('div.w-menu-band', { 'aria-hidden': 'true' }, h('span', opts.band)));
 
     W.layers.pop.append(list);
     // Where it fits: below the control, or above it; never off the screen.
@@ -188,6 +200,9 @@
 
   W.input = (attrs = {}) => h('input.w-edit', Object.assign({ type: 'text', autocapitalize: 'off', spellcheck: false }, attrs));
 
+  // A search box: the field with the magnifying glass at its end.
+  W.search = (attrs = {}) => h('input.w-find', Object.assign({ type: 'search', autocapitalize: 'off', spellcheck: false }, attrs));
+
   // A label and the field it names, side by side.
   W.field = function (label, attrs = {}) {
     const id = 'f' + ++seq;
@@ -204,8 +219,8 @@
     let menu = null;
     el.addEventListener('click', () => {
       if (menu) return void menu.close();
-      menu = W.menu(el, options.map(([v, l]) => ({ label: l, checked: v === cur, onSelect: () => { cur = v; sync(); if (onChange) onChange(v); } })), { owner: el, onClose: () => { menu = null; } });
-      menu.el.classList.add('w-droplist');
+      menu = W.menu(el, options.map(([v, l]) => ({ label: l, checked: v === cur, onSelect: () => { cur = v; sync(); if (onChange) onChange(v); } })), { owner: el, cls: 'w-droplist', onClose: () => { menu = null; el.removeAttribute('aria-expanded'); } });
+      el.setAttribute('aria-expanded', 'true');
       menu.el.style.minWidth = el.offsetWidth + 'px';
       // The list opens on the value the field has.
       const at = menu.el.querySelector('[aria-checked="true"]');
@@ -275,20 +290,53 @@
 
   /* ---------- Navigation and details panes ---------- */
 
-  // The navigation pane: the places, the one this window shows marked.
-  W.places = function (here) {
-    return h('nav.w-navpane', { 'aria-label': 'Places' },
-      h('div.w-np-title', W.icon('app', 16), h('span', 'NT Scripting')),
-      [['Home', 'app', '/'], ['Scripts', 'scripts', '/scripts'], ['Maps', 'map', '/maps'], ['Profile', 'user', '/profile'], ['Settings', 'settings', '/settings']].map(([label, icon, path]) =>
-        h('button.w-np-item' + (path === here ? '.is-here' : ''), { type: 'button', onclick: () => NT.nav.go(path) }, W.icon(icon, 16), h('span', label))));
+  // The navigation pane: a tree of places, the one this window shows marked.
+  // nodes: [{ id, label, icon, onSelect, kids: [node], open (its kids show), gap (space above it) }]
+  // → { el, mark(id) }   A node with kids has the triangle that opens and shuts it.
+  W.tree = function (nodes, here) {
+    const rows = new Map();
+    const build = (node, depth) => {
+      const kids = node.kids && node.kids.length ? h('div.w-np-kids', { role: 'group', hidden: !node.open }, node.kids.map((k) => build(k, depth + 1))) : null;
+      const twist = h('i.w-np-twist' + (kids ? '.has' : '') + (kids && node.open ? '.is-open' : ''));
+      const row = h('button.w-np-item' + (node.gap ? '.gap' : ''), { type: 'button', role: 'treeitem', style: { '--depth': depth }, 'aria-expanded': kids ? String(!!node.open) : null },
+        twist, W.icon(node.icon, 16), h('span', node.label));
+      const toggle = (on) => {
+        kids.hidden = !on;
+        twist.classList.toggle('is-open', on);
+        row.setAttribute('aria-expanded', String(on));
+      };
+      row.addEventListener('click', (e) => {
+        if (kids && twist.contains(e.target)) return void toggle(kids.hidden);
+        node.onSelect();
+      });
+      row.addEventListener('keydown', (e) => {
+        if (kids && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) { e.preventDefault(); toggle(e.key === 'ArrowRight'); }
+      });
+      rows.set(node.id, row);
+      return kids ? [row, kids] : row;
+    };
+    const el = h('nav.w-navpane', { role: 'tree', 'aria-label': 'Places' }, nodes.map((n) => build(n, 0)));
+    const mark = (id) => { for (const [k, row] of rows) row.classList.toggle('is-here', k === id); };
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+      const all = [...el.querySelectorAll('.w-np-item')].filter((r) => r.getClientRects().length);
+      const next = all[all.indexOf(document.activeElement) + (e.key === 'ArrowDown' ? 1 : -1)];
+      if (next) { e.preventDefault(); next.focus(); }
+    });
+    mark(here);
+    return { el, mark };
   };
-  // The details pane along the bottom of such a window: what is chosen, and facts about it.
+  // The details pane along the bottom of such a window: what is chosen, and facts about
+  // it. A fact written "Label: value" has its label greyed.
   W.details = function () {
     const el = h('div.w-details');
     return {
       el,
       set(icon, title, ...facts) {
-        el.replaceChildren(W.icon(icon, 32), h('div.w-details-text', h('b', title), h('div.w-details-facts', facts.filter(Boolean).map((f) => h('span', f)))));
+        el.replaceChildren(W.icon(icon, 48), h('div.w-details-text', h('b', title), h('div.w-details-facts', facts.filter(Boolean).map((f) => {
+          const at = String(f).indexOf(': ');
+          return at > 0 ? h('span', h('i', f.slice(0, at + 2)), f.slice(at + 2)) : h('span', f);
+        }))));
       },
     };
   };
@@ -455,6 +503,8 @@
           menus: [{ label, items: () => [...] }], toolbar: [nodes], status: false (no status bar) } */
 
   const wins = [];   // every window on the desktop, lowest first
+  const MIN_W = 260, MIN_H = 180;
+  const EDGES = [['n', 0, -1], ['s', 0, 1], ['w', -1, 0], ['e', 1, 0], ['nw', -1, -1], ['ne', 1, -1], ['sw', -1, 1], ['se', 1, 1]];
   W.windows = () => wins.slice();
   W.active = () => {
     for (let i = wins.length - 1; i >= 0; i--) if (!wins[i].minimised) return wins[i];
@@ -475,30 +525,49 @@
   W.window = function (o = {}) {
     const titleText = h('span.w-title-text', o.title || '');
     const iconHost = h('span.w-title-icon', W.icon(o.icon || 'app', 16));
-    const btn = (name, label, fn) => h('button.w-tb', { type: 'button', tabIndex: -1, 'aria-label': label, title: label, onclick: fn }, W.glyph(name));
+    const btn = (name, label, fn) => h('button.w-tb', { type: 'button', tabIndex: -1, 'aria-label': label, title: label, onclick: fn }, caption(name));
     const maxBtn = btn('max', 'Maximize', () => win.maximise(!win.maximised));
+    // The caption buttons hang from the top edge as one piece.
     const title = h('div.w-title', iconHost, titleText,
-      o.dialog ? null : btn('min', 'Minimize', () => win.minimise()),
-      o.dialog ? null : maxBtn,
-      btn('close', 'Close', () => win.close()));
+      h('div.w-caption',
+        o.dialog ? null : btn('min', 'Minimize', () => win.minimise()),
+        o.dialog ? null : maxBtn,
+        btn('close', 'Close', () => win.close())));
     const menubar = h('div.w-menubar', { role: 'menubar', hidden: true });
     const toolbar = h('div.w-toolbar', { hidden: true });
     const body = h('div.w-body');
     const notes = h('span.w-status-pane.main');
     const extra = h('span.w-status-pane.extra', { hidden: true });
-    const grip = o.dialog ? null : h('i.w-grip');
+    // The grip is the status bar's: a window without one is sized by its frame alone.
+    const grip = o.dialog || o.status === false ? null : h('i.w-grip');
     const status = o.status === false ? null : h('div.w-status', notes, extra, grip);
-    // Where the window is, as a trail of places, with room for a search field at its end.
+    // Where the window is, as a trail of places, with Back and Forward before it and
+    // room for a search field after it. It sits on the glass, over what is inside.
     const addr = h('div.w-addr', { hidden: true });
-    // The command bar: the menus, as buttons that drop down, and then what is done most.
+    // Inside the frame: the command bar (the menus, as buttons that drop down, and then
+    // what is done most), the content, the status bar.
+    const client = h('div.w-client', h('div.w-command', menubar, toolbar), body, status);
     const el = h('section.w-window' + (o.dialog ? '.w-dialog' : ''), { tabIndex: -1, role: o.dialog ? 'dialog' : null, 'aria-label': o.title || null },
-      title, addr, h('div.w-command', menubar, toolbar), body, status);
+      title, addr, client);
 
     const disposers = [];
-    let noteTimer = 0, resting = '';
+    let noteTimer = 0, resting = '', back = null, forward = null, frame = null;
+    // The streaks of light on the glass stay where they are on the screen: the frame
+    // is told where it is, and shows the part of them it is over (style.css).
+    const lit = (x, y) => {
+      el.style.setProperty('--wx', Math.round(x) + 'px');
+      el.style.setProperty('--wy', Math.round(y) + 'px');
+    };
+    const litHere = () => {
+      if (win.maximised || narrow.matches) return lit(0, 0);
+      const host = el.parentNode.getBoundingClientRect();
+      lit(host.left + el.offsetLeft, host.top + el.offsetTop);
+    };
     const win = {
       el, body,
       path: null,
+      trail: null,        // a place's window: the places it has shown, and which it is at
+      at: 0,
       minimised: false,
       maximised: false,
       mounted: false,
@@ -551,13 +620,26 @@
         addr.hidden = !crumbs;
         if (!crumbs) return;
         el.classList.add('has-addr');
+        const travel = (label, name, step) => h('button', { type: 'button', 'aria-label': label, title: label, disabled: true, onclick: () => NT.nav.travel(win, step) }, W.picture(name, 26));
+        back = travel('Back', 'back', -1);
+        forward = travel('Forward', 'forward', 1);
         addr.replaceChildren(...[
+          h('div.w-travel', back, forward),
           h('div.w-crumbs', W.icon(win.icon, 16), crumbs.map((c, i) => [
             h('i.w-crumb-sep', W.glyph('right', 7, 7)),
-            i === 0 && crumbs.length > 1 ? h('button.w-crumb', { type: 'button', onclick: () => NT.nav.go('/') }, c) : h('span.w-crumb', c),
-          ])),
+            i === 0 && crumbs.length > 1 ? h('button.w-crumb', { type: 'button', onclick: () => NT.nav.travel(win, '/') }, c) : h('span.w-crumb', c),
+          ]),
+          // Reads the place again.
+          h('button.w-refresh', { type: 'button', 'aria-label': 'Refresh', title: 'Refresh', onclick: () => { if (win.onShow) Promise.resolve(win.onShow()).catch((err) => console.error(err)); } }, W.picture('refresh', 16))),
           extra,
         ].filter(Boolean));
+        win.syncTravel();
+      },
+      // Back and Forward can be pressed when there is somewhere to go.
+      syncTravel() {
+        if (!back) return;
+        back.disabled = !(win.at > 0);
+        forward.disabled = !(win.trail && win.at < win.trail.length - 1);
       },
       setToolbar(...nodes) {
         const list = nodes.flat().filter(Boolean);
@@ -574,7 +656,7 @@
         extra.hidden = !text;
         extra.textContent = text || '';
       },
-      // … and for a moment, over that (a toast).
+      // … and for a moment, over that (a toast). → false in a window with no status bar.
       note(text, opts = {}) {
         if (!status) return false;
         clearTimeout(noteTimer);
@@ -594,12 +676,20 @@
       },
       onDestroy(fn) { disposers.push(fn); },
 
-      open() {
+      // Opens where another window is, at its size: a place shown in the same frame.
+      takeFrame(from) {
+        frame = { left: from.el.style.left, top: from.el.style.top, width: from.el.style.width, height: from.el.style.height, max: from.maximised };
+      },
+      // opts: { swap } it takes another window's place, so it does not fade in
+      open(opts = {}) {
         if (win.mounted) return win.front();
         win.mounted = true;
+        if (opts.swap) el.classList.add('is-swap');
         place();
         (o.dialog ? W.layers.modal : W.layers.desk).append(el);
         if (!o.dialog) wins.push(win);
+        litHere();
+        win.syncTravel();
         restack();
         el.focus({ preventScroll: true });
         return win;
@@ -625,9 +715,10 @@
       maximise(on) {
         win.maximised = on;
         el.classList.toggle('is-max', on);
-        maxBtn.replaceChildren(W.glyph(on ? 'restore' : 'max'));
-        maxBtn.title = on ? 'Restore' : 'Maximize';
+        maxBtn.replaceChildren(caption(on ? 'restore' : 'max'));
+        maxBtn.title = on ? 'Restore Down' : 'Maximize';
         maxBtn.setAttribute('aria-label', maxBtn.title);
+        if (win.mounted) litHere();
       },
       // Asked to close: by its own button, the menu, the keyboard.
       async close() {
@@ -641,14 +732,27 @@
         win.destroy();
         return true;
       },
-      destroy() {
+      // opts: { swap } another window is taking its place, so it does not fade out
+      destroy(opts = {}) {
         if (!win.mounted) return;
         win.mounted = false;
         clearTimeout(noteTimer);
         disposers.splice(0).forEach((d) => d());
-        el.remove();
         const i = wins.indexOf(win);
         if (i >= 0) wins.splice(i, 1);
+        if (opts.swap || win.minimised || win.maximised || narrow.matches || still.matches) el.remove();
+        else {
+          // It fades away where it stood, out of reach, while what is under it carries on.
+          const r = el.getBoundingClientRect();
+          el.inert = true;
+          el.classList.remove('is-swap', 'is-max');
+          el.classList.add('is-active', 'is-shut');
+          Object.assign(el.style, { position: 'fixed', left: r.left + 'px', top: r.top + 'px', width: r.width + 'px', height: r.height + 'px', zIndex: '' });
+          W.layers.pop.append(el);
+          const gone = () => el.remove();
+          el.addEventListener('animationend', gone, { once: true });
+          setTimeout(gone, 500);
+        }
         restack();
         if (win.onClosed) win.onClosed();
         if (W.onFront && !o.dialog) W.onFront();
@@ -657,6 +761,11 @@
 
     // Each new window opens a step down and right of the last, as the desktop does it.
     function place() {
+      if (frame) {
+        Object.assign(el.style, { left: frame.left, top: frame.top, width: frame.width, height: frame.height });
+        if (frame.max !== win.maximised) win.maximise(frame.max);
+        return;
+      }
       const desk = W.layers.desk.getBoundingClientRect();
       const w = Math.min(o.width || 560, desk.width - 8), ht = Math.min(o.height || 420, desk.height - 8);
       el.style.width = w + 'px';
@@ -664,8 +773,8 @@
       if (o.dialog) return; // dialog boxes are centred by their layer
       // Clear of the column of icons down the desktop's left edge, where there is room.
       const n = wins.length % 8;
-      el.style.left = Math.round(clamp(100 + n * 22, 0, Math.max(0, desk.width - w))) + 'px';
-      el.style.top = Math.round(clamp(12 + n * 22, 0, Math.max(0, desk.height - ht))) + 'px';
+      el.style.left = Math.round(clamp(100 + n * 26, 0, Math.max(0, desk.width - w))) + 'px';
+      el.style.top = Math.round(clamp(14 + n * 26, 0, Math.max(0, desk.height - ht))) + 'px';
     }
 
     el.addEventListener('pointerdown', () => {
@@ -674,9 +783,9 @@
       if (W.onFront) W.onFront();
     }, true);
 
-    // The title bar moves the window; twice on it maximises or restores.
-    title.addEventListener('pointerdown', (e) => {
-      if (e.button || e.target.closest('.w-tb') || win.maximised || narrow.matches) return;
+    // The glass at the top moves the window; twice on it maximises or restores.
+    const grab = (e) => {
+      if (e.button || e.target.closest('button, input, .w-crumbs') || win.maximised || narrow.matches) return;
       const r = el.getBoundingClientRect(), host = el.parentNode.getBoundingClientRect();
       const dx = e.clientX - r.left, dy = e.clientY - r.top;
       if (o.dialog) {
@@ -685,45 +794,74 @@
         el.style.left = r.left - host.left + 'px';
         el.style.top = r.top - host.top + 'px';
       }
-      title.setPointerCapture(e.pointerId);
+      const bar = e.currentTarget;
+      bar.setPointerCapture(e.pointerId);
       const move = (ev) => {
-        el.style.left = Math.round(clamp(ev.clientX - dx - host.left, 60 - r.width, host.width - 60)) + 'px';
-        el.style.top = Math.round(clamp(ev.clientY - dy - host.top, 0, host.height - 24)) + 'px';
+        const x = Math.round(clamp(ev.clientX - dx - host.left, 60 - r.width, host.width - 60));
+        const y = Math.round(clamp(ev.clientY - dy - host.top, 0, host.height - 24));
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        lit(host.left + x, host.top + y);
       };
       const up = () => {
-        title.removeEventListener('pointermove', move);
-        title.removeEventListener('pointerup', up);
-        title.removeEventListener('pointercancel', up);
+        bar.removeEventListener('pointermove', move);
+        bar.removeEventListener('pointerup', up);
+        bar.removeEventListener('pointercancel', up);
       };
-      title.addEventListener('pointermove', move);
-      title.addEventListener('pointerup', up);
-      title.addEventListener('pointercancel', up);
-    });
-    if (!o.dialog) title.addEventListener('dblclick', (e) => { if (!e.target.closest('.w-tb') && !narrow.matches) win.maximise(!win.maximised); });
+      bar.addEventListener('pointermove', move);
+      bar.addEventListener('pointerup', up);
+      bar.addEventListener('pointercancel', up);
+    };
+    const flip = (e) => { if (!e.target.closest('button, input, .w-crumbs') && !narrow.matches) win.maximise(!win.maximised); };
+    for (const bar of [title, addr]) {
+      bar.addEventListener('pointerdown', grab);
+      if (!o.dialog) bar.addEventListener('dblclick', flip);
+    }
 
-    if (grip) grip.addEventListener('pointerdown', (e) => {
-      if (e.button || win.maximised) return;
+    // Any edge or corner of the frame sizes the window, and so does the grip in the
+    // status bar. dx, dy: the edge taken (-1 the left or top one, 1 the right or bottom one).
+    const size = (dx, dy) => (e) => {
+      if (e.button || win.maximised || narrow.matches) return;
       e.preventDefault();
-      const r = el.getBoundingClientRect();
-      grip.setPointerCapture(e.pointerId);
+      const r = el.getBoundingClientRect(), host = el.parentNode.getBoundingClientRect();
+      const left = Math.round(r.left - host.left), top = Math.round(r.top - host.top);
+      const right = left + Math.round(r.width), bottom = top + Math.round(r.height);
+      const handle = e.currentTarget;
+      handle.setPointerCapture(e.pointerId);
       const move = (ev) => {
-        el.style.width = Math.max(260, Math.round(r.width + ev.clientX - e.clientX)) + 'px';
-        el.style.height = Math.max(180, Math.round(r.height + ev.clientY - e.clientY)) + 'px';
+        const mx = Math.round(ev.clientX - e.clientX), my = Math.round(ev.clientY - e.clientY);
+        let x = left, y = top, w = right - left, ht = bottom - top;
+        if (dx > 0) w = Math.max(MIN_W, w + mx);
+        if (dx < 0) { w = Math.max(MIN_W, w - mx); x = right - w; }
+        if (dy > 0) ht = Math.max(MIN_H, ht + my);
+        // The top edge stops at the top of the desktop: the caption stays in reach.
+        if (dy < 0) { ht = clamp(ht - my, MIN_H, bottom); y = bottom - ht; }
+        Object.assign(el.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: ht + 'px' });
+        lit(host.left + x, host.top + y);
       };
       const up = () => {
-        grip.removeEventListener('pointermove', move);
-        grip.removeEventListener('pointerup', up);
-        grip.removeEventListener('pointercancel', up);
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
       };
-      grip.addEventListener('pointermove', move);
-      grip.addEventListener('pointerup', up);
-      grip.addEventListener('pointercancel', up);
-    });
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    };
+    if (!o.dialog) {
+      for (const [name, dx, dy] of EDGES) el.append(h('i.w-size.' + name, { 'aria-hidden': 'true', onpointerdown: size(dx, dy) }));
+      if (grip) grip.addEventListener('pointerdown', size(1, 1));
+    }
 
     el.addEventListener('keydown', (e) => {
       // Alt+F4 belongs to the browser's own window; Escape closes a dialog box.
       if (e.key === 'Escape' && o.dialog && !e.defaultPrevented) { e.preventDefault(); win.close(); }
       if (e.key === 'F10' && !e.shiftKey && !menubar.hidden) { e.preventDefault(); menubar.firstChild.focus(); }
+      // Alt and an arrow go back and forward in a window that shows a place.
+      if (back && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        NT.nav.travel(win, e.key === 'ArrowLeft' ? -1 : 1);
+      }
     });
 
     if (o.menus) win.setMenus(o.menus);
@@ -794,13 +932,43 @@
 
   /* ---------- What the core asks for ---------- */
 
-  // Said in the status bar of the window in front, for a moment; with no window to say
-  // it in, a warning is a message box and anything else goes unsaid.
+  // A balloon from the notification area: what just happened, for a moment. One at a
+  // time; a press on it puts it away.
+  let balloon = null;
+  W.balloon = function (text, opts = {}) {
+    if (balloon) balloon.close(true);
+    const el = h('div.w-balloon', { role: 'status' }, W.icon(opts.warn ? 'warning' : 'info', 16), h('span', text));
+    let timer = 0;
+    const self = {
+      close(now) {
+        clearTimeout(timer);
+        if (balloon === self) balloon = null;
+        if (now || still.matches) return void el.remove();
+        el.classList.add('is-going');
+        el.addEventListener('animationend', () => el.remove(), { once: true });
+        setTimeout(() => el.remove(), 600);
+      },
+    };
+    el.addEventListener('click', () => self.close());
+    W.layers.pop.append(el);
+    // Its tail points at the app's own icon there.
+    const tray = W.layers.tray;
+    if (tray && tray.getClientRects().length) {
+      const t = tray.getBoundingClientRect(), b = el.getBoundingClientRect();
+      el.style.setProperty('--tail', Math.max(10, Math.round(b.right - (t.left + t.width / 2) - 6)) + 'px');
+    }
+    timer = setTimeout(() => self.close(), opts.duration || (opts.warn ? 5000 : 2800));
+    balloon = self;
+    return self;
+  };
+
+  // Said in the status bar of the window in front, for a moment. A window that shows
+  // a place has no status bar, and with no window there is none either: then it is a
+  // balloon from the notification area.
   UI.toast = function (message, opts = {}) {
-    const dialog = W.layers.modal.lastElementChild;
     const win = W.active();
-    if (win && win.note(message, opts)) return;
-    if (opts.warn && !dialog) W.message({ text: message, icon: 'warning' });
+    if (win && !W.layers.modal.lastElementChild && win.note(message, opts)) return;
+    W.balloon(message, opts);
   };
 
   UI.confirm = function ({ title, message, confirmLabel = 'OK', cancelLabel = 'Cancel', destructive = false }) {
@@ -940,18 +1108,18 @@
       roundedSelection: false,
       padding: { top: 2, bottom: 2 },
       lineDecorationsWidth: 6,
-      scrollbar: { verticalScrollbarSize: 16, horizontalScrollbarSize: 16, useShadows: false },
+      scrollbar: { vertical: 'visible', verticalScrollbarSize: 17, horizontalScrollbarSize: 17, useShadows: false },
     },
-    // Monaco's own lists and boxes are the system's: grey, bevelled, the selection in
-    // the highlight colour.
+    // Monaco's own lists and boxes are the system's: a menu's grey, a list's white, the
+    // selection in the highlight colour.
     codeTheme(t, dark) {
       const cs = getComputedStyle(document.documentElement);
       const tok = (name, fallback) => {
         const v = cs.getPropertyValue(name).trim();
         return /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
       };
-      const face = tok('--face', dark ? '#2f3238' : '#f0f0f0'), text = tok('--text', dark ? '#e8e8e8' : '#000000');
-      const sel = tok('--sel', '#3399ff'), field = tok('--window', dark ? '#1b1d22' : '#ffffff');
+      const face = tok('--face', dark ? '#2d3036' : '#f0f0f0'), text = tok('--text', dark ? '#e9e9ea' : '#000000');
+      const sel = tok('--sel', '#3399ff'), field = tok('--window', dark ? '#1c1e23' : '#ffffff');
       Object.assign(t.colors, {
         'editorWidget.background': face,
         'editorWidget.foreground': text,
@@ -963,8 +1131,8 @@
         'editorSuggestWidget.selectedForeground': '#ffffff',
         'editorSuggestWidget.highlightForeground': text,
         'editorSuggestWidget.focusHighlightForeground': '#ffffff',
-        'editorHoverWidget.background': tok('--tip', dark ? '#3a3a22' : '#ffffe1'),
-        'editorHoverWidget.foreground': tok('--tip-text', dark ? '#e6e6e6' : '#000000'),
+        'editorHoverWidget.background': dark ? '#33363d' : '#ffffff',
+        'editorHoverWidget.foreground': tok('--tip-text', dark ? '#e9e9ea' : '#575757'),
         'editorHoverWidget.border': '#00000000',
         'input.background': field,
         'input.foreground': text,
@@ -973,7 +1141,7 @@
         'menu.foreground': text,
         'menu.selectionBackground': sel,
         'menu.selectionForeground': '#ffffff',
-        'menu.separatorBackground': tok('--edge', '#aca899'),
+        'menu.separatorBackground': tok('--menu-gutter', '#e2e3e3'),
         'list.hoverBackground': '#00000000',
         'list.focusBackground': sel,
         'list.focusForeground': '#ffffff',

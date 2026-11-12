@@ -17,7 +17,7 @@
 
   const PLACES = [
     { label: 'NT Scripting', icon: 'app', path: '/' },
-    { label: 'Scripts', icon: 'scripts', path: '/scripts' },
+    { label: 'Scripts', icon: 'folder', path: '/scripts' },
     { label: 'Maps', icon: 'map', path: '/maps' },
     { label: 'Profile', icon: 'user', path: '/profile' },
     { label: 'Settings', icon: 'settings', path: '/settings' },
@@ -94,7 +94,7 @@
   /* ---------- Taskbar ---------- */
 
   function taskbar() {
-    const start = h('button.w-start-btn', { type: 'button', 'aria-haspopup': 'menu' }, W.icon('app', 16), h('b', 'Start'));
+    const start = h('button.w-start-btn', { type: 'button', 'aria-haspopup': 'menu' }, W.icon('logo', 16), h('b', 'Start'));
     const tasks = h('div.w-tasks', { role: 'toolbar', 'aria-label': 'Windows' });
     const clock = h('span.w-clock');
     const el = h('footer.w-taskbar', start, tasks, h('div.w-tray', clock));
@@ -112,7 +112,7 @@
         !me || NT.api.mode === 'demo'
           ? { label: 'Sign In…', pix: 'key', onSelect: () => UI.authDialog('login') }
           : { label: `Log Out ${me.name || me.username}`, pix: 'key', onSelect: async () => { await NT.api.logout(); Nav.reset(['/']); } },
-      ], { icons: 32, cls: 'w-start', band: 'NT Scripting', owner: start, onClose: () => { menu = null; start.classList.remove('is-open'); } });
+      ], { icons: 32, cls: 'w-start', band: 'NT Scripting', rise: true, owner: start, onClose: () => { menu = null; start.classList.remove('is-open'); } });
     });
 
     // One button a window, in the order they were opened; the one in front is pressed in.

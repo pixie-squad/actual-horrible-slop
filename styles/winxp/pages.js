@@ -1,7 +1,8 @@
 /*
   Windows XP's screens. Each is a window: a title bar, a menu bar with everything that
   can be done in it, the content, a status bar. A window that shows a place (Home,
-  Scripts, Maps) has the task pane down its left: what can be done there, the other
+  Scripts, Maps) is an Explorer window: Back, Forward, Up and Search on its toolbar, the
+  Address bar, and the task pane down its left with what can be done there, the other
   places, and what is chosen.
 
   A factory returns the window (ui.js, W.window) without opening it; the shell (app.js)
@@ -117,11 +118,32 @@
   });
 
   // The other places, as a task pane's group lists them; `here` is left out.
+  const PLACES = [['Home', 'app', '/'], ['Scripts', 'scripts', '/scripts'], ['Maps', 'map', '/maps'], ['Profile', 'user', '/profile'], ['Settings', 'settings', '/settings']];
   const otherPlaces = (here) => ({
     title: 'Other Places',
-    items: () => [['Home', 'app', '/'], ['Scripts', 'scripts', '/scripts'], ['Maps', 'map', '/maps'], ['Profile', 'user', '/profile'], ['Settings', 'settings', '/settings']]
-      .filter((p) => p[2] !== here).map(([label, icon, path]) => ({ label, icon, onSelect: () => go(path) })),
+    items: () => PLACES.filter((p) => p[2] !== here).map(([label, icon, path]) => ({ label, icon, onSelect: () => go(path) })),
   });
+
+  // What an Explorer window has under its menus: Back and Forward through where the
+  // browser has been, Up to Home, Search where there is something to search, and the
+  // Address bar, whose list is the places. search(on): the Search button was pressed.
+  function placeBars(win, here, search) {
+    const [name, icon] = PLACES.find((p) => p[2] === here);
+    const back = W.tool('Back', 'tb-back', () => history.back(), { size: 24, cls: '.keep-text' });
+    const forward = W.tool('Forward', 'tb-forward', () => history.forward(), { size: 24, text: false });
+    const up = W.tool('Up', 'tb-up', () => go('/'), { size: 24, text: false, disabled: here === '/' });
+    const find = search ? W.tool('Search', 'tb-search', () => search(!find.classList.contains('is-down')), { size: 24, cls: '.keep-text' }) : null;
+    const sync = () => {
+      back.disabled = !NT.nav.canBack();
+      forward.disabled = !NT.nav.canForward();
+    };
+    W.navSubs.add(sync);
+    win.onDestroy(() => W.navSubs.delete(sync));
+    sync();
+    win.setToolbar(back, forward, up, find ? sep() : null, find);
+    win.setAddress(here === '/' ? 'NT Scripting' : name, icon, () => PLACES.map(([label, pix, path]) => ({ label, pix, disabled: path === here, onSelect: () => go(path) })));
+    return { find };
+  }
   const details = (title, ...lines) => h('div.w-tp-details', h('b', title), lines.filter(Boolean).map((t) => h('span', t)));
 
   function filePicker(win) {
@@ -148,19 +170,20 @@
   /* ---------- Home ---------- */
 
   P.home = function () {
-    const win = W.window({ title: 'NT Scripting', icon: 'app', width: 760, height: 500 });
+    const win = W.window({ title: 'NT Scripting', icon: 'app', width: 760, height: 520, place: true });
     const body = h('div.w-page');
     const pickFile = filePicker(win);
     let loaded = false, stamp = '';
     const pane = W.tasks([
       { title: 'Script Tasks', items: () => [
-        { label: 'New Script', icon: 'doc', onSelect: A.create },
-        { label: 'Upload File', icon: 'doc', onSelect: () => (API.session ? pickFile() : signIn()) },
+        { label: 'New Script', icon: 'new', onSelect: A.create },
+        { label: 'Upload File', icon: 'up', onSelect: () => (API.session ? pickFile() : signIn()) },
         (!API.session || API.mode === 'demo') && { label: 'Sign In', icon: 'key', onSelect: signIn },
       ] },
       otherPlaces('/'),
     ]);
     win.body.append(h('div.w-explorer', pane.el, body));
+    placeBars(win, '/');
 
     win.setMenus([
       {
@@ -192,7 +215,7 @@
         const view = scriptList(columns, ctx);
         view.el.classList.add('fit');
         view.set(list);
-        kids.push(h('div.w-section', h('div.w-section-head', label(title), more ? W.button('See All', more) : null), view.el));
+        kids.push(h('div.w-section', h('div.w-section-head', label(title), more ? h('button.w-link', { type: 'button', onclick: more }, 'See All') : null), view.el));
       };
 
       const latest = byRecent(mine)[0];
@@ -214,7 +237,7 @@
       const seeAll = (filter) => () => { state.scriptsFilter = filter; go('/scripts'); };
       if (me) {
         if (mine.length) section('My Scripts', byRecent(mine).slice(0, 10), [COL.name, COL.modified, COL.status], seeAll('mine'));
-        else kids.push(h('div.w-section', label('My Scripts'), blank('No Scripts Yet', { label: 'New Script', onClick: A.create })));
+        else kids.push(h('div.w-section', h('div.w-section-head', label('My Scripts')), blank('No Scripts Yet', { label: 'New Script', onClick: A.create })));
         if (favs.length) section('Favorites', favs.slice(0, 10), [COL.name, COL.author, COL.modified], seeAll('favorites'));
       }
       const recent = byRecent(all.filter((s) => !me || s.author_uuid !== me.user_id)).slice(0, 6);
@@ -252,7 +275,7 @@
   /* ---------- Scripts ---------- */
 
   P.scripts = function () {
-    const win = W.window({ title: 'Scripts', icon: 'scripts', width: 780, height: 480 });
+    const win = W.window({ title: 'Scripts', icon: 'scripts', width: 780, height: 500, place: true });
     const pickFile = filePicker(win);
     // Your own scripts come first. The window reopens on whichever list was used last.
     const FILTERS = ['mine', 'favorites', 'all'], SORTS = { name: [0, 1], author: [1, 1], recent: [2, -1] };
@@ -279,6 +302,22 @@
       onSort: ([i]) => store.set('nt.scripts.sort', ['name', 'author', 'recent'][i] || 'recent'),
       onPick: () => sync(),
     });
+    // Searching is the Search button's: the task pane gives way to the field, as it does
+    // to Explorer's. Turning it off puts the list back as it was.
+    const find = W.input({ type: 'search', placeholder: 'Find', 'aria-label': 'Find', class: 'w-find' });
+    let searching = false;
+    const search = (on) => {
+      searching = on;
+      bars.find.classList.toggle('is-down', on);
+      pane.search(on);
+      if (!on && find.value) {
+        find.value = '';
+        find.dispatchEvent(new Event('input'));
+      }
+    };
+    find.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); search(false); list.focus(); }
+    });
     const tabs = W.tabs([
       { id: 'mine', label: 'Mine', body: list.el },
       { id: 'favorites', label: 'Favorites', body: list.el },
@@ -289,14 +328,14 @@
       { title: 'Script Tasks', items: () => {
         const s = list.picked, owner = !!s && API.isOwner(s);
         return [
-          { label: 'New Script', icon: 'doc', onSelect: A.create },
-          { label: 'Upload File', icon: 'doc', onSelect: () => (API.session ? pickFile() : signIn()) },
-          s && { label: 'Open', icon: 'scripts', onSelect: () => go(`/scripts/${s.script_id}`) },
-          s && API.session && { label: 'View Source', icon: 'log', onSelect: () => go(`/scripts/${s.script_id}/view`) },
-          owner && { label: 'Edit', icon: 'doc', onSelect: () => go(`/scripts/${s.script_id}/edit`) },
-          owner && !s.published_at && { label: 'Publish', icon: 'map', onSelect: () => A.publish(s, ctx.refresh) },
-          s && { label: 'Share', icon: 'user', onSelect: () => A.share(s) },
-          owner && { label: 'Delete', icon: 'error', onSelect: () => A.remove(s, ctx.refresh) },
+          { label: 'New Script', icon: 'new', onSelect: A.create },
+          { label: 'Upload File', icon: 'up', onSelect: () => (API.session ? pickFile() : signIn()) },
+          s && { label: 'Open', icon: 'open', onSelect: () => go(`/scripts/${s.script_id}`) },
+          s && API.session && { label: 'View Source', icon: 'text', onSelect: () => go(`/scripts/${s.script_id}/view`) },
+          owner && { label: 'Edit', icon: 'rename', onSelect: () => go(`/scripts/${s.script_id}/edit`) },
+          owner && !s.published_at && { label: 'Publish', icon: 'publish', onSelect: () => A.publish(s, ctx.refresh) },
+          s && { label: 'Share', icon: 'share', onSelect: () => A.share(s) },
+          owner && { label: 'Delete', icon: 'delete', onSelect: () => A.remove(s, ctx.refresh) },
         ];
       } },
       otherPlaces('/scripts'),
@@ -304,21 +343,11 @@
         const s = list.picked;
         return [s ? details(nameOf(s), s.published_at ? 'Script' : 'Draft', s.author_name, `Modified ${rel(s.updated_at)}`) : details('Scripts', data ? plural((filter === 'mine' ? data.mine : filter === 'favorites' ? data.favs : data.all).length, 'script') : null)];
       } },
-    ]);
+    ], { search: find });
     win.body.append(h('div.w-explorer', pane.el, h('div.w-page.fill', tabs.el)));
-
-    const find = W.input({ type: 'search', placeholder: 'Find', 'aria-label': 'Find', class: 'w-find' });
-    const openBtn = W.button('Open', () => { if (list.picked) go(`/scripts/${list.picked.script_id}`); });
-    const editBtn = W.button('Edit', () => { if (list.picked) go(`/scripts/${list.picked.script_id}/edit`); });
-    const delBtn = W.button('Delete', () => { if (list.picked) A.remove(list.picked, ctx.refresh); });
-    win.setToolbar(openBtn, editBtn, delBtn, gap(), find);
-    function sync() {
-      const s = list.picked;
-      openBtn.disabled = !s;
-      editBtn.disabled = delBtn.disabled = !s || !API.isOwner(s);
-      pane.refresh();
-    }
-    sync();
+    const bars = placeBars(win, '/scripts', search);
+    // What can be done with the script that is chosen is in the task pane and the File menu.
+    function sync() { pane.refresh(); }
 
     function choose(v) {
       filter = chosen = v;
@@ -344,6 +373,7 @@
           { label: 'Favorites', checked: filter === 'favorites', onSelect: () => { choose('favorites'); tabs.show('favorites'); render(); } },
           { label: 'All', checked: filter === 'all', onSelect: () => { choose('all'); tabs.show('all'); render(); } },
           '-',
+          { label: 'Search', checked: searching, radio: false, onSelect: () => search(!searching) },
           { label: 'Refresh', onSelect: () => load() },
         ],
       },
@@ -404,6 +434,11 @@
     });
 
     win.onShow = () => {
+      // The Start menu opens Scripts on one of its lists.
+      if (W.openOn) {
+        state.scriptsFilter = W.openOn;
+        W.openOn = null;
+      }
       if (state.scriptsFilter) {
         choose(state.scriptsFilter);
         tabs.show(filter);
@@ -585,7 +620,7 @@
     const code = W.code(), host = code.host;
     win.body.append(code.el);
     let view = null, ready = false, content = '';
-    const copy = W.button('Copy', () => A.copy(content), { disabled: true });
+    const copy = W.tool('Copy', 'copy', () => A.copy(content), { disabled: true });
     win.setToolbar(copy);
     win.setMenus([{ label: 'File', items: () => [{ label: 'Copy', disabled: !content, onSelect: () => A.copy(content) }, { label: 'Script Page', onSelect: () => go(`/scripts/${id}`) }, '-', closeItem(win)] }]);
 
@@ -623,7 +658,8 @@
   /* ---------- Maps ---------- */
 
   P.maps = function () {
-    const win = W.window({ title: 'Maps', icon: 'map', width: 700, height: 420 });
+    const win = W.window({ title: 'Maps', icon: 'map', width: 700, height: 440, place: true });
+    placeBars(win, '/maps');
     let maps = null, listed = '', busy = false;
 
     const input = W.input({ type: 'url', inputMode: 'url', autocomplete: 'off', placeholder: 'Paste a map link', 'aria-label': 'Map link' });
@@ -681,12 +717,8 @@
     ], { label: 'Maps', menu: items, onOpen: rename, onPick: () => sync(), keys: { Delete: remove, F2: rename } });
     list.el.classList.add('fill');
 
-    const renameBtn = W.button('Rename', () => { if (list.picked) rename(list.picked); });
-    const copyBtn = W.button('Copy ID', () => { if (list.picked) A.copy(list.picked.internal_id); });
-    const delBtn = W.button('Delete', () => { if (list.picked) remove(list.picked); });
     let refreshPane = () => {};
-    const sync = () => { renameBtn.disabled = copyBtn.disabled = delBtn.disabled = !list.picked; refreshPane(); };
-    sync();
+    const sync = () => refreshPane();
 
     async function submit(value) {
       if (busy || !String(value).trim() || !maps) return;
@@ -753,9 +785,9 @@
           { title: 'Map Tasks', items: () => {
             const m = list.picked;
             return [
-              { label: 'Rename', icon: 'map', disabled: !m, onSelect: () => rename(list.picked) },
-              { label: 'Copy ID', icon: 'log', disabled: !m, onSelect: () => A.copy(list.picked.internal_id) },
-              { label: 'Delete', icon: 'error', disabled: !m, onSelect: () => remove(list.picked) },
+              { label: 'Rename', icon: 'rename', disabled: !m, onSelect: () => rename(list.picked) },
+              { label: 'Copy ID', icon: 'copy', disabled: !m, onSelect: () => A.copy(list.picked.internal_id) },
+              { label: 'Delete', icon: 'delete', disabled: !m, onSelect: () => remove(list.picked) },
             ];
           } },
           otherPlaces('/maps'),
@@ -851,7 +883,7 @@
   /* ---------- Settings ---------- */
 
   P.settings = function () {
-    const win = W.window({ title: 'Settings', icon: 'settings', width: 400, height: 400 });
+    const win = W.window({ title: 'Settings', icon: 'settings', width: 400, height: 420 });
     const body = h('div.w-page.fill');
     win.body.append(body);
     let tab = 'general';
@@ -899,10 +931,14 @@
         });
         return b;
       }));
+      // The desktop's picture: the ones XP came with (style.css). Bliss is the one it has
+      // until another is chosen.
+      const wall = W.combo([['none', '(None)'], ['ascent', 'Ascent'], ['autumn', 'Autumn'], ['azul', 'Azul'], ['', 'Bliss'], ['crystal', 'Crystal'], ['follow', 'Follow'], ['friend', 'Friend'], ['home', 'Home'], ['moon-flower', 'Moon flower'], ['peace', 'Peace'], ['power', 'Power'], ['purple-flower', 'Purple flower'], ['radiance', 'Radiance'], ['red-moon-desert', 'Red moon desert'], ['ripple', 'Ripple'], ['stonehenge', 'Stonehenge'], ['tulips', 'Tulips'], ['vortec-space', 'Vortec space'], ['wind', 'Wind'], ['windows-xp', 'Windows XP']], NT.prefs.wall, (v) => NT.prefs.setWall(v), 'Background');
       const appearance = h('div.w-scroll',
         h('div.w-line', h('label', 'Style:'), style.el),
         W.group('Theme', theme.el),
-        W.group('Color', swatches));
+        W.group('Color', swatches),
+        h('div.w-line', h('label', 'Background:'), wall.el));
 
       const tabs = W.tabs([
         { id: 'general', label: 'General', body: general },

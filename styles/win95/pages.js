@@ -800,7 +800,7 @@
   /* ---------- Settings ---------- */
 
   P.settings = function () {
-    const win = W.window({ title: 'Settings', icon: 'settings', width: 400, height: 400 });
+    const win = W.window({ title: 'Settings', icon: 'settings', width: 400, height: 420 });
     const body = h('div.w-page.fill');
     win.body.append(body);
     let tab = 'general';
@@ -848,10 +848,13 @@
         });
         return b;
       }));
+      // The desktop's picture: Windows 95's own wallpapers (style.css).
+      const wall = W.combo([['', '(None)'], ['black-thatch', 'Black Thatch'], ['blue-rivets', 'Blue Rivets'], ['bubbles', 'Bubbles'], ['carved-stone', 'Carved Stone'], ['circles', 'Circles'], ['clouds', 'Clouds'], ['forest', 'Forest'], ['gold-weave', 'Gold Weave'], ['houndstooth', 'Houndstooth'], ['metal-links', 'Metal Links'], ['pinstripe', 'Pinstripe'], ['red-blocks', 'Red Blocks'], ['sandstone', 'Sandstone'], ['stitches', 'Stitches'], ['straw-mat', 'Straw Mat'], ['tiles', 'Tiles'], ['triangles', 'Triangles'], ['waves', 'Waves']], NT.prefs.wall, (v) => NT.prefs.setWall(v), 'Wallpaper');
       const appearance = h('div.w-scroll',
         h('div.w-line', h('label', 'Style:'), style.el),
         W.group('Theme', theme.el),
-        W.group('Color', swatches));
+        W.group('Color', swatches),
+        h('div.w-line', h('label', 'Wallpaper:'), wall.el));
 
       const tabs = W.tabs([
         { id: 'general', label: 'General', body: general },

@@ -1,9 +1,10 @@
 /*
-  Windows 7's screens. Each is a window: a title bar, the command bar with everything
-  that can be done in it (Organize first, then what is done most), the content, a
-  status bar. A window that shows a place (Home, Scripts, Maps) also has the address
-  row with where it is, the navigation pane down its left with the other places, and
-  the details pane along its bottom with what is chosen.
+  Windows 7's screens. Each is a window: a caption, the command bar with everything
+  that can be done in it (a menu first, then what is done most), the content, a status
+  bar. A window that shows a place (Home, Scripts, Maps) is Explorer's: the address
+  row with Back, Forward and where it is, the navigation pane down its left with the
+  other places, and the details pane along its bottom with what is chosen in place of
+  a status bar.
 
   A factory returns the window (ui.js, W.window) without opening it; the shell (app.js)
   opens it, and calls its onShow each time it comes to the front.
@@ -103,6 +104,32 @@
     return NT.media.cover(h('div.w-cover', { style: NT.util.cover(s.script_id) }), s);
   }
 
+  // The navigation pane of a window that shows a place: the places as a tree, the one
+  // shown marked. Going to a place from it stays in the window's frame.
+  // filters, in the Scripts window: { get(), set(id) }, the lists under Scripts.
+  function places(win, here, filters) {
+    const to = (path) => () => NT.nav.travel(win, path);
+    const list = (id, title, icon) => ({
+      id: 'scripts:' + id,
+      label: title,
+      icon,
+      onSelect: () => {
+        if (filters) return void filters.set(id);
+        state.scriptsFilter = id;
+        NT.nav.travel(win, '/scripts');
+      },
+    });
+    return W.tree([
+      { id: '/', label: 'NT Scripting', icon: 'app', onSelect: to('/'), open: true, kids: [
+        { id: '/scripts', label: 'Scripts', icon: 'scripts', onSelect: to('/scripts'), open: !!filters,
+          kids: [list('mine', 'Mine', 'mine'), list('favorites', 'Favorites', 'star'), list('all', 'All', 'folder')] },
+        { id: '/maps', label: 'Maps', icon: 'map', onSelect: to('/maps') },
+      ] },
+      { id: '/profile', label: 'Profile', icon: 'user', onSelect: () => go('/profile'), gap: true },
+      { id: '/settings', label: 'Settings', icon: 'settings', onSelect: () => go('/settings') },
+    ], filters ? 'scripts:' + filters.get() : here);
+  }
+
   // The window's own File menu ends the same way everywhere.
   const closeItem = (win) => ({ label: 'Close', onSelect: () => win.close() });
   const goMenu = () => ({
@@ -141,12 +168,14 @@
   /* ---------- Home ---------- */
 
   P.home = function () {
-    const win = W.window({ title: 'NT Scripting', icon: 'app', width: 760, height: 500 });
+    const win = W.window({ title: 'NT Scripting', icon: 'app', width: 780, height: 520, status: false });
     const body = h('div.w-page');
     const pickFile = filePicker(win);
+    const detail = W.details();
     let loaded = false, stamp = '';
-    win.body.append(h('div.w-explorer', W.places('/'), body));
+    win.body.append(h('div.w-explorer', places(win, '/').el, body), detail.el);
     win.setAddress(['NT Scripting']);
+    detail.set('app', 'NT Scripting');
     win.setToolbar(
       W.button('New Script', A.create),
       W.button('Upload File', () => (API.session ? pickFile() : signIn())),
@@ -182,7 +211,7 @@
         const view = scriptList(columns, ctx);
         view.el.classList.add('fit');
         view.set(list);
-        kids.push(h('div.w-section', h('div.w-section-head', label(title), more ? W.button('See All', more) : null), view.el));
+        kids.push(h('div.w-section', h('div.w-section-head', label(title), more ? h('button.w-link', { type: 'button', onclick: more }, 'See All') : null), view.el));
       };
 
       const latest = byRecent(mine)[0];
@@ -201,7 +230,7 @@
         }));
       }
 
-      const seeAll = (filter) => () => { state.scriptsFilter = filter; go('/scripts'); };
+      const seeAll = (filter) => () => { state.scriptsFilter = filter; NT.nav.travel(win, '/scripts'); };
       if (me) {
         if (mine.length) section('My Scripts', byRecent(mine).slice(0, 10), [COL.name, COL.modified, COL.status], seeAll('mine'));
         else kids.push(h('div.w-section', label('My Scripts'), blank('No Scripts Yet', { label: 'New Script', onClick: A.create })));
@@ -211,7 +240,7 @@
       if (recent.length) section('Recently Updated', recent, [COL.name, COL.author, COL.modified], seeAll('all'));
       else if (!me) kids.push(blank('Sign In to Browse', { label: 'Sign In', onClick: signIn }));
       body.replaceChildren(...kids);
-      win.setStatus(me ? plural(mine.length, 'script') : '');
+      detail.set('app', 'NT Scripting', me ? plural(mine.length, 'script') : null);
     }
 
     const load = reader(win, async () => {
@@ -242,7 +271,7 @@
   /* ---------- Scripts ---------- */
 
   P.scripts = function () {
-    const win = W.window({ title: 'Scripts', icon: 'scripts', width: 780, height: 480 });
+    const win = W.window({ title: 'Scripts', icon: 'scripts', width: 780, height: 500, status: false });
     const pickFile = filePicker(win);
     // Your own scripts come first. The window reopens on whichever list was used last.
     const FILTERS = ['mine', 'favorites', 'all'], SORTS = { name: [0, 1], author: [1, 1], recent: [2, -1] };
@@ -269,16 +298,13 @@
       onSort: ([i]) => store.set('nt.scripts.sort', ['name', 'author', 'recent'][i] || 'recent'),
       onPick: () => sync(),
     });
-    const tabs = W.tabs([
-      { id: 'mine', label: 'Mine', body: list.el },
-      { id: 'favorites', label: 'Favorites', body: list.el },
-      { id: 'all', label: 'All', body: list.el },
-    ], filter, (v) => { choose(v); render(); });
-    tabs.el.classList.add('fill');
+    list.el.classList.add('fill');
+    // Mine, Favorites and All are under Scripts in the navigation pane, and in View.
+    const nav = places(win, '/scripts', { get: () => filter, set: (v) => { choose(v); render(); } });
     const detail = W.details();
-    win.body.append(h('div.w-explorer', W.places('/scripts'), h('div.w-page.fill', tabs.el)), detail.el);
+    win.body.append(h('div.w-explorer', nav.el, h('div.w-page.fill', list.el)), detail.el);
 
-    const find = W.input({ type: 'search', placeholder: 'Find', 'aria-label': 'Find', class: 'w-find' });
+    const find = W.search({ placeholder: 'Search Scripts', 'aria-label': 'Search Scripts' });
     const openBtn = W.button('Open', () => { if (list.picked) go(`/scripts/${list.picked.script_id}`); });
     const editBtn = W.button('Edit', () => { if (list.picked) go(`/scripts/${list.picked.script_id}/edit`); });
     const delBtn = W.button('Delete', () => { if (list.picked) A.remove(list.picked, ctx.refresh); });
@@ -313,9 +339,9 @@
       {
         label: 'View',
         items: () => [
-          { label: 'Mine', checked: filter === 'mine', onSelect: () => { choose('mine'); tabs.show('mine'); render(); } },
-          { label: 'Favorites', checked: filter === 'favorites', onSelect: () => { choose('favorites'); tabs.show('favorites'); render(); } },
-          { label: 'All', checked: filter === 'all', onSelect: () => { choose('all'); tabs.show('all'); render(); } },
+          { label: 'Mine', checked: filter === 'mine', onSelect: () => { choose('mine'); render(); } },
+          { label: 'Favorites', checked: filter === 'favorites', onSelect: () => { choose('favorites'); render(); } },
+          { label: 'All', checked: filter === 'all', onSelect: () => { choose('all'); render(); } },
           '-',
           { label: 'Refresh', onSelect: () => load() },
         ],
@@ -328,14 +354,13 @@
       const next = find.value.trim().toLowerCase();
       const to = next && !query ? 'all' : !next && query ? chosen : filter;
       query = next;
-      if (to !== filter) {
-        filter = to;
-        tabs.show(to);
-      }
+      filter = to;
       if (data) render();
+      else nav.mark('scripts:' + filter);
     });
 
     function render() {
+      nav.mark('scripts:' + filter);
       if (signedOut) {
         list.say(blank('Sign In to Browse', { label: 'Sign In', onClick: signIn }));
         win.setStatus('');
@@ -377,11 +402,22 @@
     });
 
     win.onShow = () => {
+      // The Start menu opens Scripts on one of its lists.
+      if (W.openOn) {
+        state.scriptsFilter = W.openOn;
+        W.openOn = null;
+      }
       if (state.scriptsFilter) {
         choose(state.scriptsFilter);
-        tabs.show(filter);
         delete state.scriptsFilter;
         if (data) render();
+        else nav.mark('scripts:' + filter);
+      }
+      // What was typed into the Start menu's search box is looked for here.
+      if (W.find) {
+        find.value = W.find;
+        W.find = null;
+        find.dispatchEvent(new Event('input'));
       }
       load();
     };
@@ -391,9 +427,11 @@
   /* ---------- Script ---------- */
 
   P.script = function (id) {
-    const win = W.window({ title: 'Script', icon: 'doc', width: 470, height: 480 });
+    // A property sheet: its tabs, then its buttons along the bottom, and no status bar.
+    const win = W.window({ title: 'Script', icon: 'doc', width: 470, height: 480, status: false });
     const body = h('div.w-page.fill');
     win.body.append(body);
+    const changed = h('span.w-note');
 
     let script = null, params = [], releases = [], tab = 'general';
     const values = {};
@@ -403,7 +441,7 @@
     const battle = W.button('Start Friendly Battle', startBattle, { primary: true });
 
     win.setMenus([
-      { label: 'Organize', items: () => [...(script ? scriptItems(script, ctx) : []), '-', closeItem(win)] },
+      { label: 'File', items: () => [...(script ? scriptItems(script, ctx) : []), '-', closeItem(win)] },
       goMenu(),
     ]);
 
@@ -492,7 +530,7 @@
       }
       const count = () => {
         const n = params.filter((p) => valueOf(p) !== p.default_value).length;
-        win.setInfo(n ? `${n} changed` : '');
+        changed.textContent = n ? `${n} changed` : '';
       };
       count();
       return h('div.w-scroll', [...groups].map(([gid, list]) => W.group(API.groupLabel(gid), list.map((p) => paramRow(p, count)))));
@@ -517,7 +555,7 @@
       if (releases && releases.length) pages.push({ id: 'releases', label: 'Releases', body: history() });
       const tabs = W.tabs(pages, pages.some((p) => p.id === tab) ? tab : 'general', (v) => { tab = v; });
       tabs.el.classList.add('fill');
-      body.replaceChildren(tabs.el, h('div.w-buttons', battle));
+      body.replaceChildren(tabs.el, h('div.w-buttons', changed, gap(), battle));
     }
 
     const load = reader(win, async () => {
@@ -560,7 +598,7 @@
     let view = null, ready = false, content = '';
     const copy = W.button('Copy', () => A.copy(content), { disabled: true });
     win.setToolbar(copy);
-    win.setMenus([{ label: 'Organize', items: () => [{ label: 'Copy', disabled: !content, onSelect: () => A.copy(content) }, { label: 'Script Page', onSelect: () => go(`/scripts/${id}`) }, '-', closeItem(win)] }]);
+    win.setMenus([{ label: 'File', items: () => [{ label: 'Copy', disabled: !content, onSelect: () => A.copy(content) }, { label: 'Script Page', onSelect: () => go(`/scripts/${id}`) }, '-', closeItem(win)] }]);
 
     win.onShow = async () => {
       if (ready) return;
@@ -596,11 +634,16 @@
   /* ---------- Maps ---------- */
 
   P.maps = function () {
-    const win = W.window({ title: 'Maps', icon: 'map', width: 700, height: 420 });
+    const win = W.window({ title: 'Maps', icon: 'map', width: 720, height: 460, status: false });
+    const page = h('div.w-page.fill');
+    const detail = W.details();
+    win.body.append(h('div.w-explorer', places(win, '/maps').el, page), detail.el);
+    win.setAddress(['NT Scripting', 'Maps']);
     let maps = null, listed = '', busy = false;
 
     const input = W.input({ type: 'url', inputMode: 'url', autocomplete: 'off', placeholder: 'Paste a map link', 'aria-label': 'Map link' });
-    const say = (t) => win.setStatus(t || (maps ? plural(maps.length, 'map') : ''));
+    // What came of adding a map is said where a place's window says things.
+    const say = (t) => { if (t) UI.toast(t); };
 
     function rename(m) {
       const row = list.rowOf(m);
@@ -657,7 +700,12 @@
     const renameBtn = W.button('Rename', () => { if (list.picked) rename(list.picked); });
     const copyBtn = W.button('Copy ID', () => { if (list.picked) A.copy(list.picked.internal_id); });
     const delBtn = W.button('Delete', () => { if (list.picked) remove(list.picked); });
-    const sync = () => { renameBtn.disabled = copyBtn.disabled = delBtn.disabled = !list.picked; };
+    const sync = () => {
+      const m = list.picked;
+      renameBtn.disabled = copyBtn.disabled = delBtn.disabled = !m;
+      if (m) detail.set('map', m.name, 'Map', `ID: ${m.internal_id}`);
+      else detail.set('map', 'Maps', maps ? plural(maps.length, 'map') : null);
+    };
     sync();
 
     async function submit(value) {
@@ -717,13 +765,12 @@
     let built = false;
     win.onShow = reader(win, async () => {
       if (!API.session) {
-        win.body.replaceChildren(blank('Sign In to Add Maps', { label: 'Sign In', onClick: signIn }));
+        page.replaceChildren(blank('Sign In to Add Maps', { label: 'Sign In', onClick: signIn }));
         return;
       }
       if (!built) {
         win.setToolbar(renameBtn, copyBtn, delBtn);
-        win.setAddress(['NT Scripting', 'Maps']);
-        win.body.replaceChildren(h('div.w-explorer', W.places('/maps'), h('div.w-page.fill', form, list.el)));
+        page.replaceChildren(form, list.el);
         built = true;
       }
       try {
@@ -744,11 +791,11 @@
   /* ---------- Profile ---------- */
 
   function userWindow(userId) {
-    const win = W.window({ title: 'Profile', icon: 'user', width: 520, height: 460 });
+    const win = W.window({ title: 'Profile', icon: 'user', width: 520, height: 460, status: false });
     const body = h('div.w-page.fill');
     win.body.append(body);
     let loaded = false, stamp = '', tab = 'scripts';
-    win.setMenus([{ label: 'Organize', items: () => [{ label: 'Settings', onSelect: () => go('/settings') }, '-', closeItem(win)] }, goMenu()]);
+    win.setMenus([{ label: 'File', items: () => [{ label: 'Settings', onSelect: () => go('/settings') }, '-', closeItem(win)] }, goMenu()]);
 
     const load = reader(win, async () => {
       const me = API.session;
@@ -813,7 +860,7 @@
   /* ---------- Settings ---------- */
 
   P.settings = function () {
-    const win = W.window({ title: 'Settings', icon: 'settings', width: 400, height: 400 });
+    const win = W.window({ title: 'Settings', icon: 'settings', width: 400, height: 492, status: false });
     const body = h('div.w-page.fill');
     win.body.append(body);
     let tab = 'general';
@@ -861,10 +908,25 @@
         });
         return b;
       }));
+      // Glass that is not see-through, as Windows 7's own window colours offer.
+      const glass = W.check('Enable transparency', !prefs.solid, (on) => NT.prefs.set({ solid: !on }));
+      // The desktop's picture: Harmony and one from each of Windows 7's themes (style.css),
+      // chosen from their pictures as its Desktop Background has them.
+      const WALLS = [['', 'Harmony'], ['nature', 'Nature'], ['landscapes', 'Landscapes'], ['architecture', 'Architecture'], ['characters', 'Characters'], ['scenes', 'Scenes'], ['none', 'Solid color']];
+      const walls = h('div.w-walls', { role: 'radiogroup', 'aria-label': 'Desktop background' }, WALLS.map(([id, name]) => {
+        const b = h('button.w-wall', { type: 'button', role: 'radio', 'aria-label': name, title: name, 'aria-checked': String(NT.prefs.wall === id) },
+          id === 'none' ? h('i') : h('img', { src: new URL(`styles/win7/wallpapers/${id || 'harmony'}-thumb.jpg`, document.baseURI).href, alt: '', width: 64, height: 40, draggable: false }));
+        b.addEventListener('click', () => {
+          NT.prefs.setWall(id);
+          walls.querySelectorAll('.w-wall').forEach((x) => x.setAttribute('aria-checked', String(x === b)));
+        });
+        return b;
+      }));
       const appearance = h('div.w-scroll',
         h('div.w-line', h('label', 'Style:'), style.el),
         W.group('Theme', theme.el),
-        W.group('Color', swatches));
+        W.group('Color', swatches, glass.el),
+        W.group('Desktop Background', walls));
 
       const tabs = W.tabs([
         { id: 'general', label: 'General', body: general },
@@ -889,7 +951,7 @@
   const choice = (title, key, options) => h('div.w-line', h('label', title + ':'), gap(), W.combo(options, EP.data[key], (v) => EP.set({ [key]: v }), title).el);
 
   P.editorSettings = function () {
-    const win = W.window({ title: 'Editor', icon: 'settings', width: 400, height: 420 });
+    const win = W.window({ title: 'Editor', icon: 'settings', width: 400, height: 440, status: false });
     const body = h('div.w-page.fill');
     win.body.append(body);
     let tab = 'editing', reset = null;
@@ -956,7 +1018,7 @@
   };
 
   P.lintRules = function () {
-    const win = W.window({ title: 'Lint Rules', icon: 'settings', width: 300, height: 400 });
+    const win = W.window({ title: 'Lint Rules', icon: 'settings', width: 300, height: 400, status: false });
     // Named as a problem names them ("LocalUnused: …"), with the words apart.
     win.body.append(h('div.w-page.fill', h('div.w-checklist', EP.LINTS.map((name) =>
       W.check(name.replace(/([a-z])([A-Z])/g, '$1 $2'), EP.data.lint[name] !== false, (on) => {
@@ -981,7 +1043,7 @@
     ], { label: 'Audit Log', sortBy: [2, -1], onOpen: (e) => { if (e.path) go(e.path); }, menu: (e) => (e.path ? [{ label: 'Open', onSelect: () => go(e.path) }] : []) });
     list.el.classList.add('fill');
     win.body.append(h('div.w-page.fill', list.el));
-    win.setMenus([{ label: 'Organize', items: () => [{ label: 'Open', disabled: !list.picked || !list.picked.path, onSelect: () => go(list.picked.path) }, '-', closeItem(win)] }, goMenu()]);
+    win.setMenus([{ label: 'File', items: () => [{ label: 'Open', disabled: !list.picked || !list.picked.path, onSelect: () => go(list.picked.path) }, '-', closeItem(win)] }, goMenu()]);
 
     const load = reader(win, async () => {
       const me = API.session;
@@ -1026,5 +1088,5 @@
     return win;
   };
 
-  W.kit = { blank, failed, closeItem, goMenu, nameOf, plural, sep, gap, signIn };
+  W.kit = { blank, failed, closeItem, goMenu, nameOf, plural, sep, gap, signIn, avatar };
 })();

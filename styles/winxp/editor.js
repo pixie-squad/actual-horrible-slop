@@ -29,11 +29,11 @@
     let script = null, ed = null, lsp = null, ready = false, shownDoc = null, lastPath = ENTRY;
     let sideView = null, sideOpen = false;
 
-    const saveBtn = W.button('Save', () => S.commit(true), { disabled: true });
-    const filesBtn = W.button('Files', () => showSide(!sideOpen));
-    const detailsBtn = W.button('Details', () => details());
+    const saveBtn = W.tool('Save', 'save', () => S.commit(true), { disabled: true, cls: '.keep-text' });
+    const filesBtn = W.tool('Files', 'folder', () => showSide(!sideOpen), { cls: '.keep-text' });
+    const detailsBtn = W.tool('Details', 'props', () => details(), { cls: '.keep-text' });
     // A read-only document (a definition file) is left through this.
-    const backBtn = W.button('Back', () => ed.back());
+    const backBtn = W.tool('Back', 'back', () => ed.back(), { cls: '.keep-text' });
     backBtn.hidden = true;
 
     const S = NT.session(id, {
@@ -207,7 +207,7 @@
         const was = shownDoc;
         shownDoc = doc;
         if (doc && !was) {
-          backBtn.firstChild.textContent = 'Back to ' + nameOf(ed.paths().includes(lastPath) ? lastPath : ENTRY);
+          backBtn.querySelector('span').textContent = 'Back to ' + nameOf(ed.paths().includes(lastPath) ? lastPath : ENTRY);
           backBtn.hidden = false;
         } else if (!doc) backBtn.hidden = true;
         if (path) lastPath = path;

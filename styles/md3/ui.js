@@ -9,7 +9,8 @@
 
   Motion is the expressive scheme's springs (the values are the ones in Compose's
   ExpressiveMotionTokens): spatial springs for what moves or changes size, which may
-  overshoot, and effects springs for colour and opacity, which never do.
+  overshoot, and effects springs for colour and opacity, which never do. Which spring a
+  component uses is the one its Compose source uses, named where it is used.
 */
 (function () {
   'use strict';
@@ -79,49 +80,84 @@
     ]).then(done, () => done(false));
   } else symbols = 'none';
 
-  /* ---------- State layer and ripple ----------
-     Anything with .m-press shows the press where it landed. */
+  /* ---------- Ripple ----------
+     A press on anything with .m-press is a circle of the content's colour at 10 %
+     (StateTokens.PressedStateLayerOpacity) that grows from where the press landed to
+     cover the component, as Compose's ripple does: in over 75 ms, out to its full
+     radius and to the middle over 225 ms, and gone over 150 ms once the press is let go. */
 
-  document.addEventListener('pointerdown', (e) => {
-    const host = e.target.closest && e.target.closest('.m-press');
-    if (!host || host.disabled || still()) return;
+  function ripple(host, x, y) {
     const r = host.getBoundingClientRect();
-    const size = Math.hypot(r.width, r.height) * 2;
+    const end = Math.hypot(r.width, r.height) + 20;
+    const start = Math.max(r.width, r.height) * 0.6;
+    const cx = r.width / 2, cy = r.height / 2;
+    const dx = x == null ? 0 : x - r.left - cx, dy = y == null ? 0 : y - r.top - cy;
     const ink = h('span.m-ink', { 'aria-hidden': 'true' });
-    ink.style.width = ink.style.height = size + 'px';
-    ink.style.left = e.clientX - r.left - size / 2 + 'px';
-    ink.style.top = e.clientY - r.top - size / 2 + 'px';
+    ink.style.width = ink.style.height = end + 'px';
+    ink.style.left = cx - end / 2 + 'px';
+    ink.style.top = cy - end / 2 + 'px';
     host.append(ink);
-    const grow = ink.animate([{ transform: 'scale(0.08)', opacity: 0.14 }, { transform: 'scale(1)', opacity: 0.14 }], { duration: 420, easing: 'cubic-bezier(0.2, 0, 0, 1)', fill: 'forwards' });
+    const grow = ink.animate([{ transform: `translate(${dx}px, ${dy}px) scale(${start / end})` }, { transform: 'none' }], { duration: 225, easing: 'cubic-bezier(0.4, 0, 0.2, 1)', fill: 'forwards' });
+    ink.animate([{ opacity: 0 }, { opacity: 0.1 }], { duration: 75, fill: 'forwards' });
+    return () => grow.finished.catch(() => {}).then(() => {
+      const out = ink.animate([{ opacity: 0.1 }, { opacity: 0 }], { duration: 150, fill: 'forwards' });
+      out.onfinish = out.oncancel = () => ink.remove();
+    });
+  }
+  document.addEventListener('pointerdown', (e) => {
+    if (e.button) return;
+    const host = e.target.closest && e.target.closest('.m-press');
+    if (!host || host.disabled || host.closest(':disabled') || still()) return;
+    const done = ripple(host, e.clientX, e.clientY);
     const end = () => {
       document.removeEventListener('pointerup', end, true);
       document.removeEventListener('pointercancel', end, true);
-      grow.finished.catch(() => {}).then(() => {
-        const out = ink.animate([{ opacity: 0.14 }, { opacity: 0 }], { duration: 220, fill: 'forwards' });
-        out.onfinish = () => ink.remove();
-      });
+      done();
     };
     document.addEventListener('pointerup', end, true);
     document.addEventListener('pointercancel', end, true);
   }, { passive: true });
+  // From the keyboard it starts in the middle.
+  document.addEventListener('keydown', (e) => {
+    if (e.repeat || (e.key !== 'Enter' && e.key !== ' ') || still()) return;
+    const t = e.target;
+    const host = !t.matches ? null : t.matches('.m-press') ? t : t.querySelector(':scope > .m-press');
+    if (!host || host.disabled || t.matches('input, textarea')) return;
+    const done = ripple(host);
+    const end = () => { document.removeEventListener('keyup', end, true); done(); };
+    document.addEventListener('keyup', end, true);
+  });
 
   /* ---------- Buttons ---------- */
 
-  // o: { variant: 'filled' | 'tonal' | 'outlined' | 'text' | 'elevated', icon, submit, danger, cls }
+  // o: { variant: 'filled' | 'tonal' | 'outlined' | 'text' | 'elevated', icon, submit, danger, cls,
+  //      size: 'md' (56 high, for the one action a screen leads with; 40 otherwise) }
+  // With no label it is a symbol alone.
   M.button = function (label, onClick, o = {}) {
-    return h('button.m-btn.m-press.' + (o.variant || 'filled') + (o.danger ? '.danger' : '') + (o.cls || ''), { type: o.submit ? 'submit' : 'button', disabled: !!o.disabled, onclick: onClick || null },
-      o.icon ? M.icon(o.icon, { size: 20 }) : null, h('span', label));
+    return h('button.m-btn.m-press.' + (o.variant || 'filled') + (o.size === 'md' ? '.md' : '') + (label ? '' : '.icon-only') + (o.danger ? '.danger' : '') + (o.cls || ''),
+      { type: o.submit ? 'submit' : 'button', disabled: !!o.disabled, onclick: onClick || null },
+      o.icon ? M.icon(o.icon) : null, label ? h('span', label) : null);
   };
   // o: { variant: 'standard' | 'filled' | 'tonal' | 'outlined', cls }
   M.iconButton = function (icon, label, onClick, o = {}) {
     return h('button.m-iconbtn.m-press.' + (o.variant || 'standard') + (o.cls || ''), { type: 'button', 'aria-label': label, title: label, onclick: onClick || null }, M.icon(icon));
   };
 
-  // The FAB, and the menu it opens into: the button becomes a close button and its
-  // actions stand above it, the last nearest.
+  // The FAB, and the menu it opens into (FloatingActionButtonMenu.kt): the button
+  // becomes the round close button, and its actions come out above it one after
+  // another, the nearest first, each growing from its trailing edge (fast spatial)
+  // as it fades in (fast effects). Closing is the same, the other way.
   //   actions: [{ label, icon, onSelect }]; one action is simply done.
+  // When the nth of count items shows: the menu counts them in on the slow effects
+  // spring (stiffness 800, critically damped).
+  const staggerAt = (n, count) => {
+    const w = Math.sqrt(800), want = n / count;
+    let t = 0;
+    while (t < 1 && 1 - (1 + w * t) * Math.exp(-w * t) < want) t += 0.002;
+    return Math.round(t * 1000);
+  };
   M.fab = function (icon, label, actions) {
-    const btn = h('button.m-fab.m-press', { type: 'button', 'aria-label': label, title: label }, M.icon(icon), M.icon('close'));
+    const btn = h('button.m-fab.m-press', { type: 'button', 'aria-label': label, title: label, 'aria-expanded': 'false' }, M.icon(icon), M.icon('close'));
     const list = h('div.m-fab-list', { role: 'menu', hidden: true });
     const el = h('div.m-fab-host', list, btn);
     let open = false;
@@ -130,16 +166,34 @@
       open = on;
       el.classList.toggle('is-open', on);
       btn.setAttribute('aria-expanded', String(on));
+      for (const a of list.getAnimations({ subtree: true })) a.cancel();
       if (on) {
         list.hidden = false;
-        list.replaceChildren(...actions.map((a) => h('button.m-fab-item.m-press', { type: 'button', role: 'menuitem', onclick: () => { set(false); a.onSelect(); } }, M.icon(a.icon), h('span', a.label))));
-        [...list.children].reverse().forEach((item, i) => play(item, [{ opacity: 0, transform: 'translateY(16px) scale(0.8)' }, { opacity: 1, transform: 'none' }], M.motion.spatialFast, { delay: i * 30, fill: 'backwards' }));
+        const items = actions.map((a) => h('button.m-fab-item.m-press', { type: 'button', role: 'menuitem', onclick: () => { set(false); a.onSelect(); } },
+          h('span.m-fab-item-in', M.icon(a.icon), h('span', a.label))));
+        list.replaceChildren(...items);
+        const widths = items.map((item) => item.offsetWidth);
+        items.forEach((item, i) => {
+          const delay = staggerAt(items.length - 1 - i, items.length);
+          play(item, [{ width: '0px' }, { width: widths[i] + 'px' }], M.motion.spatialFast, { delay, fill: 'backwards' });
+          play(item, [{ opacity: 0 }, { opacity: 1 }], M.motion.effectsFast, { delay, fill: 'backwards' });
+        });
         document.addEventListener('pointerdown', away, true);
         document.addEventListener('keydown', key, true);
       } else {
         document.removeEventListener('pointerdown', away, true);
         document.removeEventListener('keydown', key, true);
-        list.hidden = true;
+        const items = [...list.children];
+        const widths = items.map((item) => item.offsetWidth);
+        const out = items.map((item, i) => {
+          const delay = staggerAt(i, items.length);
+          item.inert = true;
+          play(item, [{ width: widths[i] + 'px' }, { width: '0px' }], M.motion.spatialFast, { delay, fill: 'both' });
+          return play(item, [{ opacity: 1 }, { opacity: 0 }], M.motion.effectsFast, { delay, fill: 'both' });
+        }).filter(Boolean);
+        const gone = () => { if (!open) { list.hidden = true; list.replaceChildren(); } };
+        if (out.length) Promise.all(out.map((a) => a.finished)).then(gone, () => {});
+        else gone();
       }
     };
     const away = (e) => { if (!el.contains(e.target)) set(false); };
@@ -228,7 +282,153 @@
   M.list = (...items) => h('div.m-list', items);
   M.header = (text, action) => h('div.m-section', h('h2', text), action ? M.button(action.label, action.onClick, { variant: 'text' }) : null);
 
-  // The loading indicator: one shape turning into the next.
+  /* ---------- The loading indicator ----------
+     LoadingIndicator.kt: seven of Material's shapes, each becoming the next every
+     650 ms on a spring (stiffness 200, damping 0.6) and turning a quarter as it does,
+     while the whole turns once in 4666 ms. The shapes are built here from their
+     definitions in MaterialShapes.kt, and the animation is CSS (style.css has the turn). */
+
+  function loadingShapes(N) {
+    const TAU = Math.PI * 2;
+    const rot = (p, deg, c) => {
+      const a = (deg * Math.PI) / 180, x = p.x - c.x, y = p.y - c.y;
+      return { x: x * Math.cos(a) - y * Math.sin(a) + c.x, y: x * Math.sin(a) + y * Math.cos(a) + c.y, r: p.r };
+    };
+    // customPolygon / doRepeat: the listed points, turned `reps` times about the centre,
+    // every other copy mirrored when `mirror` is set.
+    function custom(pts, reps, mirror) {
+      const c = { x: 0.5, y: 0.5 };
+      const out = [];
+      if (!mirror) {
+        for (let i = 0; i < pts.length * reps; i++) out.push(rot(pts[i % pts.length], (Math.floor(i / pts.length) * 360) / reps, c));
+        return { v: out, c };
+      }
+      const ang = pts.map((p) => (Math.atan2(p.y - c.y, p.x - c.x) * 180) / Math.PI);
+      const dist = pts.map((p) => Math.hypot(p.x - c.x, p.y - c.y));
+      const n = reps * 2, section = 360 / n;
+      for (let k = 0; k < n; k++) {
+        pts.forEach((_, index) => {
+          const i = k % 2 === 0 ? index : pts.length - 1 - index;
+          if (i > 0 || k % 2 === 0) {
+            const a = ((section * k + (k % 2 === 0 ? ang[i] : section - ang[i] + 2 * ang[0])) * Math.PI) / 180;
+            out.push({ x: Math.cos(a) * dist[i] + c.x, y: Math.sin(a) * dist[i] + c.y, r: pts[i].r });
+          }
+        });
+      }
+      return { v: out, c };
+    }
+    // RoundedPolygon.star: outer radius 1, the same rounding on every corner.
+    function star(n, inner, r, turn) {
+      const c = { x: 0, y: 0 }, out = [];
+      for (let i = 0; i < n; i++) {
+        const a = (Math.PI / n) * 2 * i, b = (Math.PI / n) * (2 * i + 1);
+        out.push({ x: Math.cos(a), y: Math.sin(a), r }, { x: Math.cos(b) * inner, y: Math.sin(b) * inner, r });
+      }
+      return { v: turn ? out.map((p) => rot(p, turn, c)) : out, c };
+    }
+    // The outline with its corners rounded: each corner is cut back along its two edges
+    // and joined by an arc; where two cuts would overlap on an edge both give way in
+    // proportion (as RoundedPolygon does).
+    function outline(shape) {
+      const v = shape.v, n = v.length;
+      const cut = [], half = [], e1 = [], e2 = [];
+      for (let i = 0; i < n; i++) {
+        const p = v[(i + n - 1) % n], q = v[(i + 1) % n], o = v[i];
+        const a = { x: p.x - o.x, y: p.y - o.y }, b = { x: q.x - o.x, y: q.y - o.y };
+        const la = Math.hypot(a.x, a.y), lb = Math.hypot(b.x, b.y);
+        e1[i] = { x: a.x / la, y: a.y / la, l: la };
+        e2[i] = { x: b.x / lb, y: b.y / lb, l: lb };
+        half[i] = Math.acos(Math.max(-1, Math.min(1, e1[i].x * e2[i].x + e1[i].y * e2[i].y))) / 2;
+        cut[i] = (o.r || 0) / Math.tan(half[i]);
+      }
+      const fit = [];
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n, sum = cut[i] + cut[j];
+        fit[i] = sum > e2[i].l ? e2[i].l / sum : 1; // the edge from i to i + 1
+      }
+      const pts = [];
+      for (let i = 0; i < n; i++) {
+        const o = v[i];
+        const d = cut[i] * Math.min(fit[i], fit[(i + n - 1) % n]);
+        if (d < 1e-6) { pts.push({ x: o.x, y: o.y }); continue; }
+        const bis = { x: e1[i].x + e2[i].x, y: e1[i].y + e2[i].y }, bl = Math.hypot(bis.x, bis.y);
+        const centre = { x: o.x + (bis.x / bl) * (d / Math.cos(half[i])), y: o.y + (bis.y / bl) * (d / Math.cos(half[i])) };
+        const from = { x: o.x + e1[i].x * d, y: o.y + e1[i].y * d }, to = { x: o.x + e2[i].x * d, y: o.y + e2[i].y * d };
+        const a0 = Math.atan2(from.y - centre.y, from.x - centre.x);
+        let da = Math.atan2(to.y - centre.y, to.x - centre.x) - a0;
+        while (da > Math.PI) da -= TAU;
+        while (da < -Math.PI) da += TAU;
+        const rad = Math.hypot(from.x - centre.x, from.y - centre.y);
+        for (let k = 0; k <= 12; k++) pts.push({ x: centre.x + Math.cos(a0 + (da * k) / 12) * rad, y: centre.y + Math.sin(a0 + (da * k) / 12) * rad });
+      }
+      return pts;
+    }
+    const oval = () => {
+      const pts = [];
+      for (let i = 0; i < 96; i++) pts.push(rot({ x: Math.cos((i / 96) * TAU), y: Math.sin((i / 96) * TAU) * 0.64 }, -45, { x: 0, y: 0 }));
+      return pts;
+    };
+    const P = (x, y, r) => ({ x, y, r: r || 0 });
+    const raw = [
+      { c: { x: 0.5, y: 0.5 }, pts: outline(custom([P(0.193, 0.277, 0.053), P(0.176, 0.055, 0.053)], 10)) }, // SoftBurst
+      { c: { x: 0, y: 0 }, pts: outline(star(9, 0.8, 0.5, -90)) }, // Cookie9Sided
+      { c: { x: 0.5, y: 0.5 }, pts: outline(custom([P(0.5, -0.009, 0.172), P(1.03, 0.365, 0.164), P(0.828, 0.97, 0.169)], 1, true)) }, // Pentagon
+      { c: { x: 0.5, y: 0.5 }, pts: outline(custom([P(0.961, 0.039, 0.426), P(1.001, 0.428), P(1.0, 0.609, 1.0)], 2, true)) }, // Pill
+      { c: { x: 0, y: 0 }, pts: outline(star(8, 0.8, 0.15)) }, // Sunny
+      { c: { x: 0.5, y: 0.5 }, pts: outline(custom([P(1.237, 1.236, 0.258), P(0.5, 0.918, 0.233)], 4)) }, // Cookie4Sided
+      { c: { x: 0, y: 0 }, pts: oval() }, // Oval
+    ];
+    // As the indicator draws them: each fitted to a unit square about the middle of its
+    // bounds, then all scaled by the one factor that lets the widest turn without clipping.
+    let scale = 1;
+    const fitted = raw.map(({ c, pts }) => {
+      let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, far = 0;
+      for (const p of pts) {
+        x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+        far = Math.max(far, Math.hypot(p.x - c.x, p.y - c.y));
+      }
+      scale = Math.min(scale, Math.max((x1 - x0) / (2 * far), (y1 - y0) / (2 * far)));
+      const side = Math.max(x1 - x0, y1 - y0), mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+      return pts.map((p) => ({ x: (p.x - mx) / side, y: (p.y - my) / side }));
+    });
+    // N points a shape, by angle from the middle, so one shape's points pair with the next's.
+    return fitted.map((pts) => {
+      const out = [];
+      for (let k = 0; k < N; k++) {
+        const a = (k / N) * TAU, dx = Math.cos(a), dy = Math.sin(a);
+        let best = 0;
+        for (let i = 0; i < pts.length; i++) {
+          const p = pts[i], q = pts[(i + 1) % pts.length];
+          const ex = q.x - p.x, ey = q.y - p.y, den = dx * ey - dy * ex;
+          if (Math.abs(den) < 1e-12) continue;
+          const t = (p.x * ey - p.y * ex) / den, u = (p.x * dy - p.y * dx) / den;
+          if (t > best && u >= -1e-9 && u <= 1 + 1e-9) best = t;
+        }
+        out.push([dx * best * scale, dy * best * scale]);
+      }
+      return out;
+    });
+  }
+
+  (function () {
+    const N = 120, shapes = loadingShapes(N);
+    // The indicator's 38 in its 48 container.
+    const at = (v) => (50 + v * (38 / 48) * 100).toFixed(2) + '%';
+    const poly = (pts) => 'polygon(' + pts.map(([x, y]) => at(x) + ' ' + at(y)).join(',') + ')';
+    // The morph's spring over its 650 ms.
+    const w = Math.sqrt(200), z = 0.6 * w, wd = w * Math.sqrt(1 - 0.36);
+    const ease = [];
+    for (let i = 0; i <= 40; i++) {
+      const t = (0.65 * i) / 40;
+      ease.push(i === 40 ? 1 : +(1 - Math.exp(-z * t) * (Math.cos(wd * t) + (z / wd) * Math.sin(wd * t))).toFixed(4));
+    }
+    const fn = `animation-timing-function: linear(${ease.join(',')});`;
+    const n = shapes.length;
+    const morph = shapes.map((sh, i) => `${((i / n) * 100).toFixed(4)}% { clip-path: ${poly(sh)}; ${fn} }`).join('\n') + `\n100% { clip-path: ${poly(shapes[0])}; }`;
+    const quarter = [0, 1, 2, 3].map((i) => `${i * 25}% { rotate: ${90 + i * 90}deg; ${fn} }`).join('\n') + '\n100% { rotate: 450deg; }';
+    document.head.append(h('style', `@keyframes m-morph {\n${morph}\n}\n@keyframes m-quarter {\n${quarter}\n}\n` +
+      `.m-loading i::before { clip-path: ${poly(shapes[0])}; rotate: 90deg; animation: m-morph ${n * 650}ms infinite, m-quarter 2600ms infinite; }`));
+  })();
   M.loading = (cls) => h('div.m-loading' + (cls || ''), { role: 'progressbar', 'aria-label': 'Loading' }, h('i'));
 
   /* ---------- Layers: menus, dialogs, sheets, snackbars ---------- */
@@ -243,16 +443,13 @@
     M.closeMenu();
     const list = h('div.m-menu', { role: 'menu', tabIndex: -1 });
     const checks = items.some((it) => it && it !== '-' && it.checked != null);
-    let last = null;
+    // What a divider would part is a group of its own.
+    let group = null;
     for (const it of items) {
       if (!it) continue;
-      if (it === '-') {
-        if (last && last !== '-') list.append(h('div.m-menu-sep', { role: 'separator' }));
-        last = '-';
-        continue;
-      }
-      last = it;
-      list.append(h('button.m-menu-item.m-press' + (it.danger ? '.danger' : '') + (it.checked ? '.is-on' : ''), {
+      if (it === '-') { group = null; continue; }
+      if (!group) list.append((group = h('div.m-menu-group', { role: 'group' })));
+      group.append(h('button.m-menu-item.m-press' + (it.danger ? '.danger' : '') + (it.checked ? '.is-on' : ''), {
         type: 'button',
         role: it.checked != null ? 'menuitemradio' : 'menuitem',
         'aria-checked': it.checked != null ? String(!!it.checked) : null,
@@ -262,7 +459,6 @@
         checks ? h('span.m-menu-lead', it.checked ? M.icon('check', { size: 20 }) : null) : it.icon ? h('span.m-menu-lead', M.icon(matIcon(it.icon), { size: 20 })) : null,
         h('span', it.label)));
     }
-    if (list.lastChild && list.lastChild.classList.contains('m-menu-sep')) list.lastChild.remove();
     const back = document.activeElement;
     M.layers.overlay.append(list);
     const mw = list.offsetWidth, mh = list.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
@@ -275,7 +471,9 @@
     list.style.left = Math.round(x) + 'px';
     list.style.top = Math.round(y) + 'px';
     list.style.transformOrigin = `${Math.round(clamp(r.left + r.width / 2 - x, 0, mw))}px ${up ? '100%' : '0'}`;
-    play(list, [{ opacity: 0, transform: 'scale(0.82)' }, { opacity: 1, transform: 'none' }], M.motion.spatialFast);
+    // Menu.kt: it grows from 0.8 on the fast spatial spring and fades in on the fast effects one.
+    play(list, [{ transform: 'scale(0.8)' }, { transform: 'none' }], M.motion.spatialFast);
+    play(list, [{ opacity: 0 }, { opacity: 1 }], M.motion.effectsFast);
 
     let closed = false;
     const menu = {
@@ -286,6 +484,8 @@
         document.removeEventListener('pointerdown', outside, true);
         window.removeEventListener('resize', away);
         if (openMenu === menu) openMenu = null;
+        list.inert = true;
+        play(list, [{ transform: 'none' }, { transform: 'scale(0.8)' }], M.motion.spatialFast, { fill: 'forwards' });
         const out = play(list, [{ opacity: 1 }, { opacity: 0 }], M.motion.effectsFast, { fill: 'forwards' });
         if (out) out.onfinish = () => list.remove();
         else list.remove();
@@ -379,7 +579,8 @@
     play(el, [{ opacity: 0, transform: 'scale(0.86)' }, { opacity: 1, transform: 'none' }], M.motion.spatial);
     // The keyboard starts in the first field, or on the action that goes on; where
     // that one destroys something, on the one that does not.
-    (el.querySelector('input, textarea') || el.querySelector(o.safe ? '.m-dialog-actions button:first-child' : '.m-dialog-actions button:last-child') || el).focus({ preventScroll: true });
+    // (A field that is not shown, like the name when logging in, cannot take it.)
+    ([...el.querySelectorAll('input, textarea')].find((n) => n.getClientRects().length) || el.querySelector(o.safe ? '.m-dialog-actions button:first-child' : '.m-dialog-actions button:last-child') || el).focus({ preventScroll: true });
     return { el, close: rec.close };
   };
 

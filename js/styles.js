@@ -98,6 +98,8 @@
   d.dataset.accent = p.accent || 'blue';
   if (typeof p.frost === 'number') d.style.setProperty('--frost', p.frost);
   if (p.solid) d.setAttribute('data-solid', '');
+  // The desktop picture chosen in this style, where it has desktops.
+  if (p.wallpaper && p.wallpaper[style.id]) d.dataset.wall = p.wallpaper[style.id];
 
   // Written by the parser, so they are in order and hold the first paint until they are in.
   var out = '';

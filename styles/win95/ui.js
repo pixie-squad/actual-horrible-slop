@@ -21,6 +21,7 @@
 
   const narrow = window.matchMedia('(max-width: 700px)');
   const coarse = window.matchMedia('(any-pointer: coarse)');
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)');
 
   /* ---------- Glyphs: small marks drawn in the text colour ---------- */
 
@@ -57,7 +58,8 @@
   // at: an element (the menu drops from its lower left corner; { align: 'right' } from
   // its lower right) or { x, y }.
   // items: { label, onSelect, checked, radio, disabled, pix } | '-' | falsy (left out)
-  // opts: { align, owner, onClose, onSide, icons (their size: items show their `pix`), cls, band }
+  // opts: { align, owner, onClose, onSide, icons (their size: items show their `pix`), cls, band,
+  //         rise (it comes up out of what it opens from, as the Start menu does) }
   W.menu = function (at, items, opts = {}) {
     W.closeMenu();
     const list = h('div.w-menu', { role: 'menu', tabIndex: -1 });
@@ -124,6 +126,18 @@
     }
     list.style.left = Math.round(clamp(x, 0, Math.max(0, vw - mw))) + 'px';
     list.style.top = Math.round(clamp(y, 0, Math.max(0, vh - mh))) + 'px';
+
+    // The Start menu comes up out of the taskbar: its top first, the rest following from
+    // behind the taskbar's edge. It moves in steps, each on whole screen pixels, so the
+    // bevels are as sharp in every one of them as when it has arrived.
+    if (opts.rise && !calm.matches && list.animate) {
+      const dpr = window.devicePixelRatio || 1, steps = 9, frames = [];
+      for (let i = 1; i <= steps; i++) {
+        const off = Math.round(((steps - i) / steps) * mh * dpr) / dpr;
+        frames.push({ transform: `translateY(${off}px)`, clipPath: `inset(0 0 ${off}px 0)`, easing: 'steps(1, end)' });
+      }
+      list.animate(frames, { duration: 150 });
+    }
 
     const enabled = () => [...list.querySelectorAll('.w-menu-item:not(:disabled)')];
     list.addEventListener('keydown', (e) => {
@@ -434,6 +448,8 @@
           menus: [{ label, items: () => [...] }], toolbar: [nodes], status: false (no status bar) } */
 
   const wins = [];   // every window on the desktop, lowest first
+  const MIN_W = 260, MIN_H = 180;
+  const EDGES = [['n', 0, -1], ['s', 0, 1], ['w', -1, 0], ['e', 1, 0], ['nw', -1, -1], ['ne', 1, -1], ['sw', -1, 1], ['se', 1, 1]];
   W.windows = () => wins.slice();
   W.active = () => {
     for (let i = wins.length - 1; i >= 0; i--) if (!wins[i].minimised) return wins[i];
@@ -453,7 +469,8 @@
 
   W.window = function (o = {}) {
     const titleText = h('span.w-title-text', o.title || '');
-    const iconHost = h('span.w-title-icon', W.icon(o.icon || 'app', 16));
+    // A dialog box has no icon in its title bar.
+    const iconHost = o.dialog ? null : h('span.w-title-icon', W.icon(o.icon || 'app', 16));
     const btn = (name, label, fn) => h('button.w-tb', { type: 'button', tabIndex: -1, 'aria-label': label, title: label, onclick: fn }, W.glyph(name));
     const maxBtn = btn('max', 'Maximize', () => win.maximise(!win.maximised));
     const title = h('div.w-title', iconHost, titleText,
@@ -488,7 +505,7 @@
       },
       setIcon(name) {
         win.icon = name;
-        iconHost.replaceChildren(W.icon(name, 16));
+        if (iconHost) iconHost.replaceChildren(W.icon(name, 16));
         W.onChange();
       },
       icon: o.icon || 'app',
@@ -664,24 +681,39 @@
     });
     if (!o.dialog) title.addEventListener('dblclick', (e) => { if (!e.target.closest('.w-tb') && !narrow.matches) win.maximise(!win.maximised); });
 
-    if (grip) grip.addEventListener('pointerdown', (e) => {
-      if (e.button || win.maximised) return;
+    // Any edge or corner of the frame sizes the window, and so does the grip in the
+    // status bar. dx, dy: the edge taken (-1 the left or top one, 1 the right or bottom one).
+    const size = (dx, dy) => (e) => {
+      if (e.button || win.maximised || narrow.matches) return;
       e.preventDefault();
-      const r = el.getBoundingClientRect();
-      grip.setPointerCapture(e.pointerId);
+      const r = el.getBoundingClientRect(), host = el.parentNode.getBoundingClientRect();
+      const left = Math.round(r.left - host.left), top = Math.round(r.top - host.top);
+      const right = left + Math.round(r.width), bottom = top + Math.round(r.height);
+      const handle = e.currentTarget;
+      handle.setPointerCapture(e.pointerId);
       const move = (ev) => {
-        el.style.width = Math.max(260, Math.round(r.width + ev.clientX - e.clientX)) + 'px';
-        el.style.height = Math.max(180, Math.round(r.height + ev.clientY - e.clientY)) + 'px';
+        const mx = Math.round(ev.clientX - e.clientX), my = Math.round(ev.clientY - e.clientY);
+        let x = left, y = top, w = right - left, ht = bottom - top;
+        if (dx > 0) w = Math.max(MIN_W, w + mx);
+        if (dx < 0) { w = Math.max(MIN_W, w - mx); x = right - w; }
+        if (dy > 0) ht = Math.max(MIN_H, ht + my);
+        // The top edge stops at the top of the desktop: the title bar stays in reach.
+        if (dy < 0) { ht = clamp(ht - my, MIN_H, bottom); y = bottom - ht; }
+        Object.assign(el.style, { left: x + 'px', top: y + 'px', width: w + 'px', height: ht + 'px' });
       };
       const up = () => {
-        grip.removeEventListener('pointermove', move);
-        grip.removeEventListener('pointerup', up);
-        grip.removeEventListener('pointercancel', up);
+        handle.removeEventListener('pointermove', move);
+        handle.removeEventListener('pointerup', up);
+        handle.removeEventListener('pointercancel', up);
       };
-      grip.addEventListener('pointermove', move);
-      grip.addEventListener('pointerup', up);
-      grip.addEventListener('pointercancel', up);
-    });
+      handle.addEventListener('pointermove', move);
+      handle.addEventListener('pointerup', up);
+      handle.addEventListener('pointercancel', up);
+    };
+    if (!o.dialog) {
+      for (const [name, dx, dy] of EDGES) el.append(h('i.w-size.' + name, { 'aria-hidden': 'true', onpointerdown: size(dx, dy) }));
+      if (grip) grip.addEventListener('pointerdown', size(1, 1));
+    }
 
     el.addEventListener('keydown', (e) => {
       // Alt+F4 belongs to the browser's own window; Escape closes a dialog box.
@@ -903,7 +935,8 @@
       roundedSelection: false,
       padding: { top: 2, bottom: 2 },
       lineDecorationsWidth: 6,
-      scrollbar: { verticalScrollbarSize: 16, horizontalScrollbarSize: 16, useShadows: false },
+      // Scroll bars are always there, as the system's are.
+      scrollbar: { vertical: 'visible', horizontal: 'visible', verticalScrollbarSize: 16, horizontalScrollbarSize: 16, useShadows: false },
     },
     // Monaco's own lists and boxes are the system's: grey, bevelled, the selection in
     // the highlight colour.

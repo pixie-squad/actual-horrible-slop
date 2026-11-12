@@ -18,6 +18,7 @@
 const http = require('http');
 const https = require('https');
 const fs = require('fs');
+const crypto = require('crypto');
 const path = require('path');
 const core = require('./ext/core');
 const ext = require('./ext');
@@ -36,19 +37,32 @@ const TYPES = {
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
 };
 
 // Only these are ever served from disk.
-const PUBLIC = /^\/(index\.html|js\/[\w.-]+\.js|styles\/[\w-]+\/[\w.-]+\.(?:css|js))$/;
+// A style may keep its pictures and fonts in folders of its own (styles/<id>/icons/…).
+const PUBLIC = /^\/(index\.html|js\/[\w.-]+\.js|styles\/[\w-]+\/[\w.-]+\.(?:css|js)|styles\/[\w-]+\/[\w-]+\/[\w.-]+\.(?:png|jpg|woff2))$/;
 
-function sendFile(res, file, status = 200) {
+// req: given for a file that is asked for by name. The browser checks back each time
+// (no-cache) and is told when what it has is still the file, so a picture is sent once.
+function sendFile(res, file, status = 200, req = null) {
   fs.readFile(file, (err, data) => {
     if (err) {
       res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
       res.end('Not found');
       return;
+    }
+    if (req) {
+      const tag = '"' + crypto.createHash('sha1').update(data).digest('base64url').slice(0, 20) + '"';
+      if (req.headers['if-none-match'] === tag) {
+        res.writeHead(304, { ETag: tag, 'Cache-Control': 'no-cache' });
+        res.end();
+        return;
+      }
+      res.setHeader('ETag', tag);
     }
     // App routes such as /scripts/abc load the same page, so asset URLs must resolve
     // from the root. (Opened from disk there is no base, and relative URLs just work.)
@@ -123,7 +137,7 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (PUBLIC.test(url.pathname)) return sendFile(res, path.join(ROOT, url.pathname));
+  if (PUBLIC.test(url.pathname)) return sendFile(res, path.join(ROOT, url.pathname), 200, url.pathname === '/index.html' ? null : req);
 
   // Unknown files are a 404; everything else is an app route.
   if (path.extname(url.pathname)) {
