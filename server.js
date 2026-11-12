@@ -41,7 +41,7 @@ const TYPES = {
 };
 
 // Only these are ever served from disk.
-const PUBLIC = /^\/(index\.html|css\/[\w.-]+\.css|js\/[\w.-]+\.js)$/;
+const PUBLIC = /^\/(index\.html|js\/[\w.-]+\.js|styles\/[\w-]+\/[\w.-]+\.(?:css|js))$/;
 
 function sendFile(res, file, status = 200) {
   fs.readFile(file, (err, data) => {

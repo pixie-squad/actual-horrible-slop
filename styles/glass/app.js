@@ -6,38 +6,16 @@
   const P = NT.pages;
   const UI = NT.ui;
 
-  // Opened straight from disk there is no server to rewrite paths, so route with the hash.
-  const useHash = location.protocol === 'file:';
-  const TAB_ROOTS = { '/': 'home', '/scripts': 'scripts', '/maps': 'maps', '/profile': 'profile' };
-
-  const href = (path) => (useHash ? '#' + path : path);
-  const currentPath = () => (useHash ? location.hash.slice(1) || '/' : location.pathname + location.search);
-  const decode = (s) => { try { return decodeURIComponent(s); } catch (e) { return s; } };
-
+  // What each address is belongs to every style (routes.js); here a route becomes a page.
+  const R = NT.routes;
+  const TAB_ROOTS = R.tabs;
+  const href = R.href;
+  const currentPath = R.current;
+  const defaultStack = R.stack;
   function match(path) {
-    const [rawPath, query = ''] = String(path).split('?');
-    const pn = rawPath.replace(/\/+$/, '') || '/';
-    const q = new URLSearchParams(query);
-    const full = pn + (query ? '?' + query : '');
-    let m;
-    if (TAB_ROOTS[pn]) return { path: pn, tab: true, root: pn, make: () => P[TAB_ROOTS[pn]]() };
-    if ((m = pn.match(/^\/scripts\/([^/]+)$/))) return { path: pn, root: '/scripts', make: () => P.script(decode(m[1])) };
-    if ((m = pn.match(/^\/scripts\/([^/]+)\/view$/))) return { path: full, root: '/scripts', parents: [`/scripts/${m[1]}`], make: () => P.viewer(decode(m[1]), q.get('revision')) };
-    if ((m = pn.match(/^\/scripts\/([^/]+)\/edit$/))) return { path: pn, root: '/scripts', parents: [`/scripts/${m[1]}`], make: () => P.editor(decode(m[1])) };
-    if ((m = pn.match(/^\/users\/([^/]+)\/audit$/) || pn.match(/^\/(@[^/]+)\/audit$/))) return { path: pn, root: '/profile', make: () => P.audit(decode(m[1])) };
-    if ((m = pn.match(/^\/users\/([^/]+)\/maps$/))) return { path: '/maps', tab: true, root: '/maps', make: () => P.maps() };
-    if ((m = pn.match(/^\/users\/([^/]+)(?:\/scripts)?$/) || pn.match(/^\/(@[^/]+)(?:\/scripts)?$/))) return { path: pn, root: '/scripts', make: () => P.user(decode(m[1])) };
-    if (pn === '/settings') return { path: pn, root: '/profile', make: () => P.settings() };
-    if (pn === '/settings/editor') return { path: pn, root: '/profile', parents: ['/settings'], make: () => P.editorSettings() };
-    if (pn === '/settings/editor/lint') return { path: pn, root: '/profile', parents: ['/settings', '/settings/editor'], make: () => P.lintRules() };
-    if (pn === '/login' || pn === '/register') return { path: '/', tab: true, root: '/', modal: pn.slice(1), make: () => P.home() };
-    if (pn === '/logout') return { path: '/', tab: true, root: '/', action: 'logout', make: () => P.home() };
-    return { path: pn, root: '/', make: () => P.notFound() };
-  }
-
-  function defaultStack(path) {
-    const r = match(path);
-    return r.tab ? [r.path] : [r.root, ...(r.parents || []), r.path];
+    const r = R.match(path);
+    r.make = () => (P[r.name] || P.notFound)(...r.args);
+    return r;
   }
 
   let stage;

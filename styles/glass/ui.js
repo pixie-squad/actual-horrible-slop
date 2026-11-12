@@ -715,6 +715,9 @@
     return sheet;
   };
 
+  // The name every style gives its way in (js/actions.js asks for it).
+  UI.signIn = (mode) => UI.authSheet(mode);
+
   UI.passwordSheet = function () {
     const api = NT.api;
     const hasPassword = !!api.session.has_password;

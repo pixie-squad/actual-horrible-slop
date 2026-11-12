@@ -530,4 +530,13 @@
 
   window.addEventListener('resize', Tone.touch, { passive: true });
   NT.bus.on('prefs', Tone.touch);
+
+  // What the core asks a style for (js/styles.js). Monaco's popups take the same
+  // material and lens as the app's own menus.
+  NT.look = {
+    pane(el) {
+      el.classList.add('glass', 'thick');
+      Glass.refract(el, { bezel: 18, magnify: 0.008, dispersion: 0 });
+    },
+  };
 })();

@@ -136,7 +136,8 @@
   /* ---------- Motion ---------- */
 
   const reduced = window.matchMedia ? matchMedia('(prefers-reduced-motion: reduce)') : { matches: false };
-  U.reducedMotion = () => reduced.matches;
+  // Also true in a style that does not move at all (NT.look.still).
+  U.reducedMotion = () => reduced.matches || !!(NT.look && NT.look.still);
 
   // Damped spring driven by requestAnimationFrame, for gesture-following motion.
   class Spring {
@@ -155,7 +156,7 @@
     }
     set(target) {
       this.target = target;
-      if (reduced.matches) return this.jump(target);
+      if (U.reducedMotion()) return this.jump(target);
       if (!this._raf) {
         this._t = performance.now();
         this._raf = requestAnimationFrame(this._step);
@@ -246,7 +247,9 @@
     emit(ev, data) { if (listeners[ev]) for (const fn of [...listeners[ev]]) fn(data); },
   };
 
-  /* ---------- Appearance preferences ---------- */
+  /* ---------- Appearance preferences ----------
+     Theme and accent are every style's. `style` is which one (styles.js); frost and
+     solid are Liquid Glass's own and mean nothing elsewhere. */
 
   const darkQuery = window.matchMedia ? matchMedia('(prefers-color-scheme: dark)') : null;
   NT.prefs = {
@@ -263,8 +266,15 @@
       d.dataset.accent = this.data.accent;
       d.style.setProperty('--frost', this.data.frost);
       d.toggleAttribute('data-solid', !!this.data.solid);
-      const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.content = theme === 'dark' ? '#000000' : '#f2f2f7';
+      // A style says what colour the browser's own bars take with --theme-color. Read
+      // only when the theme or accent changes: asking forces every style to be worked
+      // out, which a slider being dragged must not do on each step.
+      const key = theme + ' ' + this.data.accent;
+      if (key !== this._bars) {
+        this._bars = key;
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.content = getComputedStyle(d).getPropertyValue('--theme-color').trim() || (theme === 'dark' ? '#000000' : '#f2f2f7');
+      }
       NT.bus.emit('prefs', this.data);
     },
   };

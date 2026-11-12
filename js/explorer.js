@@ -39,11 +39,17 @@
   const NT = window.NT;
   const { h, clamp, Spring, motion, store } = NT.util;
   const icon = NT.icon;
-  const UI = NT.ui;
+  // The style's own toast, dialog and menu, looked up when they are needed: the style
+  // is loaded after this.
+  const UI = {
+    toast: (...a) => NT.ui.toast(...a),
+    confirm: (...a) => NT.ui.confirm(...a),
+    menu: (...a) => NT.ui.menu(...a),
+  };
   const Project = NT.project;
 
   const ENTRY = Project.ENTRY;
-  const INDENT = 18; // as in project.css
+  const INDENT = 18; // a level's indent where the style's CSS does not say (--ex-indent)
   const reduced = () => NT.util.reducedMotion();
   const nameOf = (path) => path.slice(path.lastIndexOf('/') + 1);
   const parentOf = (path) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
@@ -99,6 +105,10 @@
         button('collapse', 'Collapse All', () => { S.open.clear(); S.keep(); redraw(); }),
         more),
       tree);
+
+    // How far the style's CSS indents a level, read once: only what slides sideways needs it.
+    let indent = 0;
+    const indentOf = () => indent || (indent = parseFloat(getComputedStyle(el).getPropertyValue('--ex-indent')) || INDENT);
 
     let nodes = new Map();   // path → { path, name, folder, depth, row, el, kids, dots, open, state }
     let shownPaths = new Set(); // the rows that could be seen when this was last drawn
@@ -830,7 +840,7 @@
           const a = first.get(v.el);
           const own = a ? a.top - last.get(v.el) : around;
           shift.set(v.el, own);
-          const dy = own - around, dx = structural && a && !fresh.has(v) ? (v.was - v.depth) * INDENT : 0;
+          const dy = own - around, dx = structural && a && !fresh.has(v) ? (v.was - v.depth) * indentOf() : 0;
           if (Math.abs(dy) >= 0.5 || dx) fly(v.el, [{ transform: `translate(${dx}px, ${dy.toFixed(2)}px)` }, { transform: 'none' }], sp);
           else if (!a && (fresh.has(v) || landed.has(v.path))) fly(v.row, [{ opacity: 0, transform: 'scale(0.9)' }, { opacity: 1, transform: 'none' }], sp);
         }

@@ -1,9 +1,19 @@
 /*
-  Code editing with Monaco, dressed for iOS.
+  Code editing with Monaco.
 
   Monaco is loaded on demand from a CDN the first time a script is opened.
   If it cannot be reached (offline), the built-in lightweight editor from
   luau.js is used instead, so viewing and editing always work.
+
+  How it looks is the style's: its colours are read from the style's tokens
+  (--code-bg, --code-fg, --code-line, --code-sel, --code-num, --code-num-on,
+  --code-guide, --code-widget, --tk-k/s/n/c/f/b/p, as #rrggbb or #rrggbbaa), its
+  widgets are drawn by the style's CSS, and NT.look, where the style sets one, has
+
+    codeFont             the font stack
+    codeOptions          editor options over the ones here
+    codeTheme(t, dark)   the theme about to be defined, to change or replace
+    pane(el)             a popup Monaco has just built (suggestions, hover, hints, rename)
 */
 (function () {
   'use strict';
@@ -11,7 +21,8 @@
   const { h } = NT.util;
 
   const BASE = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min';
-  const FONT = '"SF Mono", ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, monospace';
+  const look = () => NT.look || {};
+  const font = () => look().codeFont || '"SF Mono", ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, monospace';
   let loading = null;
 
   function loadScript(src) {
@@ -27,7 +38,7 @@
   // Monaco measures the font once and places the caret by that width. Measured on a
   // fallback while the web font is still downloading, the caret drifts off the text.
   const fontsIn = () => Promise.race([
-    Promise.all(['', 'bold ', 'italic '].map((style) => document.fonts.load(`${style}13px ${FONT}`))).catch(() => {}),
+    Promise.all(['', 'bold ', 'italic '].map((style) => document.fonts.load(`${style}13px ${font()}`))).catch(() => {}),
     new Promise((resolve) => setTimeout(resolve, 3000)),
   ]);
 
@@ -192,18 +203,27 @@
       },
     });
 
-    // A colour token as Monaco wants it (#rrggbb), or `fallback` where it is not one.
-    const token = (name, fallback) => {
+    // A colour token as Monaco wants it (#rrggbb, or with alpha where `alpha` allows
+    // it), or `fallback` where it is not one.
+    const token = (name, fallback, alpha) => {
       const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-      return /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
+      return (alpha ? /^#(?:[0-9a-f]{6}|[0-9a-f]{8})$/i : /^#[0-9a-f]{6}$/i).test(v) ? v : fallback;
     };
 
-    // Colours follow the app's own code palette (see tokens.css).
+    // Colours follow the style's own code palette (its tokens); what a style leaves
+    // out is as it was first drawn.
     const theme = (dark) => {
-      const c = dark
+      const d = dark
         ? { bg: '#1c1c1e', fg: '#ffffff', k: 'ff7ab2', s: 'ff8170', n: 'd9c97c', c: '7f8c98', f: '78c2b3', b: 'b281eb', p: '6bdfff', line: '#ffffff0d', sel: '#3f638b', num: '#636366', numOn: '#aeaeb2', guide: '#ffffff14', widget: '#2c2c2e' }
         : { bg: '#ffffff', fg: '#000000', k: 'ad3da4', s: 'c41a16', n: '1c00cf', c: '6c7986', f: '326d74', b: '6c36a9', p: '2b5c8a', line: '#0000000a', sel: '#b3d7ff', num: '#aeaeb2', numOn: '#636366', guide: '#00000010', widget: '#f2f2f7' };
-      return {
+      const c = {
+        bg: token('--code-bg', d.bg), fg: token('--code-fg', d.fg),
+        line: token('--code-line', d.line, true), sel: token('--code-sel', d.sel),
+        num: token('--code-num', d.num), numOn: token('--code-num-on', d.numOn),
+        guide: token('--code-guide', d.guide, true), widget: token('--code-widget', d.widget),
+      };
+      for (const k of ['k', 's', 'n', 'c', 'f', 'b', 'p']) c[k] = token('--tk-' + k, '#' + d[k]).slice(1);
+      const t = {
         base: dark ? 'vs-dark' : 'vs',
         inherit: true,
         rules: [
@@ -267,6 +287,7 @@
           'peekViewResult.matchHighlightBackground': c.sel + 'aa',
         },
       };
+      return (look().codeTheme && look().codeTheme(t, dark)) || t;
     };
 
     // The theme is defined again whenever it is put on: some of its colours are read
@@ -284,7 +305,7 @@
 
     // The code font arrived after the editor was made after all (a slow network).
     document.fonts.addEventListener('loadingdone', (e) => {
-      if (e.fontfaces.some((face) => FONT.includes(face.family.replace(/["']/g, '')))) monaco.editor.remeasureFonts();
+      if (e.fontfaces.some((face) => font().includes(face.family.replace(/["']/g, '')))) monaco.editor.remeasureFonts();
     });
 
     // "Go to definition" may point into another file. Each editor shows one file at a
@@ -373,15 +394,11 @@
   }
 
   // Monaco builds its popups itself, the first time each is needed. As they arrive
-  // they are given the app's glass: the same material and lens as its own menus.
-  const POP_LENS = { bezel: 18, magnify: 0.008, dispersion: 0 };
+  // they are handed to the style, to be given the material of its own menus.
   // The suggestion list, its detail pane, hovers, parameter hints and the rename field.
   const POPUPS = '.suggest-widget, .suggest-details, .monaco-hover, .parameter-hints-widget, .rename-box';
   function dressPopups(root) {
-    const glaze = (pane) => {
-      pane.classList.add('glass', 'thick');
-      NT.glass.refract(pane, POP_LENS);
-    };
+    const glaze = (pane) => { if (look().pane) look().pane(pane); };
     // Some arrive as the widget itself, some inside the box Monaco positions.
     const dress = (node) => {
       if (node.nodeType !== 1) return;
@@ -499,7 +516,7 @@
       readOnly: !!opts.readOnly,
       domReadOnly: !!opts.readOnly,
       automaticLayout: true,
-      fontFamily: FONT,
+      fontFamily: font(),
       fontLigatures: false,
       letterSpacing: 0,
       padding: { top: 14, bottom: 14 },
@@ -528,7 +545,7 @@
       hover: { delay: 350, above: false },
       accessibilitySupport: 'auto',
       ariaLabel: opts.readOnly ? 'Script source' : 'Script editor',
-    }, tuned(!!opts.readOnly)));
+    }, look().codeOptions, tuned(!!opts.readOnly)));
     let popups = dressPopups(editor.getDomNode());
     const retune = () => {
       editor.updateOptions(tuned(!!opts.readOnly));

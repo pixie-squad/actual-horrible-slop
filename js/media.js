@@ -1,18 +1,20 @@
 /*
   Real thumbnails and avatars, kept as text in scripts (pack.js).
 
-  Covers and avatars are drawn from an id (pages.js). Each one is handed to this
-  file as it is built; if there is an image for it, that takes the generated art's
-  place, in that element and every other one showing it.
+  Covers and avatars are drawn from an id by each style's pages. Each one is handed
+  to this file as it is built; if there is an image for it, that takes the generated
+  art's place, in that element and every other one showing it.
 
     NT.media.cover(el, script)     → el (script: a list item, or the script itself)
     NT.media.avatar(el, userId)    → el
     NT.media.items(kind, id)       → menu items to choose and remove that image:
                                      [choose] or [choose, remove], [] when it cannot be set here
                                      (a script's, only once its cover has been built)
-    NT.media.editable(el, kind, id, label)
-                                   → el with a glass badge on its lower edge that opens
-                                     those items (el itself when there are none)
+
+  How the control that opens those items looks is the style's own. An element shown
+  as an image has the class art-on and its colour in --art; one the style marked
+  tone-dark is tone-light instead while a bright image is on it, and 'art' is said on
+  NT.bus whenever that changes.
 
   kind is 'thumbs' (by script id) or 'avatars' (by user id). Whether the person may
   change an image is the caller's to know; the upstream checks it again, since the
@@ -42,8 +44,7 @@
   - The generated art is on screen until an image has been decoded; nothing is ever
     blank and nothing changes size.
   - An image is shown with its average colour behind it. That colour also says
-    whether it is a bright image: type and glass resting on it then turn dark, and
-    top glass passing over it takes the light tone (see Tone below).
+    whether it is a bright image, for whatever the style rests on it.
   - Opened from disk or on demo data this does nothing at all: no requests, no controls.
 */
 (function () {
@@ -374,7 +375,7 @@
 
   const arts = new WeakMap(); // element → the version it shows, or is about to
   const drawn = new WeakMap(); // element → the generated art its picture stands in for
-  const artwork = new WeakSet(); // covers that top glass takes a tone from (NT.tone.mark)
+  const artwork = new WeakSet(); // covers a style marked tone-dark: what rests on them follows how bright they are
 
   // The pictures seen most recently, one spare Image for each. While it is held the
   // browser keeps its copy of the picture, decoded, so a list that is rebuilt or
@@ -422,7 +423,7 @@
     if (!artwork.has(el) || el.classList.contains('tone-light') === info.light) return;
     el.classList.toggle('tone-dark', !info.light);
     el.classList.toggle('tone-light', info.light);
-    NT.tone.touch();
+    NT.bus.emit('art');
   }
 
   // Back to the generated art.
@@ -437,7 +438,7 @@
     if (!artwork.has(el) || !el.classList.contains('tone-light')) return;
     el.classList.add('tone-dark');
     el.classList.remove('tone-light');
-    NT.tone.touch();
+    NT.bus.emit('art');
   }
 
   // fresh: the element is still being built, and starts out as the image (its colour,
@@ -614,148 +615,4 @@
     if ((known.get(`${kind}/${id}`) || {}).info) items.push({ label: `Remove ${name}`, icon: 'xmark', danger: true, onSelect: () => remove(kind, id) });
     return items;
   };
-
-  // The picture is content and stays where it is, in view while its replacement is
-  // chosen. What turns into the menu is a control of a control's size: a badge of glass
-  // on the picture's lower edge, on its centre line, so the menu opens centred under it.
-  // A tap anywhere on the picture counts as a tap on the badge.
-  Media.editable = function (el, kind, id, label) {
-    if (!Media.items(kind, id).length) return el;
-    const badge = h('button.art-badge.glass.thick.interactive', { type: 'button', 'aria-label': label, title: label, 'aria-haspopup': 'menu' }, NT.icon('pencil', 16));
-    NT.glass.refract(badge, { bezel: 9, magnify: 0.008 });
-    const wrap = h('span.art-edit', el, badge);
-    wrap.addEventListener('click', () => {
-      const [pick, drop] = Media.items(kind, id);
-      if (pick) NT.ui.menu(badge, [pick, drop && '-', drop], { align: 'center' });
-    });
-    return wrap;
-  };
-
-  /*
-    Tone over bright images.
-
-    NT.tone (glass.js) knows one kind of artwork: generated covers and dark images,
-    marked tone-dark, over which top glass turns dark with a light glyph. A bright
-    image is the opposite case. In the light theme the glass over it is right as it
-    is; in the dark theme it has to turn light, with a dark glyph. That third tone,
-    data-over="light", is kept here, alongside NT.tone and by the same rules: what is
-    under each piece is read before anything is written, a slide is asked about once
-    before it starts and then followed by arithmetic, and dark wins where both apply.
-    NT.tone never clears a light piece; this does, right after each of its passes.
-
-    What is under a piece is worked out from where the bright artwork lies, not by
-    asking the browser what is painted at a point: on a list that scrolls, those
-    questions doubled the hit-testing done in every frame (measured), and artwork is
-    never covered by anything else in its page.
-  */
-  const root = document.documentElement;
-  const TOP_GLASS = '.navbar-side > .glass:not(.tinted), .navbar-title-pill.glass';
-  const brightOf = new WeakMap(); // page → live list of its bright artwork
-
-  const bright = (page) => {
-    let list = brightOf.get(page);
-    if (!list) brightOf.set(page, (list = page.scroll.getElementsByClassName('tone-light')));
-    return list;
-  };
-  const wanted = (pages) => root.dataset.theme === 'dark' && !root.hasAttribute('data-solid') && pages.some((page) => bright(page).length);
-  const usable = () => !!(NT.dom && NT.dom.stage) && !NT.dom.stage.inert;
-  const glassOf = (pages) => {
-    const els = [];
-    for (const page of pages) els.push(...page.navbar.querySelectorAll(TOP_GLASS));
-    return els;
-  };
-  const centre = (el) => {
-    if (el.style.visibility === 'hidden') return null; // a menu has grown out of it; it keeps its tone
-    const r = el.getBoundingClientRect();
-    return r.width && r.height ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
-  };
-  const boxes = (page) => Array.from(bright(page), (el) => el.getBoundingClientRect());
-  const within = (rects, p) => rects.some((r) => p.x >= r.left && p.x <= r.right && p.y >= r.top && p.y <= r.bottom);
-
-  const snapped = [];
-  function set(el, light, snap) {
-    const over = el.dataset.over;
-    if (over === 'dark' || (over === 'light') === light) return;
-    if (snap) {
-      el.classList.add('tone-snap');
-      snapped.push(el);
-    }
-    if (light) el.dataset.over = 'light';
-    else delete el.dataset.over;
-  }
-  function settle() {
-    if (!snapped.length) return;
-    void snapped[0].offsetWidth;
-    for (const el of snapped.splice(0)) el.classList.remove('tone-snap');
-  }
-
-  function pass(pages, snap) {
-    if (!usable()) return;
-    const live = wanted(pages);
-    const bar = NT.tabbar.chrome();
-    const els = glassOf(pages);
-    if (NT.tabbar.wide) els.push(...bar);
-    const rects = live ? pages.flatMap(boxes) : [];
-    const tones = els.map((el) => {
-      const p = live && centre(el);
-      return live ? p && within(rects, p) : false;
-    });
-    els.forEach((el, i) => { if (tones[i] != null) set(el, tones[i], snap); });
-    if (!NT.tabbar.wide) for (const el of bar) set(el, false, snap);
-    settle();
-  }
-
-  const tone = NT.tone;
-  const { touch, sync, split } = tone;
-  let frame = 0;
-
-  tone.touch = () => {
-    touch();
-    if (frame) return;
-    // Asked for after NT.tone's own frame, so this pass sees what that one decided.
-    frame = requestAnimationFrame(() => {
-      frame = 0;
-      if (NT.nav && NT.nav._pending) return;
-      const top = NT.nav && NT.nav.top();
-      pass(top ? [top.page] : [], false);
-    });
-  };
-
-  tone.sync = (...pages) => {
-    sync(...pages);
-    pass(pages, true);
-  };
-
-  tone.split = (front, back) => {
-    const dark = split(front, back);
-    const pages = [front, back];
-    if (!usable() || !wanted(pages)) {
-      if (usable()) pass(pages, true);
-      return dark;
-    }
-    const els = glassOf(pages);
-    if (NT.tabbar.wide) els.push(...NT.tabbar.chrome());
-    const ahead = boxes(front), behind = boxes(back);
-    const pieces = [];
-    for (const el of els) {
-      const p = centre(el);
-      if (p) pieces.push({ el, x: p.x, front: within(ahead, p), back: within(behind, p) });
-    }
-    return {
-      at(x, snap) {
-        dark.at(x, snap);
-        for (const piece of pieces) set(piece.el, piece.x >= x ? piece.front : piece.back, snap);
-        settle();
-      },
-    };
-  };
-
-  // NT.tone hears these itself, and only looks again on a scroll when the page has
-  // artwork of its own kind.
-  window.addEventListener('resize', () => tone.touch(), { passive: true });
-  NT.bus.on('prefs', () => tone.touch());
-  document.addEventListener('scroll', () => {
-    const top = NT.nav && NT.nav.top();
-    if (top && wanted([top.page])) tone.touch();
-  }, { capture: true, passive: true });
 })();

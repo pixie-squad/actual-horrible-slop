@@ -1,4 +1,4 @@
-/* Screens. Each factory returns a page object the navigator mounts and animates. */
+/* Liquid Glass's screens. Each factory returns a page object the navigator mounts and animates. */
 (function () {
   'use strict';
   const NT = window.NT;
@@ -299,76 +299,8 @@
 
   /* ---------- Script actions ---------- */
 
-  async function shareScript(s) {
-    const url = new URL(NT.nav.href(`/scripts/${s.script_id}`), location.href).href;
-    if (navigator.share && window.matchMedia('(pointer: coarse)').matches) {
-      try { await navigator.share({ title: s.name || s.script_id, url }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      UI.toast('Link copied', { icon: 'link' });
-    } catch (e) {
-      UI.toast('Couldn’t copy the link', { warn: true });
-    }
-  }
-
-  async function publishScript(s, done) {
-    try {
-      await API.publish(s.script_id);
-      UI.toast('Published', { icon: 'send' });
-      if (done) done();
-    } catch (e) {
-      UI.toast('Couldn’t publish', { warn: true });
-    }
-  }
-
-  async function deleteScript(s, done, source) {
-    const ok = await UI.confirm({
-      title: `Delete “${s.name || s.script_id}”?`,
-      message: 'This can’t be undone.',
-      confirmLabel: 'Delete',
-      destructive: true,
-      source,
-    });
-    if (!ok) return;
-    try {
-      await API.deleteScript(s.script_id);
-      UI.toast('Deleted', { icon: 'trash' });
-      if (done) done();
-    } catch (e) {
-      UI.toast('Couldn’t delete', { warn: true });
-    }
-  }
-
-  async function newScript() {
-    if (!API.session) return void signIn();
-    try {
-      const mine = await API.userScripts(API.session.user_id);
-      const id = await API.createScript(`New Script ${mine.length + 1}`, '');
-      NT.nav.go(`/scripts/${id}/edit`);
-    } catch (e) {
-      UI.toast('Couldn’t create a script', { warn: true });
-    }
-  }
-
-  async function uploadScript(file) {
-    if (!file) return;
-    let text;
-    try {
-      text = new TextDecoder('utf-8', { fatal: true }).decode(await file.arrayBuffer());
-    } catch (e) {
-      return void UI.toast('That file isn’t UTF-8 text', { warn: true });
-    }
-    if (text.length > 1000000) return void UI.toast('Scripts are limited to 1,000,000 characters', { warn: true });
-    let name = file.name.replace(/\.(luau?|txt)$/i, '').slice(0, 32);
-    if (name.length < 3) name = (name + ' script').slice(0, 32);
-    try {
-      const id = await API.createScript(name, text);
-      NT.nav.go(`/scripts/${id}/edit`);
-    } catch (e) {
-      UI.toast('Couldn’t upload', { warn: true });
-    }
-  }
+  // What these do is every style's (js/actions.js); here they are only named.
+  const { share: shareScript, publish: publishScript, remove: deleteScript, create: newScript, upload: uploadScript, mapLink: parseMapLink } = NT.actions;
 
   function scriptMenu(anchor, s, ctx) {
     const id = s.script_id;
@@ -959,16 +891,6 @@
 
   /* ---------- Maps ---------- */
 
-  function parseMapLink(text) {
-    let url;
-    try { url = new URL(String(text).trim()); } catch (e) { return { error: 'That isn’t a link.' }; }
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return { error: 'That isn’t a web link.' };
-    if (url.hostname.toLowerCase() !== 'link.nulls.gg') return { error: 'Use a link.nulls.gg map link.' };
-    const id = (url.searchParams.get('roomname') || '').trim();
-    if (!id) return { error: 'That link has no map in it.' };
-    return { id: id.replace(/^map:/, '') };
-  }
-
   P.maps = function () {
     const page = makePage({ title: 'Maps', narrow: true });
     const body = h('div');
@@ -1228,7 +1150,18 @@
       }));
       UI.arrows(swatches, () => [...swatches.children], (i) => swatches.children[i].click());
       kids.push(header('Appearance'));
-      kids.push(h('div.list', h('div.row', h('span.row-title', 'Theme'), theme.el), swatches));
+      // Another whole look of the app (js/styles.js). Choosing one loads it.
+      const styles = NT.styles.list;
+      const stylePick = h('button.row-pick', { type: 'button', 'aria-label': 'Style' },
+        h('span', (styles.find((s) => s.id === NT.styles.current) || styles[0]).name), icon('sort', 15));
+      stylePick.addEventListener('click', () => UI.menu(stylePick, styles.map((s) => ({
+        label: s.name,
+        checked: s.id === NT.styles.current,
+        onSelect: () => NT.styles.use(s.id),
+      }))));
+      kids.push(h('div.list',
+        styles.length > 1 ? h('div.row', h('span.row-title', 'Style'), stylePick) : null,
+        h('div.row', h('span.row-title', 'Theme'), theme.el), swatches));
 
       // Liquid Glass: Clear … Tinted
       const sample = NT.glass.refract(h('div.glass', h('span', 'Aa')));
@@ -1378,26 +1311,21 @@
 
   /* ---------- Audit log ---------- */
 
-  // What each kind of event is called, its symbol and its tint.
+  // Each kind of event's symbol and tint. What it is called is every style's (js/actions.js).
   const EVENT = {
-    UserRegister: ['Account Created', 'person', 'var(--indigo)'],
-    UserLogin: ['Signed In', 'person', 'var(--indigo)'],
-    UserLogout: ['Signed Out', 'logout', 'var(--label-3)'],
-    UserPasswordChange: ['Password Changed', 'key', 'var(--label-3)'],
-    ScriptCreate: ['Script Created', 'plus', 'var(--blue)'],
-    ScriptUpdate: ['Script Edited', 'pencil', 'var(--orange)'],
-    ScriptPublish: ['Script Published', 'send', 'var(--green)'],
-    ScriptDelete: ['Script Deleted', 'trash', 'var(--red)'],
-    FavoriteAdd: ['Favorite Added', 'heart', 'var(--pink)'],
-    FavoriteRemove: ['Favorite Removed', 'heart', 'var(--label-3)'],
-    MapCreate: ['Map Added', 'map', 'var(--green)'],
-    MapUpdate: ['Map Updated', 'map', 'var(--green)'],
-    MapDelete: ['Map Deleted', 'trash', 'var(--red)'],
-  };
-  // An update that says which part changed is called by that part.
-  const CHANGED = {
-    ScriptUpdate: { name: 'Script Renamed', description: 'Description Edited', map: 'Map Changed' },
-    MapUpdate: { name: 'Map Renamed' },
+    UserRegister: ['person', 'var(--indigo)'],
+    UserLogin: ['person', 'var(--indigo)'],
+    UserLogout: ['logout', 'var(--label-3)'],
+    UserPasswordChange: ['key', 'var(--label-3)'],
+    ScriptCreate: ['plus', 'var(--blue)'],
+    ScriptUpdate: ['pencil', 'var(--orange)'],
+    ScriptPublish: ['send', 'var(--green)'],
+    ScriptDelete: ['trash', 'var(--red)'],
+    FavoriteAdd: ['heart', 'var(--pink)'],
+    FavoriteRemove: ['heart', 'var(--label-3)'],
+    MapCreate: ['map', 'var(--green)'],
+    MapUpdate: ['map', 'var(--green)'],
+    MapDelete: ['trash', 'var(--red)'],
   };
 
   P.audit = function (userId) {
@@ -1408,28 +1336,16 @@
 
     // scripts: the ones that still exist, by id. Only those have a name and a page to go to.
     function eventRow(ev, scripts) {
-      const type = String(ev.event_type);
-      const changes = ev.changes && typeof ev.changes === 'object' ? ev.changes : {};
-      const [title, symbol, tint] = EVENT[type] || [type.replace(/([a-z])([A-Z])/g, '$1 $2'), 'info', 'var(--label-3)'];
-      const part = Object.keys(CHANGED[type] || {}).find((k) => changes[k]);
-      const onScript = /^(Script|Favorite)/.test(type);
-      const script = onScript ? scripts.get(ev.target_id) : null;
-      const notes = [];
-      if (onScript) notes.push(script ? script.name || script.script_id : String(ev.target_id));
-      if (changes.revision != null) notes.push(`Revision ${changes.revision}`);
-      // Saves in one sitting arrive as one event.
-      if (changes.count > 1) notes.push(`${changes.count} ${changes.content ? 'saves' : 'changes'}`);
-      const path = !script ? null
-        : type === 'ScriptPublish' && changes.revision != null ? `/scripts/${script.script_id}/view?revision=${changes.revision}`
-          : `/scripts/${script.script_id}`;
+      const e = NT.actions.event(ev, scripts);
+      const [symbol, tint] = EVENT[e.type] || ['info', 'var(--label-3)'];
       return row({
         icon: symbol, tint,
-        title: part ? CHANGED[type][part] : title,
-        subtitle: notes.length ? notes.join(' · ') : null,
-        mono: onScript && !script,
+        title: e.title,
+        subtitle: e.notes.length ? e.notes.join(' · ') : null,
+        mono: e.onScript && !e.script,
         value: rel(ev.occurred_at),
-        chevron: !!path,
-        onClick: path ? () => NT.nav.go(path) : null,
+        chevron: !!e.path,
+        onClick: e.path ? () => NT.nav.go(e.path) : null,
       });
     }
 

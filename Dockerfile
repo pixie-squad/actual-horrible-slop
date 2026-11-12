@@ -3,8 +3,8 @@ FROM node:24-bookworm-slim
 
 WORKDIR /app
 COPY server.js index.html ./
-COPY css ./css
 COPY js ./js
+COPY styles ./styles
 COPY ext ./ext
 
 # Language server, bundler and API definitions, pinned by hash (see ext/tools.js).
