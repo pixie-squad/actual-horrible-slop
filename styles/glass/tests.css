@@ -1,0 +1,115 @@
+/*
+  A test run in the editor (tests-ui.js, editor.js).
+
+  On a wide window it is a panel under the code, which makes room for it; on a narrow
+  one it comes up in a sheet. Either way it is content: opaque, on the page. Its
+  controls are glass.
+*/
+
+/* ---------- Where it sits ---------- */
+
+.editor-main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* Height and gap are animated by the page; the panel inside keeps its size. */
+.tests-dock { flex: none; height: 264px; margin-top: 12px; border-radius: var(--r-card); background: var(--surface); overflow: hidden; }
+.tests-dock > .tests { height: 264px; }
+@media (max-width: 819.98px) { .tests-dock { display: none; } }
+.sheet-body > .tests { border-radius: var(--r-card); background: var(--surface); }
+
+/* ---------- The heading ---------- */
+
+.tests { display: flex; flex-direction: column; min-height: 0; }
+
+.tests-head { flex: none; display: flex; align-items: center; gap: 10px; height: 58px; padding: 0 10px 0 16px; }
+.tests-mark { flex: none; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: #fff; }
+.tests-mark .spinner { width: 18px; height: 18px; border-width: 2px; }
+.tests[data-tone="good"] .tests-mark { background: var(--green); }
+.tests[data-tone="bad"] .tests-mark { background: var(--red); }
+.tests[data-tone="off"] .tests-mark { background: var(--fill-2); color: var(--label-2); }
+
+.tests-title { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; white-space: nowrap; }
+.tests-title b { flex: none; font-size: 17px; line-height: 22px; font-weight: 600; }
+.tests-title span { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 15px; line-height: 20px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+
+/* The glass in it: Output / State, the button, Close. On the card they take the
+   light; a switch's thumb is a lens while it is held (glass.css). */
+.seg.tests-views { width: 172px; }
+.tests-act { flex: none; height: 36px; padding: 0 16px; }
+.tests-close { flex: none; display: grid; place-items: center; width: 36px; height: 36px; color: var(--label-2); --press: 1.14; }
+.tests-act.glass, .tests-close.glass { box-shadow: 0 2px 8px rgb(0 0 0 / 0.08), inset 0 0 0 0.5px var(--glass-edge); }
+@media (any-pointer: coarse) { .tests-act { height: 44px; } .tests-close { width: 44px; height: 44px; } }
+
+/* How far along. It fills while the battle is timed and travels while there is no
+   telling; once the run is over there is nothing left to say and it goes. */
+.tests-bar { flex: none; position: relative; height: 3px; margin: 0 16px; border-radius: 2px; background: var(--fill); overflow: hidden; transition: opacity 0.3s; }
+.tests-bar i { position: absolute; inset: 0; border-radius: inherit; background: var(--accent); transform: scaleX(0); transform-origin: 0 50%; transition: transform 0.25s linear; }
+.tests-bar.is-open i { width: 34%; transform: none; transition: none; animation: tests-travel 1.15s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
+@keyframes tests-travel { from { transform: translateX(-100%); } to { transform: translateX(295%); } }
+.tests:not([data-tone="busy"]) .tests-bar { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .tests-bar.is-open i { animation: none; width: 100%; opacity: 0.4; } }
+
+.tests-body { flex: 1; display: flex; min-height: 0; padding: 10px 12px 12px 16px; }
+.tests-body > [hidden] { display: none; }
+
+/* ---------- Output ----------
+   What the script printed, as it printed it. What the game complained of is set apart
+   by a dot, not by a block of colour. */
+
+.tests-lines { flex: 1; min-width: 0; margin: 0; padding: 0; list-style: none; overflow-y: auto; overscroll-behavior: contain; font-family: var(--mono); font-size: 12.5px; line-height: 19px; scrollbar-width: thin; scrollbar-color: var(--fill-2) transparent; -webkit-user-select: text; user-select: text; }
+.tests-lines:focus-visible, .tests-grid:focus-visible { outline-offset: 2px; border-radius: 8px; }
+.tests-lines li { white-space: pre-wrap; overflow-wrap: anywhere; }
+.tests-lines li.is-warning, .tests-lines li.is-error { position: relative; padding-left: 14px; color: var(--label-2); }
+.tests-lines li.is-warning::before, .tests-lines li.is-error::before { content: ""; position: absolute; left: 1px; top: 7px; width: 6px; height: 6px; border-radius: 50%; background: var(--orange); }
+.tests-lines li.is-error::before { background: var(--red); }
+.tests-none { font-family: var(--font); font-size: 15px; line-height: 20px; color: var(--label-3); }
+
+/* ---------- State ----------
+   The battle as a table: which objects, a search, how many, and a row for each. */
+
+.tests-state { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.tests-tools { flex: none; display: flex; align-items: center; gap: 10px; }
+.seg.tests-kinds { flex: 0 1 470px; min-width: 0; height: 32px; }
+.tests-kinds .seg-item { font-size: 13px; }
+.tests-search { flex: 1 1 120px; min-width: 0; max-width: 240px; height: 32px; margin-left: auto; padding: 0 12px; border-radius: 16px; background: var(--fill); font-size: 15px; }
+.tests-search::placeholder { color: var(--label-3); }
+.tests-search::-webkit-search-cancel-button { -webkit-appearance: none; }
+.tests-summary { flex: none; margin: 8px 0 2px; font-size: 13px; line-height: 18px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+
+.tests-grid { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--fill-2) transparent; }
+/* Columns keep their places whatever is filtered in or out. */
+.tests-table { width: 100%; max-width: 860px; table-layout: fixed; border-collapse: collapse; font-family: var(--mono); font-size: 12.5px; line-height: 19px; font-variant-numeric: tabular-nums; -webkit-user-select: text; user-select: text; }
+.tests-table th, .tests-table td { padding: 2px 16px 2px 0; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tests-table th:nth-child(1) { width: 26%; }
+.tests-table th:nth-child(2) { width: 17%; }
+.tests-table th:nth-child(3) { width: 15%; }
+.tests-table th:nth-child(4) { width: 18%; }
+.tests-table th:nth-child(5), .tests-table th:nth-child(6) { width: 12%; }
+.tests-table .is-number { text-align: right; }
+.tests-table th:last-child, .tests-table td:last-child { padding-right: 4px; }
+/* The names of the columns stay while the rows go by. */
+.tests-table th { position: sticky; top: 0; z-index: 1; background: var(--surface); font-family: var(--font); font-size: 12px; font-weight: 600; color: var(--label-3); text-transform: uppercase; letter-spacing: 0.04em; }
+.tests-table td { color: var(--label-2); }
+.tests-table td:first-child { color: var(--label); }
+/* This client's own character. */
+.tests-table tr.is-own td { color: var(--label); font-weight: 600; }
+.tests-grid > .tests-none { margin: 6px 0 0; }
+
+/* ---------- In a sheet ----------
+   The sheet's own button closes it; the heading's parts take two rows, and the kinds
+   run the width with the search under them. */
+
+.sheet-body > .tests .tests-close { display: none; }
+.sheet-body > .tests .tests-head { flex-wrap: wrap; height: auto; padding: 12px 12px 10px 16px; row-gap: 10px; }
+.sheet-body > .tests .tests-title { flex-basis: calc(100% - 150px); }
+.sheet-body > .tests .seg.tests-views { order: 3; flex: 1 1 100%; width: auto; max-width: none; margin: 0; }
+.sheet-body > .tests .tests-body { padding: 10px 12px 12px; }
+.sheet-body > .tests .tests-lines, .sheet-body > .tests .tests-grid { min-height: 180px; max-height: 44vh; }
+.sheet-body > .tests .tests-lines { padding: 0 4px; }
+.sheet-body > .tests .tests-tools { flex-wrap: wrap; }
+.sheet-body > .tests .seg.tests-kinds { flex: 1 1 100%; }
+.sheet-body > .tests .tests-kinds .seg-item { font-size: 11.5px; letter-spacing: -0.01em; }
+/* Too narrow for six columns side by side: each takes what it needs and the table
+   is moved sideways, with the names of the columns. */
+.sheet-body > .tests .tests-table { table-layout: auto; width: max-content; min-width: 100%; max-width: none; }
+.sheet-body > .tests .tests-table th { width: auto; }
+.sheet-body > .tests .tests-table th, .sheet-body > .tests .tests-table td { padding-right: 14px; overflow: visible; }
+.sheet-body > .tests .tests-search { flex: 1 1 100%; max-width: none; margin: 0; height: 36px; border-radius: 18px; }

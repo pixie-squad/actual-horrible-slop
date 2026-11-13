@@ -21,14 +21,17 @@ it takes after, and its own rules, with their sources, are in
   layout is carried into another.
 - What is the same everywhere is the core: the service (`js/api.js`), addresses
   (`js/routes.js`), the editing session (`js/session.js`), the editor engine
-  (`js/monaco.js`), the explorer (`js/explorer.js`), images (`js/media.js`). What the
-  app *does* changes there, once. How it *looks* changes in one style.
+  (`js/monaco.js`), the explorer (`js/explorer.js`), images (`js/media.js`), test runs
+  (`js/tests.js`). What the app *does* changes there, once. How it *looks* changes in one style.
 - No file in `js/` knows which style is on. It asks the style through what the style
   provides (`NT.ui`, `NT.nav`, `NT.look`; the list is in `js/styles.js`).
 - Every style has a page for every address (`NT.routes`), and the control that
   changes the style in its settings.
 - The explorer and Monaco are shared. A style draws them with its own CSS, by their
   class names, and gives Monaco its colours through its tokens.
+- A test run is words: its heading, what the script printed, and the battle as a
+  table (`NT.tests.state`). The core says what each of them reads; a style draws them
+  with its own heading, list and table.
 
 ## 2. Behaviour
 

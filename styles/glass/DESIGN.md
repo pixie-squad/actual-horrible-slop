@@ -8,8 +8,8 @@ shares are in [/DESIGN.md](../../DESIGN.md); these are on top of them.
 ## 1. Two layers
 
 - **Glass is for controls and navigation only**: the tab bar, top buttons, menus,
-  dialogs, sheets, toasts. Content (cards, lists, the editor) is opaque and scrolls
-  underneath. Never put `.glass` on content.
+  dialogs, sheets, toasts. Content (cards, lists, the editor, a test run's panel) is
+  opaque and scrolls underneath. Never put `.glass` on content.
 - The one exception is a control's moving part while it is held: a switch knob, slider
   thumb or segment thumb lifts into glass (`.lens-held`) and settles back.
 - Use glass sparingly. Repeated glass in content (the heart on a card) takes the light
@@ -56,7 +56,8 @@ Prefer space and grouping to a line. Where a line is right:
 - An action with a text label gets its own piece (`navPill`); beside a symbol it reads
   as one control.
 - Symbols, not words, and no outlined-circle symbols: the glass is already the border.
-- What does not fit goes in a More menu. Add one only when needed.
+- What does not fit goes in a More menu. Add one only when needed. (The editor's
+  capsule is Files, Test, More; Details is in More.)
 - Titles: a word or short phrase, under 15 characters.
 
 ## 5. Menus

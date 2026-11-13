@@ -938,12 +938,17 @@
       if (s && db.users[s.author_uuid] && db.users[s.author_uuid].no_connect) return { type: 'authorDoesNotHaveConnect' };
       return { type: 'success', token: 'demo' };
     },
+    // The battle parameters as a room link carries them: in the game client's order,
+    // each less its offset. valueOf(parameter id) → its value.
+    battleParams(valueOf) {
+      return BATTLE_PARAMS.map(([id, offset]) => Number(valueOf(id)) - offset);
+    },
     // Build the room link the game client opens to start a friendly battle.
     battleLink(script, token, valueOf) {
       const payload = {
         realm: 'experiment:scripts',
         script: `${UPSTREAM_API}/scripts/${script.script_id}/content?token=${encodeURIComponent(token)}`,
-        bp: BATTLE_PARAMS.map(([id, offset]) => Number(valueOf(id)) - offset),
+        bp: this.battleParams(valueOf),
       };
       if (script.user_map_internal_id != null) payload.map = script.user_map_internal_id;
       const encoded = base62(new TextEncoder().encode(JSON.stringify(payload)));

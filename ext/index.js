@@ -1,7 +1,8 @@
 /*
   Backend extensions: what this server does beyond proxying the upstream API.
 
-  They compute; they keep nothing. A request's files exist in a temporary folder for
+  They compute, or pass on what a runner elsewhere computes (tests.js); they keep
+  nothing. A request's files exist in a temporary folder for
   as long as the bundler or the language server is working on them, and nothing of
   anyone's is written anywhere else. What the app stores, it stores in the upstream's
   own scripts or in the browser (js/pack.js, js/api.js), and the proxy passes those
@@ -30,7 +31,7 @@ const fs = require('fs');
 const path = require('path');
 const core = require('./core');
 
-const NAMES = ['bundle', 'lsp'];
+const NAMES = ['bundle', 'lsp', 'tests'];
 const wanted = (process.env.NT_EXT || '').trim();
 const enabled = wanted === 'off' ? [] : wanted ? wanted.split(',').map((s) => s.trim()).filter((s) => NAMES.includes(s)) : NAMES;
 

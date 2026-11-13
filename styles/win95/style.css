@@ -723,6 +723,110 @@ textarea.w-edit { height: auto; resize: none; line-height: 1.3; }
 .ex-drag b { font-weight: 700; }
 .ex-drag.is-copy::after { content: "+"; font-weight: 700; }
 
+/* ---------- Test (tests.js) ----------
+   A run, in a tool window docked along the bottom of the editor's window: the small
+   caption, a line with the words, the progress bar and a button, then a tab control:
+   Output, a sunken field; State, a list view in report view with what filters it. */
+
+/* What the output's complaints are told apart by: Windows 95's own sixteen colours in
+   the light theme. */
+html[data-theme="light"] { --caution: #808000; }
+html[data-theme="dark"] { --caution: #d0d060; }
+
+.w-tests {
+  flex: 0 1 calc(var(--title) + var(--ctl) * 3 + var(--row) * 7 + 32px);
+  display: flex;
+  flex-direction: column;
+  min-height: calc(var(--ctl) * 4);
+  margin-top: 3px;
+}
+.w-body.has-tests > .w-split { min-height: calc(var(--row) * 6); }
+.w-tests.is-waiting { cursor: progress; }
+
+/* The small caption of a tool window: the window's colours while it has the keyboard. */
+.w-tests-cap { --title: 15px; flex: none; display: flex; align-items: center; gap: 3px; height: var(--title); padding: 0 2px 0 3px; background: var(--title-off); color: var(--title-off-text); font-weight: 700; }
+.w-tests:focus-within > .w-tests-cap { background: var(--sel); color: var(--sel-text); }
+.w-tests-cap > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-tests-x:active > svg { transform: translate(1px, 1px); }
+.w-tests-x:active { padding: 0; }
+@media (any-pointer: coarse) {
+  .w-tests-cap { --title: 22px; }
+  .w-tests-x > svg { width: 14px; height: 12px; }
+}
+
+.w-tests-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 4px 0 2px 3px; }
+.w-tests-words { flex: 1; min-width: 0; display: flex; gap: 12px; white-space: nowrap; overflow: hidden; }
+.w-tests-words > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.w-tests-title { flex: none; }
+
+/* Windows 95's progress bar: blocks of the highlight colour, two thirds as wide as the
+   well is high, with the face between them, in a thin sunken well. */
+.w-progress { flex: 0 1 220px; min-width: 60px; height: 16px; padding: 1px; background: var(--face); border: 1px solid; border-color: var(--line-in); overflow: hidden; }
+.w-progress > i {
+  display: block;
+  height: 100%;
+  width: calc(var(--p, 0) * 100%);
+  /* Whole blocks only, ending where the last block does. */
+  width: max(0px, round(up, calc(var(--p, 0) * 100%), 10px) - 2px);
+  background: repeating-linear-gradient(90deg, var(--sel) 0 8px, transparent 8px 10px);
+}
+@media (any-pointer: coarse) {
+  .w-progress { height: 22px; }
+  .w-progress > i { width: max(0px, round(up, calc(var(--p, 0) * 100%), 14px) - 2px); background: repeating-linear-gradient(90deg, var(--sel) 0 12px, transparent 12px 14px); }
+}
+/* Once the run is over there is nothing more for it to say. */
+.w-tests:not([data-tone="busy"]) .w-progress { visibility: hidden; }
+
+/* Output and State: the system's tab control, its pages close to their edge. */
+.w-tests-tabs { flex: 1; min-height: 0; }
+.w-tests-tabs > .w-tabpage { padding: 4px; }
+
+/* Output: what the script printed, in the code's font. */
+.w-tests-out {
+  overflow: auto;
+  padding: 1px 3px;
+  background: var(--window);
+  border: 2px solid transparent;
+  border-image: var(--bi-sunken) 2;
+  font: 400 13px/16px var(--mono);
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+.w-tests-out > div { white-space: pre-wrap; overflow-wrap: anywhere; }
+.w-tests-out > .is-warning { color: var(--caution); }
+.w-tests-out > .is-error { color: var(--warn); }
+.w-tests-out > .w-tests-none { padding: 2px 1px; font: 400 var(--fs)/1.2 var(--font); cursor: default; }
+.w-tests-out:focus-visible { outline: 1px dotted var(--text); outline-offset: -3px; }
+
+/* State: the kinds, a search, the count, and the list view under them. */
+.w-tests-state { display: flex; flex-direction: column; gap: 4px; }
+.w-tests-tools { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.w-tests-tools > label { flex: none; }
+.w-tests-tools > .w-combo { width: 112px; }
+.w-tests-tools > .w-edit { flex: 0 1 150px; min-width: 80px; }
+.w-tests-find { margin-left: 6px; }
+.w-tests-summary { flex: 1 1 auto; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Columns as wide as a list view gives them; what is left over is the header's own. */
+.w-tests-list { flex: 1; min-height: 0; --tc-name: 130px; --tc-kind: 84px; --tc-team: 72px; --tc-hp: 84px; --tc-x: 64px; --tc-y: 64px; }
+@media (any-pointer: coarse) { .w-tests-list { --tc-name: 160px; --tc-kind: 108px; --tc-team: 92px; --tc-hp: 108px; --tc-x: 80px; --tc-y: 80px; } }
+/* Too narrow for them all, it scrolls sideways, its header with it. */
+.w-tests-list > .w-list-head, .w-tests-list > .w-list-body { min-width: min-content; }
+.w-tests-list .w-cell { font-variant-numeric: tabular-nums; }
+.w-tests-list .w-col.right { justify-content: flex-end; }
+.w-tests-list .is-own { font-weight: 700; }
+
+/* On a small screen the pane is the whole window while it is open, as the tree is. */
+@media (max-width: 700px) {
+  .w-body.has-tests > .w-split { display: none; }
+  .w-tests { flex: 1; margin-top: 0; }
+  .w-tests-head { flex-wrap: wrap; row-gap: 4px; }
+  .w-tests-words { flex-basis: 0; }
+  .w-progress { order: 3; flex: 1 0 100%; }
+  .w-tests-tools > .w-edit { flex: 1 1 80px; }
+  .w-tests-summary { flex-basis: 100%; text-align: left; }
+}
+
 /* ---------- Small screens: a window is the whole screen ---------- */
 
 @media (max-width: 700px) {

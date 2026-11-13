@@ -3,8 +3,9 @@
 
   What is saved, when, and what the line under the title says when that goes wrong is
   the session's (js/session.js), the same in every style. This is the page around it:
-  the code, the explorer (js/explorer.js) beside it or in a sheet, and the toolbar. The
-  language server (js/lsp.js) reads along where there is one.
+  the code, the explorer (js/explorer.js) beside it or in a sheet, a test run
+  (js/tests.js) under it or in a sheet, and the toolbar. The language server
+  (js/lsp.js) reads along where there is one.
 */
 (function () {
   'use strict';
@@ -48,9 +49,10 @@
     const page = makePage({ title: 'Editor', back: true, large: false, hideTabbar: true, className: 'page-editor' });
     const host = h('div.code-host');
     const side = h('aside.editor-side', { hidden: true, 'aria-label': 'Files' });
-    page.inner.append(h('div.editor-split', side, host));
+    const dock = h('div.tests-dock', { hidden: true });
+    page.inner.append(h('div.editor-split', side, h('div.editor-main', host, dock)));
     const store = NT.util.store;
-    let script = null, ed = null, lsp = null, saveBtn = null, filesBtn = null, ready = false;
+    let script = null, ed = null, lsp = null, saveBtn = null, filesBtn = null, testBtn = null, ready = false;
     let shownDoc = null;
 
     const S = NT.session(id, {
@@ -134,6 +136,75 @@
       if (wide.matches && !sideOpen && sideWanted()) showSide(true, false);
     };
     wide.addEventListener('change', onWidth);
+
+    /* ----- Tests ----- */
+
+    // One panel, under the code where there is room and in a sheet where there is not.
+    let tests = null, testsOpen = false, testsAnim = null, testsSheet = null;
+
+    function testsView() {
+      if (!tests) tests = NT.kit.testsView({ onRun: runTest, onClose: () => showTests(false, true) });
+      return tests;
+    }
+
+    function showTests(open, animate) {
+      if (!wide.matches) {
+        if (open && !testsSheet) {
+          testsSheet = UI.sheet({ title: 'Test', body: testsView().el, onClose: () => { testsSheet = null; testsOpen = false; } });
+          testsOpen = true;
+        } else if (!open && testsSheet) testsSheet.close();
+        return;
+      }
+      if (open === testsOpen && dock.firstChild) return;
+      testsOpen = open;
+      testBtn.setAttribute('aria-expanded', String(open));
+      if (open) dock.append(testsView().el);
+      if (!open && dock.contains(document.activeElement)) testBtn.focus({ preventScroll: true });
+      const shut = { height: '0px', marginTop: '0px' }, full = { height: '264px', marginTop: '12px' };
+      let from = open ? shut : full;
+      if (testsAnim) {
+        const cs = getComputedStyle(dock);
+        from = { height: cs.height, marginTop: cs.marginTop };
+        testsAnim.cancel();
+        testsAnim = null;
+      }
+      if (open) dock.hidden = false;
+      dock.inert = !open;
+      if (!animate || NT.util.reducedMotion()) return void (dock.hidden = !open);
+      // As with the explorer: the code is resized around it on every frame.
+      const a = dock.animate([from, open ? full : shut], { duration: motion.snappy.duration, easing: motion.snappy.easing, fill: 'forwards' });
+      testsAnim = a;
+      a.onfinish = () => {
+        dock.hidden = !open;
+        a.cancel();
+        testsAnim = null;
+      };
+    }
+
+    // The saved script is what runs, so what is on screen is saved first.
+    async function runTest(source) {
+      const going = NT.tests.of(id);
+      if (!going || going.done) {
+        if (!(await commit(false, source || testBtn))) return;
+        testsView().show(NT.tests.start(script));
+      } else testsView().show(going);
+      showTests(true, true);
+    }
+
+    // The panel changes places with the window's width.
+    const onTestsWidth = () => {
+      if (!tests || !testsOpen) return;
+      if (wide.matches && testsSheet) {
+        testsSheet.close();
+        testsOpen = false;
+        showTests(true, false);
+      } else if (!wide.matches && !testsSheet) {
+        dock.hidden = true;
+        testsOpen = false;
+        showTests(true, false);
+      }
+    };
+    wide.addEventListener('change', onTestsWidth);
 
     /* ----- Details ----- */
 
@@ -245,9 +316,10 @@
         const paths = NT.nav.paths();
         const under = paths[paths.length - 2] === `/scripts/${id}`;
         UI.menu(more, [
+          testBtn && { label: 'Details', icon: 'info', onSelect: infoSheet },
           !under && { label: 'Script Page', icon: 'doc', onSelect: () => NT.nav.go(`/scripts/${id}`) },
           !script.published_at && { label: 'Publish', icon: 'send', onSelect: async () => { if (await commit(false, more)) publishScript(script, () => { script.published_at = new Date().toISOString(); }); } },
-          (!under || !script.published_at) && '-',
+          (testBtn || !under || !script.published_at) && '-',
           { label: 'Editor Settings', icon: 'gear', onSelect: () => NT.nav.go('/settings/editor') },
           '-',
           { label: 'Delete', icon: 'trash', danger: true, onSelect: () => deleteScript(script, () => { S.removed(); NT.nav.back(); }, more) },
@@ -256,13 +328,24 @@
       // Saving keeps you where you are; only Back leaves.
       saveBtn = navButton('check', 'Save', () => commit(true, saveBtn), '.tinted');
       if (multi) filesBtn = groupButton('sidebar', 'Files', toggleFiles);
-      page.setTrailing(navGroup(filesBtn, groupButton('info', 'Details', infoSheet), more), saveBtn);
+      // Three to a capsule: with testing there, Details is in the menu beside it.
+      if (NT.tests.available()) testBtn = groupButton('play', 'Test', () => runTest(testBtn));
+      page.setTrailing(navGroup(filesBtn, testBtn || groupButton('info', 'Details', infoSheet), more), saveBtn);
       if (multi && sideWanted()) showSide(true, false);
+      // A run begun before the page was left is still this script's.
+      const going = NT.tests.of(id);
+      if (testBtn && going && !going.done) {
+        testsView().show(going);
+        showTests(true, false);
+      }
       S.start();
     };
 
     page.onDestroy(() => {
       wide.removeEventListener('change', onWidth);
+      wide.removeEventListener('change', onTestsWidth);
+      if (testsSheet) testsSheet.close();
+      if (tests) tests.dispose();
       S.close();
       if (!ed) return;
       if (lsp) lsp.dispose();

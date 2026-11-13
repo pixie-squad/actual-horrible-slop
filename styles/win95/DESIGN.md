@@ -65,6 +65,7 @@ Use the control the system has for the job (`ui.js`):
 | Related controls | Group box (`W.group`) |
 | Many things with facts about them | List view in columns (`W.list`); a column header sorts by it |
 | Files in folders | Tree view (`js/explorer.js`, drawn here) |
+| How far along | Progress bar: whole blocks of the highlight colour in a thin sunken well (`tests.js`). It cannot say it does not know: then the well stays empty and the pointer over it is the arrow with the hourglass |
 
 - In a list, one click chooses; a double click or Enter opens; the toolbar and the File
   menu act on what is chosen.

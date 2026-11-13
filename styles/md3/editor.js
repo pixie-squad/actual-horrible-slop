@@ -4,8 +4,9 @@
   What is saved, when, and what the line under the title says when that goes wrong is
   the session's (js/session.js). This is the page around it: the code, the files
   (js/explorer.js) in a pane beside it on a wide window and in a bottom sheet on a
-  narrow one, and the app bar's actions. The language server (js/lsp.js) reads along
-  where there is one.
+  narrow one, a test run (js/tests.js, tests.js) in the supporting pane on its other
+  side or in a bottom sheet, and the app bar's actions. The language server (js/lsp.js)
+  reads along where there is one.
 */
 (function () {
   'use strict';
@@ -28,9 +29,10 @@
     // A read-only document (a definition file) is left through this.
     const back = M.button('', () => ed.back(), { variant: 'tonal', icon: 'arrow_back', cls: '.m-code-return' });
     back.hidden = true;
-    page.inner.append(h('div.m-split', side, h('div.m-code-wrap', host, back)));
+    const dock = h('div.m-tests-dock', { hidden: true });
+    page.inner.append(h('div.m-split', side, h('div.m-code-wrap', host, back), dock));
     const store = NT.util.store;
-    let script = null, ed = null, lsp = null, saveBtn = null, filesBtn = null, ready = false, shownDoc = null;
+    let script = null, ed = null, lsp = null, saveBtn = null, filesBtn = null, testBtn = null, ready = false, shownDoc = null;
     let sideView = null, sideOpen = false, sheet = null;
 
     const S = NT.session(id, {
@@ -94,6 +96,78 @@
       if (wide.matches && !sideOpen && sideWanted()) showSide(true);
     };
     wide.addEventListener('change', onWidth);
+
+    /* ----- Tests ----- */
+
+    // Material's supporting-pane layout: one panel, in a pane on the trailing side of the
+    // code where the window is expanded, and in a bottom sheet where it is not. The pane
+    // slides in from the trailing edge while the code narrows, both on the spatial spring
+    // (PaneMotionDefaults: 380, 0.8); the panel keeps its width throughout.
+    let tests = null, testsOpen = false, testsAnim = null, testsSheet = null;
+    const testsView = () => tests || (tests = M.tests({ onRun: runTest, onClose: () => showTests(false, true) }));
+
+    function showTests(open, animate) {
+      if (!wide.matches) {
+        if (open && !testsSheet) {
+          testsSheet = M.sheet({ title: 'Test', body: testsView().el, onClose: () => { testsSheet = null; testsOpen = false; } });
+          testsOpen = true;
+        } else if (!open && testsSheet) testsSheet.close();
+        return;
+      }
+      if (open === testsOpen && dock.firstChild) return;
+      testsOpen = open;
+      testBtn.setAttribute('aria-expanded', String(open));
+      if (open) dock.append(testsView().el);
+      if (!open && dock.contains(document.activeElement)) testBtn.focus({ preventScroll: true });
+      // The split's gap between them (style.css) comes and goes with the pane.
+      const pane = parseFloat(getComputedStyle(dock).getPropertyValue('--m-pane')) || 360;
+      const gap = parseFloat(getComputedStyle(dock.parentNode).columnGap) || 0;
+      const shut = { width: '0px', marginLeft: -gap + 'px' }, full = { width: pane + 'px', marginLeft: '0px' };
+      let from = open ? shut : full;
+      if (testsAnim) {
+        const cs = getComputedStyle(dock);
+        from = { width: cs.width, marginLeft: cs.marginLeft };
+        testsAnim.cancel();
+        testsAnim = null;
+      }
+      if (open) dock.hidden = false;
+      dock.inert = !open;
+      const a = animate ? M.play(dock, [from, open ? full : shut], M.motion.spatial, { fill: 'forwards' }) : null;
+      if (!a) return void (dock.hidden = !open);
+      testsAnim = a;
+      a.onfinish = () => {
+        dock.hidden = !open;
+        a.cancel();
+        testsAnim = null;
+      };
+    }
+
+    // The saved script is what runs, so what is on screen is saved first.
+    async function runTest() {
+      const going = NT.tests.of(id);
+      if (!going || going.done) {
+        if (!(await S.commit(false))) return;
+        testsView().show(NT.tests.start(script));
+      } else testsView().show(going);
+      showTests(true, true);
+    }
+
+    // The panel changes places with the window's width.
+    const onTestsWidth = () => {
+      if (!tests || !testsOpen) return;
+      if (wide.matches && testsSheet) {
+        testsSheet.close();
+        testsOpen = false;
+        showTests(true, false);
+      } else if (!wide.matches && !testsSheet) {
+        if (testsAnim) { testsAnim.cancel(); testsAnim = null; }
+        dock.hidden = true;
+        testsOpen = false;
+        testBtn.setAttribute('aria-expanded', 'false');
+        showTests(true, false);
+      }
+    };
+    wide.addEventListener('change', onTestsWidth);
 
     /* ----- Details ----- */
 
@@ -216,13 +290,24 @@
       // Saving keeps you where you are; only Back leaves.
       saveBtn = M.iconButton('save', 'Save', () => S.commit(true), { variant: 'filled' });
       if (S.multi) filesBtn = M.iconButton('folder_open', 'Files', toggleFiles);
-      page.setTrailing(filesBtn, more, saveBtn);
+      if (NT.tests.available()) testBtn = M.iconButton('play_arrow', 'Test', runTest);
+      page.setTrailing(filesBtn, testBtn, more, saveBtn);
       if (S.multi && sideWanted()) showSide(true);
+      // A run begun before the page was left is still this script's.
+      const going = NT.tests.of(id);
+      if (testBtn && going && !going.done) {
+        testsView().show(going);
+        showTests(true, false);
+      }
       S.start();
     };
 
     page.onDestroy(() => {
       wide.removeEventListener('change', onWidth);
+      wide.removeEventListener('change', onTestsWidth);
+      if (testsSheet) testsSheet.close();
+      if (tests) tests.dispose();
+      if (testsAnim) testsAnim.cancel();
       S.close();
       if (!ed) return;
       if (lsp) lsp.dispose();

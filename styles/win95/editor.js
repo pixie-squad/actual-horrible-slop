@@ -3,8 +3,9 @@
 
   What is saved, when, and what the status bar says when that goes wrong is the
   session's (js/session.js). This is the window around it: the menu bar and toolbar,
-  the file tree (js/explorer.js) in a pane on the left, the code (js/monaco.js) and the
-  status bar. The language server (js/lsp.js) reads along where there is one.
+  the file tree (js/explorer.js) in a pane on the left, the code (js/monaco.js), a test
+  run (js/tests.js, tests.js) in a pane docked along the bottom, and the status bar.
+  The language server (js/lsp.js) reads along where there is one.
 */
 (function () {
   'use strict';
@@ -32,6 +33,7 @@
     const saveBtn = W.button('Save', () => S.commit(true), { disabled: true });
     const filesBtn = W.button('Files', () => showSide(!sideOpen));
     const detailsBtn = W.button('Details', () => details());
+    const testBtn = NT.tests.available() ? W.button('Test', () => runTest()) : null;
     // A read-only document (a definition file) is left through this.
     const backBtn = W.button('Back', () => ed.back());
     backBtn.hidden = true;
@@ -55,6 +57,8 @@
 
     function showSide(open) {
       sideOpen = open;
+      // On a small screen the tree and the test pane each take the whole window.
+      if (open && W.narrow.matches && testsOpen) showTests(false);
       if (open && !sideView) {
         // The tree keeps the keyboard while files are looked through; Enter, a second
         // click or a new file hands it to the code. On a small screen the tree is the
@@ -79,6 +83,45 @@
     const sideWanted = () => {
       const choice = NT.prefs.data.explorer;
       return !W.narrow.matches && (typeof choice === 'boolean' ? choice : ed.paths().length > 1);
+    };
+
+    /* ----- Test ----- */
+
+    // Docked under the code and the tree, closed until Test is chosen. On a small screen
+    // it is the whole window, as the tree is, until it is closed.
+    let tests = null, testsOpen = false;
+
+    function testsPane() {
+      if (!tests) {
+        tests = W.testsPane({ onRun: runTest, onClose: () => showTests(false) });
+        win.body.append(tests.el);
+      }
+      return tests;
+    }
+
+    function showTests(open) {
+      testsOpen = open;
+      if (open) testsPane();
+      if (!tests) return;
+      if (!open && tests.el.contains(document.activeElement)) (testBtn || win.el).focus({ preventScroll: true });
+      tests.el.hidden = !open;
+      win.body.classList.toggle('has-tests', open);
+      if (testBtn) testBtn.setAttribute('aria-expanded', String(open));
+    }
+
+    // The saved script is what runs, so what is on screen is saved first. A run that is
+    // going is shown, not begun again.
+    async function runTest() {
+      const going = NT.tests.of(id);
+      if (!going || going.done) {
+        if (!(await S.commit(false))) return;
+        testsPane().show(NT.tests.start(script));
+      } else testsPane().show(going);
+      showTests(true);
+    }
+    const running = () => {
+      const run = NT.tests.of(id);
+      return !!run && !run.done;
     };
 
     /* ----- Details ----- */
@@ -143,6 +186,9 @@
             { label: 'Save', disabled: saveBtn.disabled, onSelect: () => S.commit(true) },
             !script.published_at && { label: 'Publish', onSelect: publish },
             '-',
+            testBtn && { label: 'Test', onSelect: runTest },
+            testBtn && { label: 'Stop', disabled: !running(), onSelect: () => NT.tests.of(id).stop() },
+            testBtn && '-',
             { label: 'Details…', onSelect: details },
             { label: 'Script Page', onSelect: () => NT.nav.go(`/scripts/${id}`) },
             '-',
@@ -155,12 +201,14 @@
           label: 'View',
           items: () => [
             S.multi && { label: 'Files', checked: sideOpen, radio: false, onSelect: () => showSide(!sideOpen) },
-            S.multi && '-',
+            // The pane, with the last run in it; there is none to show before the first.
+            testBtn && { label: 'Test', checked: testsOpen, radio: false, disabled: !testsOpen && !(tests && tests.run), onSelect: () => showTests(!testsOpen) },
+            (S.multi || testBtn) && '-',
             { label: 'Editor Settings', onSelect: () => NT.nav.go('/settings/editor') },
           ],
         },
       ]);
-      win.setToolbar(saveBtn, sep(), S.multi ? filesBtn : null, detailsBtn, backBtn);
+      win.setToolbar(saveBtn, testBtn, sep(), S.multi ? filesBtn : null, detailsBtn, backBtn);
     }
 
     /* ----- Opening ----- */
@@ -217,10 +265,16 @@
 
       menus();
       if (S.multi && sideWanted()) showSide(true);
+      // A run begun before the window was closed is still this script's.
+      if (testBtn && running()) {
+        testsPane().show(NT.tests.of(id));
+        showTests(true);
+      }
       S.start();
     };
 
     win.onDestroy(() => {
+      if (tests) tests.dispose();
       S.close();
       if (!ed) return;
       if (lsp) lsp.dispose();

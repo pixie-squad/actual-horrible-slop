@@ -12,6 +12,9 @@ RUN node ext/tools.js
 
 # Inside a container the server has to listen on all interfaces to be reachable.
 # It keeps nothing, so there is no volume to mount.
+# Test runs need a runner: NT_RUNNER_URL, NT_RUNNER_TOKEN and NT_RUNNER_CA (its
+# certificate, as PEM text or a mounted file) at run time. Without them the app
+# leaves testing out.
 ENV HOST=0.0.0.0 PORT=5173
 EXPOSE 5173
 

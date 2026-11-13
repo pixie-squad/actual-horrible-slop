@@ -9,7 +9,9 @@
   - Proxies /api/* to https://scripting.nulls.gg/api/* so the browser can use
     the real service with its session cookie, without cross-origin limits.
   - Mounts the backend extensions in ./ext under /x/* (see ext/index.js): the
-    bundler and the language server. NT_EXT=off runs without them.
+    bundler, the language server, and test runs, which a runner elsewhere carries
+    out (ext/tests.js: NT_RUNNER_URL, NT_RUNNER_TOKEN, NT_RUNNER_CA). NT_EXT=off
+    runs without them.
   - Keeps nothing. No request or answer is written down, and there is no data
     folder: what the app stores is in the upstream's scripts or in the browser.
 */

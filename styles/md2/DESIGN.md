@@ -45,6 +45,13 @@ Material Design 2 differs.
 - A list is one sheet with a line between its rows (`.m-list`).
 - A floating action button with more than one action opens a **speed dial**: small
   round buttons above it, each with its name beside it (`M.fab`).
+- A test run is a **standard side sheet** on the trailing edge of the editor from 840
+  wide, opened by Test in the app bar (`tests.js`, `editor.js`). It is coplanar with
+  the code: no shadow, a divider on its leading edge, and the code narrows to make
+  room as it slides in. The guidelines fix its width without giving one; it is 360.
+  Below 840 it is a bottom sheet, as the files are (for a phone the guidelines would
+  have a modal side sheet). Under its heading, Output and State are tabs; State is the
+  battle's objects as choice chips, a search bar and a data table.
 
 ## 4. Components
 
@@ -56,6 +63,20 @@ Material Design 2 differs.
 - A switch is a round thumb on a narrow track; a slider is a thin line with a round
   thumb (`M.switch`, `M.slider`).
 - Waiting is a ring that turns (`M.loading`).
+- How far along is the **linear progress indicator** (`tests.js`): 4 high and edge to
+  edge, primary on a #e6e6e6 track (12 % white in the dark, `--track`). Determinate,
+  the bar grows over 250 ms on the sharp curve (0.4, 0, 0.6, 1); with no telling, two
+  bars cross the track in a 2 s cycle; once it is over it fades over 250 ms.
+- One of a few kinds is a **choice chip** (`tests.js`): 32 high and round, body 2, 12
+  either side, on surface at 10 % (`--chip`); the chosen one primary at 24 % with its
+  label in primary, and no check, so it is as wide chosen as not.
+- Values in rows and columns are Material Components' **data table** at its densest
+  (`tests.js`): rows 36, the heading 40, 16 at either end of a cell, a divider under
+  each; the heading subtitle 2 and the rows body 2, numbers to the right in tabular
+  figures, a row under the pointer at the fill, this client's own row medium. The
+  heading stays while the rows scroll; the columns are as wide as every object in sight
+  needs, so a filter never moves them, and where they do not fit the table moves
+  sideways.
 
 ## 5. Motion
 
@@ -77,3 +98,14 @@ Material Design 2 differs.
 - [Material Design](https://m2.material.io/) (the 2018 guidelines): elevation, colour
   system, typography scale, components, motion's standard easing.
 - Material Components' published elevation shadows, for `--dp*`.
+- Material Components for the web, `packages/mdc-linear-progress` (`_linear-progress.scss`,
+  `_linear-progress-theme.scss`; read 2026-11-13): the progress indicator's height,
+  track colour, keyframes and timing.
+- Material Components for the web, `packages/mdc-data-table/_data-table-theme.scss` and
+  `packages/mdc-density/_density.scss` (read 2026-11-13): the data table's rows, heading,
+  cell padding, lines, text and hover, and its density (4 a step, down to rows of 36).
+- Material Components for Android, `chip/res/values/styles.xml` and
+  `chip/res/color/mtrl_choice_chip_*.xml` (read 2026-11-13): the choice chip's height,
+  padding, type and colours.
+- The guidelines' side sheets page (Sheets: side): standard side sheets, coplanar or
+  raised, a fixed width, on tablet and desktop.

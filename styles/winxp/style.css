@@ -897,6 +897,109 @@ button.w-link:hover { text-decoration: underline; }
 .ex-drag span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ex-drag.is-copy::after { content: "+"; font-weight: 700; }
 
+/* ---------- Test (tests.js) ----------
+   A run, in a pane docked along the bottom of the editor's window: headed as Explorer
+   heads its Folders bar, then a line with the words, Luna's progress bar and a button,
+   then a tab control: Output, a white field; State, a list view in details view with
+   what filters it. */
+
+/* Luna's progress bar is green in every scheme XP has, so it does not turn with the
+   accent; the dark theme lowers it. */
+html[data-theme="light"] {
+  --prog-edge: #686868;
+  --prog-track: #ffffff;
+  --prog-shade: #686868;
+  --prog-chunk: linear-gradient(180deg, #acedad 0, #7be47d 14%, #4cda50 28%, #2ed330 42%, #42d845 57%, #76e275 71%, #8fe791 85%, #ffffff 100%);
+}
+html[data-theme="dark"] {
+  --prog-edge: #0e0f12;
+  --prog-track: #1b1d22;
+  --prog-shade: #000000;
+  --prog-chunk: linear-gradient(180deg, #5c9a5e 0, #4c9450 14%, #348a38 28%, #237f27 42%, #2f8634 57%, #4a9150 71%, #569a5a 85%, #26302a 100%);
+}
+
+.w-tests {
+  flex: 0 1 calc(var(--ctl) * 4 + var(--row) * 7 + 52px);
+  display: flex;
+  flex-direction: column;
+  min-height: calc(var(--ctl) * 4);
+  padding: 0 2px 2px;
+}
+.w-body.has-tests > .w-split { min-height: calc(var(--row) * 6); }
+
+/* The heading, as on Explorer's Folders bar: the name, and a flat Close. */
+.w-tests-cap { flex: none; display: flex; align-items: center; gap: 4px; height: 25px; padding: 0 1px 0 6px; background: var(--bar-bg); border: 1px solid var(--edge-soft); }
+.w-tests-cap > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-tool.w-tests-x { justify-content: center; width: 22px; padding: 0; }
+.w-tool.w-tests-x .w-glyph { margin: 0; }
+@media (any-pointer: coarse) {
+  .w-tests-cap { height: 34px; }
+  .w-tool.w-tests-x { width: 32px; height: 30px; }
+}
+
+.w-tests-head { flex: none; display: flex; align-items: center; gap: 8px; padding: 5px 1px 3px 4px; }
+.w-tests-words { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 12px; white-space: nowrap; overflow: hidden; }
+.w-tests-words > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.w-tests-title { flex: none; }
+
+/* Luna's progress bar: green blocks in a white well with a dark rounded edge. */
+.w-progress { position: relative; flex: 0 1 220px; min-width: 60px; height: 14px; padding: 1px 0; border: 1px solid var(--prog-edge); border-radius: 4px; background: var(--prog-track); box-shadow: inset 0 0 1px var(--prog-shade); overflow: hidden; }
+.w-progress > i {
+  display: block;
+  height: 100%;
+  width: calc(var(--p, 0) * 100%);
+  /* Whole blocks only. */
+  width: round(up, calc(var(--p, 0) * 100%), 10px);
+  border-radius: 2px;
+  background: repeating-linear-gradient(90deg, var(--prog-track) 0 2px, transparent 2px 10px), var(--prog-chunk);
+}
+/* No telling how long: five blocks go round the well, a block at a time. */
+.w-progress.is-open > i { position: absolute; top: 1px; bottom: 1px; left: 0; width: 50px; height: auto; animation: w-marquee calc(var(--steps, 30) * 50ms) steps(var(--steps, 30), end) infinite; }
+@keyframes w-marquee { from { transform: translateX(-50px); } to { transform: translateX(calc(var(--steps, 30) * 10px - 50px)); } }
+@media (prefers-reduced-motion: reduce) { .w-progress.is-open > i { animation: none; left: calc(50% - 25px); } }
+@media (any-pointer: coarse) { .w-progress { height: 20px; } }
+/* Once the run is over there is nothing more for it to say. */
+.w-tests:not([data-tone="busy"]) .w-progress { visibility: hidden; }
+
+/* Output and State: the system's tab control, its pages close to their edge. */
+.w-tests-tabs { flex: 1; min-height: 0; }
+.w-tests-tabs > .w-tabpage { padding: 6px; }
+
+/* Output: what the script printed, in the code's font. */
+.w-tests-out { overflow: auto; padding: 2px 4px; background: var(--window); border: 1px solid var(--field-edge); font: 400 12px/16px var(--mono); -webkit-user-select: text; user-select: text; cursor: text; }
+.w-tests-out > div { display: flex; align-items: flex-start; gap: 4px; }
+.w-tests-out > div > span { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.w-tests-out > .w-tests-none { padding: 2px 0; font: 400 var(--fs)/1.25 var(--font); color: var(--gray-text); cursor: default; }
+.w-tests-out:focus-visible { outline: 1px dotted var(--text); outline-offset: -2px; }
+
+/* State: the kinds, a search, the count, and the list view under them. */
+.w-tests-state { display: flex; flex-direction: column; gap: 6px; }
+.w-tests-tools { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.w-tests-tools > label { flex: none; }
+.w-tests-tools > .w-combo { width: 116px; }
+.w-tests-tools > .w-edit { flex: 0 1 160px; min-width: 80px; }
+.w-tests-find { margin-left: 8px; }
+.w-tests-summary { flex: 1 1 auto; min-width: 0; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Columns as wide as a list view gives them; what is left over is the header's own. */
+.w-tests-list { flex: 1; min-height: 0; --tc-name: 132px; --tc-kind: 86px; --tc-team: 76px; --tc-hp: 86px; --tc-x: 66px; --tc-y: 66px; }
+@media (any-pointer: coarse) { .w-tests-list { --tc-name: 160px; --tc-kind: 108px; --tc-team: 96px; --tc-hp: 108px; --tc-x: 80px; --tc-y: 80px; } }
+/* Too narrow for them all, it scrolls sideways, its header with it. */
+.w-tests-list > .w-list-head, .w-tests-list > .w-list-body { min-width: min-content; }
+.w-tests-list .w-cell { font-variant-numeric: tabular-nums; }
+.w-tests-list .w-col.right { justify-content: flex-end; padding: 0 6px 2px 8px; }
+.w-tests-list .is-own { font-weight: 700; }
+
+/* On a small screen the pane is the whole window while it is open, as the tree is. */
+@media (max-width: 700px) {
+  .w-body.has-tests > .w-split { display: none; }
+  .w-tests { flex: 1; padding-top: 2px; }
+  .w-tests-head { flex-wrap: wrap; row-gap: 6px; }
+  .w-tests-words { flex-basis: 0; }
+  .w-progress { order: 3; flex: 1 0 100%; }
+  .w-tests-tools > .w-edit { flex: 1 1 80px; }
+  .w-tests-summary { flex-basis: 100%; text-align: left; }
+}
+
 /* ---------- Small screens: a window is the whole screen ---------- */
 
 @media (max-width: 700px) {

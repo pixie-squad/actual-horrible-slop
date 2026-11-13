@@ -29,47 +29,47 @@
   'use strict';
   var NT = (window.NT = window.NT || {});
 
-  var CORE = ['util', 'icons', 'data', 'pack', 'api', 'ext', 'luau', 'editor-prefs', 'project', 'monaco', 'lsp', 'media', 'explorer', 'routes', 'session', 'actions'];
+  var CORE = ['util', 'icons', 'data', 'pack', 'api', 'ext', 'luau', 'editor-prefs', 'project', 'monaco', 'lsp', 'media', 'explorer', 'routes', 'session', 'actions', 'tests'];
 
   var STYLES = [
     {
       id: 'glass',
       name: 'Liquid Glass',
       fonts: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap',
-      css: ['tokens', 'glass', 'app', 'media', 'project'],
-      js: ['lens', 'glass', 'ui', 'media-ui', 'pages', 'editor', 'app'],
+      css: ['tokens', 'glass', 'app', 'media', 'project', 'tests'],
+      js: ['lens', 'glass', 'ui', 'media-ui', 'pages', 'tests-ui', 'editor', 'app'],
     },
     {
       id: 'md3',
       name: 'Material 3 Expressive',
       fonts: 'https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,100..1000&family=Roboto+Mono:wght@400;500&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap',
       css: ['style'],
-      js: ['ui', 'pages', 'editor', 'app'],
+      js: ['ui', 'pages', 'tests', 'editor', 'app'],
     },
     {
       id: 'md2',
       name: 'Material Design 2',
       fonts: 'https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Roboto+Mono:wght@400;500&family=Material+Icons&display=swap',
       css: ['style'],
-      js: ['ui', 'pages', 'editor', 'app'],
+      js: ['ui', 'pages', 'tests', 'editor', 'app'],
     },
     {
       id: 'win95',
       name: 'Windows 95',
       css: ['style'],
-      js: ['icons', 'ui', 'pages', 'editor', 'app'],
+      js: ['icons', 'ui', 'pages', 'tests', 'editor', 'app'],
     },
     {
       id: 'winxp',
       name: 'Windows XP',
       css: ['style'],
-      js: ['icons', 'ui', 'pages', 'editor', 'app'],
+      js: ['icons', 'ui', 'pages', 'tests', 'editor', 'app'],
     },
     {
       id: 'win7',
       name: 'Windows 7',
       css: ['style'],
-      js: ['icons', 'ui', 'pages', 'editor', 'app'],
+      js: ['icons', 'ui', 'pages', 'tests', 'editor', 'app'],
     },
   ];
 

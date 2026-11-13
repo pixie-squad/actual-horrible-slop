@@ -31,6 +31,13 @@ top of them.
   opens into the FAB menu (`M.fab`).
 - Something to answer is a **dialog**; something to pick through is a **bottom sheet**;
   what just happened is a **snackbar** (`M.dialog`, `M.sheet`, `M.snackbar`).
+- A test run is the editor's **supporting pane** (`tests.js`, `editor.js`), opened by
+  Test, an icon button in the app bar. From 840 wide it is a pane on the trailing side
+  of the code, 360 wide and 412 from 1200 (`PaneScaffoldDirective.DefaultPreferredWidth`,
+  `DefaultPreferredWidthXL`); below that it is a bottom sheet. The pane is 12 from the
+  code, the editor's own gap, not the scaffold's spacer of 24. Under its heading,
+  Output or State is a connected button group; State is the battle's objects as filter
+  chips, a search bar and a data table.
 
 ## 2. Colour
 
@@ -98,6 +105,7 @@ top of them.
   | The FAB menu: each item grows from its trailing edge as it fades in, the nearest first; closing is the reverse | fast spatial, fast effects; counted in on slow effects | `FloatingActionButtonMenu.kt` |
   | The FAB becoming the close button | fast spatial | the same |
   | The navigation indicator | spatial | `NavigationItem.kt` |
+  | The supporting pane: it slides in from the trailing edge, and out again, while the code narrows and widens | spatial | `PaneMotion.kt` (`PaneMotionDefaults`, `EnterFromRight`) |
 
 - Going deeper moves forward along the horizontal axis and Back moves back along it;
   changing place fades through (`app.js`, `apply`).
@@ -152,6 +160,9 @@ Use the component Material has for the job (`ui.js`):
 | A question | Dialog | 28 corner, 24 around, a 24 symbol in secondary (`DialogTokens`) |
 | A panel from the bottom | Bottom sheet | 28 top corners, a 32 × 4 handle (`SheetBottomTokens`) |
 | What just happened | Snackbar | 48 for one line, 4 corner, inverse surface (`SnackbarTokens`) |
+| One kind of many, to narrow what is listed | Filter chips (`tests.js`) | 32 high, the 8 corner, a 1 outline of outline variant, label-large in on surface variant, 16 either side; the chosen one secondary container with an 18 check, 8 before it and 8 to the label (`FilterChipTokens`, `Chip.kt`) |
+| Values in rows and columns | Data table (`tests.js`) | M3 has none, so it is Material's data table at its densest (`mdc-data-table`: rows 36, the heading 40, 16 at either end of a cell, a 1 line of outline variant under each) in this style's roles: the heading label-large in on surface variant, the rows body-medium, numbers to the right in tabular figures, this client's own row at 500. The heading stays while the rows scroll; the columns are as wide as every object in sight needs, so a filter never moves them, and where they do not fit the table moves sideways. Its search bar is surface container high on the pane (`SearchBarTokens`) |
+| How far along | Linear progress indicator (`tests.js`) | 4 thick, primary on a secondary container track, round ends 4 apart, a 4 stop of primary at the end; it follows its value on stiffness 50, no bounce; with no telling, two lines whose heads and tails run on emphasized accelerate (0.3, 0, 0.8, 0.15) in 1750 ms (`LinearProgressIndicatorTokens`, `ProgressIndicatorTokens`, `MotionTokens`, `ProgressIndicator.kt`) |
 
 ## Sources
 
@@ -170,11 +181,19 @@ Read on 2026-11-12.
     `AppBarLargeFlexibleTokens`, `SearchBarTokens`, `SwitchTokens`, `SliderTokens`,
     `ListTokens`, `LoadingIndicatorTokens`, `SegmentedMenuTokens`, `StandardMenuTokens`,
     `DialogTokens`, `SheetBottomTokens`, `SnackbarTokens`, `OutlinedTextFieldTokens`,
-    `FilledCardTokens`.
+    `FilledCardTokens`, and (read 2026-11-13) `LinearProgressIndicatorTokens`,
+    `ProgressIndicatorTokens`, `MotionTokens`, `FilterChipTokens`.
   - the components, for behaviour: `Button.kt`, `IconButton.kt`, `ToggleButton.kt`,
     `ButtonGroup.kt`, `FloatingActionButtonMenu.kt`, `ListItem.kt`, `Menu.kt`,
     `Switch.kt`, `NavigationItem.kt`, `LoadingIndicator.kt`, `MaterialShapes.kt`,
-    `internal/AnimatedShape.kt`.
+    `internal/AnimatedShape.kt`, `ProgressIndicator.kt`, `Chip.kt`.
+- Material Components for the web, `packages/mdc-data-table/_data-table-theme.scss` and
+  `packages/mdc-density/_density.scss` (read 2026-11-13): the data table's rows,
+  heading, cell padding and lines, and its density (4 a step, down to rows of 36).
+- Jetpack Compose `material3-adaptive`, the same branch, under
+  `compose/material3/adaptive/adaptive-layout/src/commonMain/kotlin/androidx/compose/material3/adaptive/layout/`
+  (read 2026-11-13): `PaneScaffoldDirective.kt` (pane widths and spacers by window
+  width), `PaneMotion.kt` (how panes come and go, and their spring).
 - Material Components for Android, `docs/components/`: `ButtonGroup.md`, `List.md`
   (the segmented list's colour), `Card.md`, `Carousel.md`, `FloatingActionButton.md`,
   `NavigationRail.md`, `TopAppBar.md`.

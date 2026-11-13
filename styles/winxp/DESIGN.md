@@ -97,7 +97,9 @@ Top to bottom (`ui.js`, `W.window`):
 
 ## 4. Motion
 
-None (`NT.look.still`). A window, a menu or a page of tabs is there or it is not.
+None (`NT.look.still`). A window, a menu or a page of tabs is there or it is not. The
+one thing that moves is a progress bar that cannot tell how long: XP's marquee, five
+green blocks going along the well a block at a time (`tests.js`, `.w-progress`).
 
 ## 5. Touch
 

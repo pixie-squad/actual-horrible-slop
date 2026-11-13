@@ -35,6 +35,8 @@ html[data-theme="light"] {
   --on-surface-3: rgb(0 0 0 / 0.38);
   --divider: rgb(0 0 0 / 0.12);
   --fill: rgb(0 0 0 / 0.06);
+  --track: #e6e6e6;             /* under a progress bar (mdc-linear-progress) */
+  --chip: rgb(0 0 0 / 0.1);      /* a chip (Chip.Choice: on surface at 10 %) */
   --error: #b00020;
   --snack: #323232;
   --on-snack: rgb(255 255 255 / 0.87);
@@ -75,6 +77,8 @@ html[data-theme="dark"] {
   --on-surface-3: rgb(255 255 255 / 0.38);
   --divider: rgb(255 255 255 / 0.12);
   --fill: rgb(255 255 255 / 0.08);
+  --track: rgb(255 255 255 / 0.12);
+  --chip: rgb(255 255 255 / 0.1);
   --error: #cf6679;
   --snack: #e0e0e0;
   --on-snack: rgb(0 0 0 / 0.87);
@@ -599,6 +603,151 @@ html[data-theme="dark"] .m-switch-handle { background: #bdbdbd; }
 .m-sheet-body > .explorer { min-height: 240px; }
 
 @media (max-width: 839px) { .m-side { display: none; } }
+
+/* ---------- A test run (tests.js, editor.js) ----------
+   From 840 wide, a standard side sheet on the trailing edge, coplanar with the code: no
+   shadow, a divider on its leading edge as the files have on their trailing one, and
+   the code narrows to make room. The guidelines fix its width without giving one; 360
+   keeps the longest heading on one line. Below 840 the panel is a bottom sheet's body.
+   The sheet keeps its width while the editor slides it in (the dock is what grows). */
+
+.m-tests-dock { --m-pane: 360px; flex: none; width: var(--m-pane); min-height: 0; display: flex; overflow: hidden; }
+@media (max-width: 839px) { .m-tests-dock { display: none; } }
+.m-tests-dock > .m-tests { flex: 1 0 0; min-width: var(--m-pane); border-left: 1px solid var(--divider); background: var(--surface); }
+
+.m-tests {
+  /* What it lies on (under the table's heading, which stays). */
+  --m-tests-bg: var(--surface);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  color: var(--on-surface);
+}
+
+/* The heading: the run's title as a headline 6, with its verdict once there is one, an
+   outlined button and the sheet's close button on its line; the detail under it as
+   body 2. The detail's line is there while it is empty. */
+.m-tests-head { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "title act close" "detail detail detail"; align-items: center; padding: 8px 4px 0 16px; }
+.m-tests-title { grid-area: title; display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 48px; font: 500 20px/32px var(--font); letter-spacing: 0.0075em; }
+.m-tests-title > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-tests-verdict { flex: none; display: grid; place-items: center; }
+.m-tests-verdict:empty { display: none; }
+.m-tests[data-tone="good"] .m-tests-verdict { color: var(--primary); }
+.m-tests[data-tone="bad"] .m-tests-verdict { color: var(--error); }
+.m-tests-act { grid-area: act; margin-left: 8px; }
+.m-tests-close { grid-area: close; }
+.m-tests-detail { grid-area: detail; min-height: 20px; padding-right: 12px; font: 400 14px/20px var(--font); letter-spacing: 0.018em; color: var(--on-surface-2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The linear progress indicator as Material Components draws it (mdc-linear-progress):
+   4 high and edge to edge, a bar of primary on its track. Determinate, the bar grows
+   over 250 ms on the sharp curve; with no telling how long, two bars cross the track in
+   a 2 s cycle. Once the run is over it fades over 250 ms and leaves its place behind. */
+.m-progress { position: relative; flex: none; height: 4px; margin: 16px 0; overflow: hidden; transition: opacity 250ms cubic-bezier(0.4, 0, 0.6, 1); }
+.m-progress.is-off { opacity: 0; }
+.m-progress-track { position: absolute; inset: 0; background: var(--track); }
+.m-progress-bar { position: absolute; top: 0; left: 0; width: 100%; height: 100%; transform-origin: top left; transition: transform 250ms cubic-bezier(0.4, 0, 0.6, 1); }
+.m-progress-bar > span { position: absolute; inset: 0; background: var(--primary); }
+.m-progress-bar.primary { transform: scaleX(0); }
+.m-progress-bar.secondary { display: none; }
+.m-progress.is-open .m-progress-bar { transition: none; }
+.m-progress.is-open .m-progress-bar.primary { left: -145.166611%; animation: m-progress-primary 2s infinite linear; }
+.m-progress.is-open .m-progress-bar.secondary { display: block; left: -54.888891%; animation: m-progress-secondary 2s infinite linear; }
+.m-progress.is-open .m-progress-bar.primary > span { animation: m-progress-primary-scale 2s infinite linear; }
+.m-progress.is-open .m-progress-bar.secondary > span { animation: m-progress-secondary-scale 2s infinite linear; }
+@keyframes m-progress-primary {
+  0% { transform: translateX(0); }
+  20% { animation-timing-function: cubic-bezier(0.5, 0, 0.701732, 0.495819); transform: translateX(0); }
+  59.15% { animation-timing-function: cubic-bezier(0.302435, 0.381352, 0.55, 0.956352); transform: translateX(83.67142%); }
+  100% { transform: translateX(200.611057%); }
+}
+@keyframes m-progress-primary-scale {
+  0% { transform: scaleX(0.08); }
+  36.65% { animation-timing-function: cubic-bezier(0.334731, 0.12482, 0.785844, 1); transform: scaleX(0.08); }
+  69.15% { animation-timing-function: cubic-bezier(0.06, 0.11, 0.6, 1); transform: scaleX(0.661479); }
+  100% { transform: scaleX(0.08); }
+}
+@keyframes m-progress-secondary {
+  0% { animation-timing-function: cubic-bezier(0.15, 0, 0.515058, 0.409685); transform: translateX(0); }
+  25% { animation-timing-function: cubic-bezier(0.31033, 0.284058, 0.8, 0.733712); transform: translateX(37.651913%); }
+  48.35% { animation-timing-function: cubic-bezier(0.4, 0.627035, 0.6, 0.902026); transform: translateX(84.386165%); }
+  100% { transform: translateX(160.277782%); }
+}
+@keyframes m-progress-secondary-scale {
+  0% { animation-timing-function: cubic-bezier(0.205028, 0.057051, 0.57661, 0.453971); transform: scaleX(0.08); }
+  19.15% { animation-timing-function: cubic-bezier(0.152313, 0.196432, 0.648374, 1.004315); transform: scaleX(0.457104); }
+  44.15% { animation-timing-function: cubic-bezier(0.257759, -0.003163, 0.211762, 1.38179); transform: scaleX(0.72796); }
+  100% { transform: scaleX(0.08); }
+}
+
+/* Output or State: fixed tabs across the sheet, as the lists' tabs are: 48 high, their
+   labels a button's, the chosen one primary over a 2 line of primary, a divider under
+   them all. */
+.m-group.m-tests-views { flex: none; display: flex; border-radius: 0; box-shadow: inset 0 -1px 0 var(--divider); }
+.m-tests-views > .m-group-btn { flex: 1 1 0; height: 48px; line-height: 48px; box-shadow: none; }
+.m-tests-views > .m-group-btn[aria-checked="true"] { background: none; box-shadow: inset 0 -2px 0 var(--primary); }
+.m-tests-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* What the script printed, in Roboto Mono, as it printed it. What the game complained
+   of leads with its icon, warning or error, and has no colour behind it. */
+.m-tests-lines { flex: 1; min-height: 0; margin: 0; padding: 12px 16px 16px; list-style: none; overflow-y: auto; overscroll-behavior: contain; font: 400 13px/20px var(--mono); letter-spacing: 0; -webkit-user-select: text; user-select: text; }
+.m-tests-lines:focus-visible { outline-offset: -2px; }
+.m-tests-lines li { display: flex; gap: 8px; }
+.m-tests-lines li > span { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.m-tests-lines li > .m-icon { margin-top: 2px; }
+.m-tests-lines li.is-warning { color: var(--on-surface-2); }
+.m-tests-lines li.is-error { color: var(--error); }
+.m-tests-none { font: 400 14px/20px var(--font); letter-spacing: 0.018em; color: var(--on-surface-2); }
+
+/* State: the battle's objects. Which kind is a set of choice chips (Material
+   Components' Chip.Choice: 32 high and round, body 2, 12 either side, on surface at
+   10 %; the chosen one primary at 24 % with its label in primary), 8 apart and onto a
+   second line where they must. */
+.m-tests-state { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-top: 16px; }
+.m-chips { flex: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0 16px; }
+.m-chip { flex: none; display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 16px; background: var(--chip); color: var(--on-surface); font: 400 14px/20px var(--font); letter-spacing: 0.018em; white-space: nowrap; }
+.m-chip[aria-checked="true"] { background: color-mix(in srgb, var(--primary) 24%, transparent); color: var(--primary); }
+
+/* The search bar: this style's own, on the sheet at 2 (in the dark, a surface higher). */
+.m-tests-search { flex: none; margin: 16px 16px 0; background: var(--surface-2); }
+.m-tests-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+/* How many, as body 2. Its line is there before the first look. */
+.m-tests-summary { flex: none; min-height: 20px; margin: 16px 16px 4px; font: 400 14px/20px var(--font); letter-spacing: 0.018em; color: var(--on-surface-2); font-variant-numeric: tabular-nums; }
+
+/* The table is Material Components' data table at its densest (mdc-data-table: rows
+   36, the heading 40, 16 at either end of a cell, a 12 % line under each, the heading
+   subtitle 2 and the rows body 2, numbers to the right, a row under the pointer at the
+   fill). This client's own row is medium. The heading stays while the rows go by.
+   Every object has a row and what the filter leaves out is collapsed, so the columns
+   are as wide as all of them need, do not move with the filter, and cut nothing: where
+   they do not fit, the table moves sideways with its heading. */
+/* It takes the width it is given, so a wide table moves sideways in it instead of
+   widening what holds it (a sheet is as wide as its content asks). */
+.m-tests-grid { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; contain: inline-size; }
+.m-tests-grid:focus-visible { outline-offset: -2px; }
+.m-table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font: 400 14px/20px var(--font); letter-spacing: 0.018em; font-variant-numeric: tabular-nums; color: var(--on-surface); -webkit-user-select: text; user-select: text; }
+.m-table th, .m-table td { padding: 0 16px; text-align: left; white-space: nowrap; }
+.m-table td { border-bottom: 1px solid var(--divider); }
+/* The heading's line goes where the heading goes. */
+.m-table th::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--divider); }
+.m-table .is-number { text-align: right; }
+.m-table thead { position: sticky; top: 0; z-index: 1; background: var(--m-tests-bg); }
+.m-table th { position: relative; height: 40px; font-weight: 500; letter-spacing: 0.007em; }
+.m-table td { height: 36px; }
+@media (hover: hover) { .m-table tbody tr:hover td { background: var(--fill); } }
+.m-table tr.is-own td { font-weight: 500; }
+.m-table tr.is-out { visibility: collapse; }
+.m-table tr.is-out td { border: 0; }
+.m-tests-grid > .m-tests-none { position: sticky; left: 0; padding: 8px 16px; }
+
+/* In a bottom sheet the sheet's own title leads and it closes itself. What is under
+   Output or State has a height of its own, so that the sheet neither grows as lines
+   come nor changes with the view. */
+.m-sheet-body > .m-tests { --m-tests-bg: var(--surface-2); flex: none; }
+.m-sheet-body > .m-tests .m-tests-close { display: none; }
+.m-sheet-body > .m-tests .m-tests-head { padding: 0 16px; }
+.m-sheet-body > .m-tests .m-tests-detail { padding-right: 0; }
+.m-sheet-body > .m-tests .m-tests-body { flex: none; height: 380px; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }

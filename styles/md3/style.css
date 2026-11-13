@@ -752,6 +752,130 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 
 @media (max-width: 839px) { .m-side { display: none; } }
 
+/* ---------- A test run (tests.js, editor.js) ----------
+   Material's supporting-pane layout (material3-adaptive): from 840 wide the run is a
+   pane on the trailing side of the code, 360 wide as PaneScaffoldDirective prefers and
+   412 from 1200; below that it is the body of a bottom sheet. The pane is a piece of
+   content like the files on the other side, and keeps its width while the editor
+   slides it in (the dock is what grows). */
+
+.m-tests-dock { --m-pane: 360px; flex: none; width: var(--m-pane); min-height: 0; display: flex; overflow: hidden; }
+@media (min-width: 1200px) { .m-tests-dock { --m-pane: 412px; } }
+@media (max-width: 839px) { .m-tests-dock { display: none; } }
+.m-tests-dock > .m-tests { flex: 1 0 0; min-width: var(--m-pane); border-radius: var(--r-l); background: var(--piece); overflow: hidden; }
+
+.m-tests {
+  /* What it lies on (under the table's heading, which stays), and its inset. */
+  --m-tests-bg: var(--piece);
+  --m-tests-in: 16px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  color: var(--on-surface);
+}
+
+/* The heading: the run's title in title-large, with its verdict once there is one, the
+   tonal button and the pane's close button on its line; the detail under it in
+   body-medium. The detail's line is there while it is empty. */
+.m-tests-head { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "title act close" "detail detail detail"; align-items: center; padding: 12px 4px 0 16px; }
+.m-tests-title { grid-area: title; display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 48px; font: 400 22px/28px var(--font); letter-spacing: 0; }
+.m-tests-title > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-tests-verdict { flex: none; display: grid; place-items: center; }
+.m-tests-verdict:empty { display: none; }
+.m-tests[data-tone="good"] .m-tests-verdict { color: var(--primary); }
+.m-tests[data-tone="bad"] .m-tests-verdict { color: var(--error); }
+.m-tests-act { grid-area: act; margin-left: 8px; }
+.m-tests-close { grid-area: close; }
+.m-tests-detail { grid-area: detail; min-height: 20px; padding-right: 12px; font: 400 14px/20px var(--font); letter-spacing: 0.25px; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* The linear progress indicator (LinearProgressIndicatorTokens: 4 high), drawn by
+   tests.js in these colours (ProgressIndicatorTokens). Once the run is over it goes,
+   on the effects spring, and leaves its place behind. */
+.m-progress { --m-progress-on: var(--primary); --m-progress-track: var(--secondary-container); flex: none; height: 4px; margin: 12px 16px 16px; transition: opacity var(--m-effects-dur) var(--m-effects); }
+.m-progress canvas { display: block; width: 100%; height: 100%; }
+.m-progress.is-off { opacity: 0; }
+
+/* Output or State: a connected button group across the panel
+   (ConnectedButtonGroupSmallTokens), its unchosen half a container on the piece. */
+.m-group.m-tests-views { --unchecked: var(--surface-container); flex: none; display: flex; margin: 0 16px; }
+.m-tests-views > .m-group-btn { flex: 1 1 0; }
+.m-tests-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+/* What the script printed, in Roboto Mono, as it printed it. What the game complained
+   of leads with its symbol, warning or error, and has no colour behind it. */
+.m-tests-lines { flex: 1; min-height: 0; margin: 0; padding: 12px 16px 16px; list-style: none; overflow-y: auto; overscroll-behavior: contain; font: 400 13px/20px var(--mono); letter-spacing: 0; -webkit-user-select: text; user-select: text; }
+.m-tests-lines:focus-visible { outline-offset: -3px; border-radius: var(--r-m); }
+.m-tests-lines li { display: flex; gap: 8px; }
+.m-tests-lines li > span { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.m-tests-lines li > .m-icon { margin-top: 2px; }
+.m-tests-lines li.is-warning { color: var(--on-surface-variant); }
+.m-tests-lines li.is-error { color: var(--error); }
+.m-tests-none { font: 400 14px/20px var(--font); letter-spacing: 0.25px; color: var(--on-surface-variant); }
+
+/* State: the battle's objects. Which kind is a set of filter chips (FilterChipTokens:
+   32 high, the 8 corner, a 1 outline of outline variant, label-large; the chosen one
+   secondary container with an 18 check, 8 before it and 8 after; 16 either side
+   otherwise), 8 apart and onto a second line where they must. */
+.m-tests-state { flex: 1; min-height: 0; display: flex; flex-direction: column; padding-top: 12px; }
+.m-chips { flex: none; display: flex; flex-wrap: wrap; gap: 8px; margin: 0 16px; }
+.m-chip { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 16px; border-radius: var(--r-s); box-shadow: inset 0 0 0 1px var(--outline-variant); color: var(--on-surface-variant); font: 500 14px/20px var(--font); letter-spacing: 0.1px; white-space: nowrap; }
+/* The check is the symbol's, drawn by the style so that the chip says only its label. */
+.m-chip-check { flex: none; width: 18px; height: 18px; overflow: hidden; }
+.m-chip-check::before { content: "check"; display: block; font: normal 400 18px/1 "Material Symbols Rounded"; letter-spacing: normal; font-feature-settings: "liga"; font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20; }
+html:not(.m-symbols) .m-chip-check { visibility: hidden; }
+.m-chip[aria-checked="true"] { padding-left: 8px; background: var(--secondary-container); box-shadow: none; color: var(--on-secondary-container); }
+
+/* The search bar (SearchBarTokens): 56, round, surface container high. */
+.m-tests-search { flex: none; margin: 12px 16px 0; background: var(--surface-container-high); }
+
+/* How many, in body-medium; its line is there before the first look. */
+.m-tests-summary { flex: none; min-height: 20px; margin: 12px 16px 4px; font: 400 14px/20px var(--font); letter-spacing: 0.25px; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; }
+
+/* The table. Material 3 has no data table of its own; this is Material's data table at
+   its densest (rows 36, the heading 40, 16 at either end of a cell, a 1 line under
+   each: mdc-data-table), in this style's roles: the heading label-large in on surface
+   variant, the rows body-medium, figures tabular and numbers to the right, this
+   client's own row at 500. The heading stays while the rows go by. Every object has a
+   row and what the filter leaves out is collapsed, so the columns are as wide as all
+   of them need, do not move with the filter, and cut nothing: where they do not fit,
+   the table moves sideways with its heading. */
+/* It takes the width it is given, so a wide table moves sideways in it instead of
+   widening what holds it (a sheet is as wide as its content asks). */
+.m-tests-grid { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; contain: inline-size; }
+.m-tests-grid:focus-visible { outline-offset: -3px; }
+.m-table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font: 400 14px/20px var(--font); letter-spacing: 0.25px; font-variant-numeric: tabular-nums; -webkit-user-select: text; user-select: text; }
+.m-table th, .m-table td { padding: 0 16px; text-align: left; white-space: nowrap; }
+.m-table td { border-bottom: 1px solid var(--outline-variant); }
+/* The heading's line goes where the heading goes. */
+.m-table th::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: var(--outline-variant); }
+.m-table th:first-child, .m-table td:first-child { padding-left: var(--m-tests-in); }
+.m-table th:last-child, .m-table td:last-child { padding-right: var(--m-tests-in); }
+.m-table .is-number { text-align: right; }
+.m-table thead { position: sticky; top: 0; z-index: 1; background: var(--m-tests-bg); }
+.m-table th { position: relative; height: 40px; font-weight: 500; letter-spacing: 0.1px; color: var(--on-surface-variant); }
+.m-table td { height: 36px; }
+.m-table tr.is-own td { font-weight: 500; }
+.m-table tr.is-out { visibility: collapse; }
+.m-table tr.is-out td { border: 0; }
+.m-tests-grid > .m-tests-none { position: sticky; left: 0; padding: 8px var(--m-tests-in); }
+
+/* In a bottom sheet the sheet's handle and title lead and it closes itself. The panel
+   lines up with the sheet's title (8 inside the sheet's 16), its heading is
+   title-medium under the sheet's title-large, and what is under Output or State has a
+   height of its own, so that the sheet neither grows as lines come nor changes with
+   the view. */
+.m-sheet-body > .m-tests { --m-tests-bg: var(--surface-container-low); --m-tests-in: 8px; flex: none; }
+.m-sheet-body > .m-tests .m-tests-close { display: none; }
+.m-sheet-body > .m-tests .m-tests-head { padding: 0 8px; }
+.m-sheet-body > .m-tests .m-tests-title { font: 500 16px/24px var(--font); letter-spacing: 0.15px; }
+.m-sheet-body > .m-tests .m-tests-detail { padding-right: 0; }
+.m-sheet-body > .m-tests .m-progress { margin: 12px 8px 16px; }
+.m-sheet-body > .m-tests .m-tests-views, .m-sheet-body > .m-tests .m-chips { margin: 0 8px; }
+.m-sheet-body > .m-tests .m-tests-search { margin: 12px 8px 0; }
+.m-sheet-body > .m-tests .m-tests-summary { margin: 12px 8px 4px; }
+.m-sheet-body > .m-tests .m-tests-body { flex: none; height: 380px; }
+.m-sheet-body > .m-tests .m-tests-lines { padding: 12px 8px 0; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }
 }

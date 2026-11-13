@@ -87,6 +87,7 @@ see the sources):
 | Related controls | Group box (`W.group`) |
 | Many things with facts about them | List view in columns (`W.list`): a heading sorts by its column, and the mark of which way sits over the heading's middle |
 | Files in folders | Tree view (`js/explorer.js`, drawn here) |
+| How far along | Progress bar: the glossy green in the grey well, or its marquee when there is no telling (`tests.js`) |
 
 - What is under the pointer in a list, a tree or a menu has the pale blue wash with a
   thin rounded edge (`--hot`); what is chosen has the deeper one (`--pick`), and the
@@ -131,6 +132,8 @@ see the sources):
   stood (`w-open`, `w-shut`); a menu, the Start menu and a balloon fade (`w-fade`). A
   window that takes another's place in the same frame does neither.
 - A caption button's glow fades in and out; the default button's glow breathes.
+- A progress bar moves as Windows 7's does: its green eases forward, the light runs
+  along it, and while there is no telling how long the marquee goes along the well.
 - Nothing else moves, and the core's own parts do not (`NT.look.still`).
 - Glass costs a render pass a surface. Dragging a window, opening the Start menu and
   switching windows are measured for dropped frames whenever the glass changes.
