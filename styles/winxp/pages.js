@@ -35,15 +35,17 @@
   const gap = () => h('span.w-gap');
 
   // What a field says instead of content: a line, and the button for what it suggests.
-  const blank = (title, action) => h('div.w-blank', h('p', title), action ? W.button(action.label, action.onClick) : null);
-  const failed = (retry) => blank('Couldn’t Load', { label: 'Try Again', onClick: retry });
+  // detail: a second line, saying why.
+  const blank = (title, action, detail) => h('div.w-blank', h('p', title), detail ? h('p.w-blank-why', detail) : null, action ? W.button(action.label, action.onClick) : null);
+  // err: what went wrong, for the line that says why (NT.actions.trouble), where there is one.
+  const failed = (retry, err) => blank('Couldn’t Load', { label: 'Try Again', onClick: retry }, A.trouble(err));
 
   // The columns a list of scripts can have.
   const COL = {
     name: { label: 'Name', width: 'minmax(110px, 2fr)', icon: () => 'doc', cell: nameOf, sort: (a, b) => text(nameOf(a), nameOf(b)) },
     author: { label: 'Author', width: 'minmax(70px, 1fr)', cell: (s) => s.author_name, sort: (a, b) => text(a.author_name, b.author_name) },
     modified: { label: 'Modified', width: '84px', cell: (s) => rel(s.updated_at), sort: (a, b) => when(a.updated_at, b.updated_at) },
-    status: { label: 'Status', width: '64px', cell: (s) => (s.published_at ? '' : 'Draft') },
+    status: { label: 'Status', width: '64px', cell: (s) => (!s.published_at ? 'Draft' : NT.seen.updated(s) ? 'Updated' : '') },
   };
 
   // Everything that can be done with one script, as menu items. ctx: { refresh, removed, here, art }
@@ -56,6 +58,7 @@
       !ctx.here && { label: 'Open', onSelect: () => go(`/scripts/${id}`) },
       API.session && { label: 'View Source', onSelect: () => go(`/scripts/${id}/view`) },
       owner && { label: 'Edit', onSelect: () => go(`/scripts/${id}/edit`) },
+      API.session && { label: 'Duplicate', onSelect: () => A.duplicate(s) },
       '-',
       API.session && { label: 'Favorite', checked: !!s.is_favorite, radio: false, onSelect: () => favorite(s, !s.is_favorite, ctx) },
       { label: 'Share', onSelect: () => A.share(s) },
@@ -251,9 +254,9 @@
       const me = API.session;
       try {
         const [all, mine, favs] = await Promise.all([
-          API.scripts().catch(() => []),
+          API.scripts().catch(API.signedOut([])),
           me ? API.userScripts(me.user_id) : [],
-          me ? API.favorites(me.user_id).catch(() => []) : [],
+          me ? API.favorites(me.user_id).catch(API.signedOut([])) : [],
         ]);
         // Coming back to the window reads again; if nothing changed, it is left as it is.
         const fresh = JSON.stringify([all, mine, favs]);
@@ -264,11 +267,13 @@
       } catch (e) {
         loaded = false;
         stamp = '';
-        body.replaceChildren(failed(load));
+        body.replaceChildren(failed(load, e));
       }
     });
 
     win.onShow = load;
+    // A delete taken back: the script is in the lists again.
+    win.listen('scripts', () => { if (loaded) load(); });
     return win;
   };
 
@@ -418,7 +423,7 @@
         const [all, mine, favs] = await Promise.all([
           API.scripts(),
           me ? API.userScripts(me.user_id) : [],
-          me ? API.favorites(me.user_id).catch(() => []) : [],
+          me ? API.favorites(me.user_id).catch(API.signedOut([])) : [],
         ]);
         const fresh = JSON.stringify([all, mine, favs]);
         if (!first && !signedOut && fresh === stamp) return;
@@ -429,9 +434,10 @@
       } catch (e) {
         stamp = '';
         if (e && e.status === 401) { signedOut = true; data = { all: [], mine: [], favs: [] }; render(); }
-        else list.say(failed(load));
+        else list.say(failed(load, e));
       }
     });
+    win.listen('scripts', () => { if (data) load(); });
 
     win.onShow = () => {
       // The Start menu opens Scripts on one of its lists.
@@ -457,7 +463,7 @@
     const body = h('div.w-page.fill');
     win.body.append(body);
 
-    let script = null, params = [], releases = [], tab = 'general';
+    let script = null, params = [], releases = [], tab = 'general', since = null;
     const values = {};
     const valueOf = (p) => (p.id in values ? values[p.id] : p.default_value);
     const ctx = { refresh: () => load(), removed: () => win.destroy(), here: true, art: true };
@@ -487,7 +493,9 @@
           UI.toast('Battle ready (demo)');
         }
       } catch (e) {
-        UI.toast('The author isn’t verified', { warn: true });
+        // The service refuses to share a script whose author it does not vouch for.
+        if (API.unreachable(e) || e.status === 401) A.failed('start the battle', e, startBattle);
+        else UI.toast('The author isn’t verified', { warn: true });
       } finally {
         battle.disabled = false;
       }
@@ -520,6 +528,7 @@
       const owner = API.isOwner(s);
       const flags = [];
       if (!s.published_at) flags.push('Draft');
+      if (since != null) flags.push('Updated');
       if (API.isOutdated(s)) flags.push('Outdated');
       // The box says what is so: it goes back if the change does not go through.
       const fav = W.check('Favorite', !!s.is_favorite, (on) => favorite(s, on, {}).then(() => fav.set(!!s.is_favorite)));
@@ -538,6 +547,8 @@
         API.isOutdated(s) ? h('div.w-callout', W.icon('warning', 16), h('span', 'Released before the latest scripting API change. It may not work as expected.')) : null,
         API.session ? fav.el : null,
         h('div.w-buttons.left',
+          // Released again since it was last opened here: what changed in between.
+          since != null ? W.button('See Changes', () => go(NT.compare.path(s.script_id, NT.compare.before(releases, null), since))) : null,
           API.session ? W.button('View Source', () => go(`/scripts/${s.script_id}/view`)) : null,
           owner ? W.button('Edit', () => go(`/scripts/${s.script_id}/edit`)) : null,
           owner && !s.published_at ? W.button('Publish', () => A.publish(s, load)) : null,
@@ -562,13 +573,24 @@
 
     function history() {
       const sorted = releases.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      const opens = (r) => API.session && Number.isSafeInteger(r.revision);
+      const changesBtn = W.button('View Changes', () => { const r = view.picked; if (r) go(NT.compare.path(script.script_id, r.revision, NT.compare.before(releases, r.revision))); }, { disabled: true });
+      const sourceBtn = W.button('View Source', () => { const r = view.picked; if (r) go(NT.compare.path(script.script_id, r.revision, null)); }, { disabled: true });
       const view = W.list([
         { label: 'Released', width: '120px', cell: (r) => new Date(r.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) + (r === sorted[0] ? ' (Latest)' : '') },
         { label: 'Notes', width: 'minmax(80px, 1fr)', cell: (r) => r.description || '' },
         { label: 'When', width: '84px', cell: (r) => rel(r.created_at) },
-      ], { label: 'Releases' });
+      ], {
+        label: 'Releases',
+        // A release opens on what changed in it; the first, on its source.
+        onOpen: (r) => { if (opens(r)) go(NT.compare.path(script.script_id, r.revision, NT.compare.before(releases, r.revision))); },
+        onPick: (r) => {
+          changesBtn.disabled = !r || !opens(r) || NT.compare.before(releases, r.revision) == null;
+          sourceBtn.disabled = !r || !opens(r);
+        },
+      });
       view.set(sorted);
-      return view.el;
+      return h('div.w-list-pane', view.el, API.session ? h('div.w-buttons.left', changesBtn, sourceBtn) : null);
     }
 
     function render() {
@@ -587,7 +609,8 @@
       try {
         s = await API.script(id);
       } catch (e) {
-        if (!script) body.replaceChildren(failed(load));
+        if (!script) body.replaceChildren(failed(load, e));
+        else A.failed('refresh', e);
         return;
       }
       if (!s) {
@@ -598,7 +621,14 @@
           : blank('Sign In to View', { label: 'Sign In', onClick: signIn }));
         return;
       }
-      const [ps, rs] = await Promise.all([API.parameters(id).catch(() => null), API.releases(id).catch(() => [])]);
+      let ps, rs;
+      try {
+        [ps, rs] = await Promise.all([API.parameters(id), API.releases(id)]);
+      } catch (e) {
+        if (!script) body.replaceChildren(failed(load, e));
+        else A.failed('refresh', e);
+        return;
+      }
       const fresh = JSON.stringify([s, ps, rs]);
       // Read again on return (after editing or publishing); parameter choices stay as they were set.
       if (script && fresh === load.stamp) return;
@@ -606,6 +636,9 @@
       script = s;
       params = ps || [];
       releases = rs || [];
+      // What came out since this page was last opened here, read before it counts as seen.
+      since = NT.seen.since(s, releases);
+      NT.seen.mark(s);
       render();
     });
 
@@ -615,43 +648,97 @@
 
   /* ---------- Source viewer ---------- */
 
-  P.viewer = function (id, revision) {
+  // The source of a script (a revision of it, or what it is now), or with `against`, what
+  // changed since that revision (compare.js). View switches between the two where there
+  // is an earlier release to compare with.
+  P.viewer = function (id, revision, against) {
     const win = W.window({ title: 'Source', icon: 'doc', width: 640, height: 460 });
     const code = W.code(), host = code.host;
     win.body.append(code.el);
-    let view = null, ready = false, content = '';
+    let view = null, ready = false, content = '', name = '', rev = null, earlier = null, stats = null, turn = 0;
+    let mode = against != null && against !== '' ? 'changes' : 'source';
     const copy = W.tool('Copy', 'copy', () => A.copy(content), { disabled: true });
+    const flip = (next) => () => { if (next !== mode) show(next); };
+    const changes = W.tool('Changes', null, () => show(mode === 'changes' ? 'source' : 'changes'), { cls: '.keep-text' });
     win.setToolbar(copy);
-    win.setMenus([{ label: 'File', items: () => [{ label: 'Copy', disabled: !content, onSelect: () => A.copy(content) }, { label: 'Script Page', onSelect: () => go(`/scripts/${id}`) }, '-', closeItem(win)] }]);
+    win.setMenus([
+      { label: 'File', items: () => [{ label: 'Copy', disabled: !content, onSelect: () => A.copy(content) }, { label: 'Script Page', onSelect: () => go(`/scripts/${id}`) }, '-', closeItem(win)] },
+      { label: 'View', items: () => [
+        { label: 'Source', checked: mode === 'source', onSelect: flip('source') },
+        { label: 'Changes', checked: mode === 'changes', disabled: earlier == null, onSelect: flip('changes') },
+      ] },
+    ]);
+
+    const paint = () => {
+      win.setTitle(`${name || 'Script'} - ${mode === 'changes' ? 'Changes' : 'Source'}`);
+      changes.classList.toggle('is-down', mode === 'changes');
+      changes.setAttribute('aria-pressed', String(mode === 'changes'));
+      if (mode === 'changes') {
+        win.setStatus(NT.compare.words(stats));
+        win.setInfo(NT.compare.title(revision, earlier));
+      } else {
+        win.setStatus(plural(content ? content.split('\n').length : 0, 'line'));
+        win.setInfo(rev ? 'Revision ' + rev : '');
+      }
+    };
+
+    async function show(next) {
+      mode = next;
+      const t = ++turn;
+      if (view) view.dispose();
+      view = null;
+      stats = null;
+      host.replaceChildren();
+      paint();
+      let made;
+      if (mode === 'changes') {
+        let pair;
+        try { pair = await NT.compare.load(id, revision, earlier); } catch (e) {
+          if (t === turn) host.replaceChildren(blank('Couldn’t Compare', { label: 'Try Again', onClick: () => show('changes') }));
+          return;
+        }
+        if (t !== turn) return;
+        made = await NT.code.diff(host, { before: pair.before.text, after: pair.after.text, onStats: (s) => { if (t === turn) { stats = s; paint(); } } });
+      } else {
+        if (!content) return void host.replaceChildren(blank('Empty Script'));
+        made = await NT.code.mount(host, { value: content, readOnly: true });
+      }
+      // Switched again while it was being made.
+      if (t !== turn) return void made.dispose();
+      view = made;
+    }
 
     win.onShow = async () => {
       if (ready) return;
       ready = true;
       win.busy(true);
       try {
-        const script = await API.script(id);
-        if (script) win.setTitle(`${nameOf(script)} - Source`);
-        let res;
+        let res, script = null, releases = [];
         try {
+          [script, releases] = await Promise.all([API.script(id), API.releases(id).catch(() => [])]);
+          if (script) name = nameOf(script);
           res = await API.scriptContent(id, revision);
         } catch (e) {
           ready = false;
-          host.replaceChildren(API.session ? blank('Source Unavailable') : blank('Sign In to View Source', { label: 'Sign In', onClick: signIn }));
+          host.replaceChildren(!API.session ? blank('Sign In to View Source', { label: 'Sign In', onClick: signIn })
+            : e.status === 403 || e.status === 404 ? blank('Source Unavailable')
+              : failed(() => win.onShow(), e));
           return;
         }
         content = (res && res.content) || '';
-        const lines = content ? content.split('\n').length : 0;
-        const rev = revision || (res && res.revision);
-        win.setStatus(plural(lines, 'line'));
-        win.setInfo(rev ? 'Revision ' + rev : '');
+        rev = revision || (res && res.revision);
         copy.disabled = !content;
-        if (!content) return void host.replaceChildren(blank('Empty Script'));
-        view = await NT.code.mount(host, { value: content, readOnly: true });
+        earlier = mode === 'changes' ? Number(against) : NT.compare.before(releases, revision);
+        if (earlier != null) win.setToolbar(copy, changes);
+        await show(mode);
       } finally {
         win.busy(false);
       }
     };
-    win.onDestroy(() => { if (view) view.dispose(); });
+    win.onDestroy(() => {
+      turn++;
+      if (view) view.dispose();
+    });
     return win;
   };
 
@@ -683,7 +770,7 @@
         m.name = next;
         cell.textContent = next;
         try { await API.renameMap(m.user_map_id, next); }
-        catch (e) { m.name = old; cell.textContent = old; UI.toast('Couldn’t rename', { warn: true }); }
+        catch (e) { m.name = old; cell.textContent = old; A.failed('rename', e); }
       };
       field.addEventListener('keydown', (e) => {
         e.stopPropagation();
@@ -695,14 +782,16 @@
       field.focus();
       field.select();
     }
-    async function remove(m) {
-      const ok = await UI.confirm({ title: `Delete “${m.name}”?`, message: 'This can’t be undone.', confirmLabel: 'Delete', destructive: true });
-      if (!ok) return;
-      try {
-        await API.deleteMap(m.user_map_id);
+    // Gone at once, with a moment to take it back (actions.js).
+    function remove(m) {
+      const at = maps.indexOf(m);
+      A.removeMap(m, () => {
         maps = maps.filter((x) => x !== m);
         show();
-      } catch (e) { UI.toast('Couldn’t delete', { warn: true }); }
+      }, () => {
+        if (!maps.includes(m)) maps.splice(Math.min(at, maps.length), 0, m);
+        show();
+      });
     }
     const items = (m) => [
       { label: 'Rename', onSelect: () => rename(m) },
@@ -740,7 +829,8 @@
         }
         input.value = '';
       } catch (e) {
-        say('Couldn’t save. Try again.');
+        const words = A.couldnt('save', e);
+        say(words === 'Couldn’t save' ? 'Couldn’t save. Try again.' : words + '.');
       } finally {
         busy = false;
       }
@@ -805,7 +895,7 @@
         show();
       } catch (e) {
         listed = '';
-        list.say(failed(() => win.onShow()));
+        list.say(failed(() => win.onShow(), e));
       }
     });
     return win;
@@ -829,12 +919,12 @@
         [user, scripts, favs] = await Promise.all([
           userId ? API.user(userId) : Promise.resolve(me),
           API.userScripts(target),
-          API.favorites(target).catch(() => []),
+          API.favorites(target).catch(API.signedOut([])),
         ]);
       } catch (e) {
         body.replaceChildren(e && e.status === 404 ? blank('User Not Found')
           : e && e.status === 401 && !me ? blank('Sign In to View', { label: 'Sign In', onClick: signIn })
-            : failed(load));
+            : failed(load, e));
         loaded = false;
         return;
       }
@@ -874,6 +964,7 @@
     });
 
     win.onShow = load;
+    win.listen('scripts', () => { if (loaded) load(); });
     return win;
   }
 
@@ -981,6 +1072,11 @@
           W.group('Indent With', indent.el),
           choice('Width', 'tabSize', [2, 3, 4, 8].map((n) => [n, String(n)])),
           flag('Detect From File', 'detectIndent')) },
+        // StyLua's, where there is one (format.js).
+        NT.format.available() && { id: 'formatting', label: 'Formatting', body: h('div.w-scroll',
+          flag('Format on Save', 'formatOnSave'),
+          choice('Line Width', 'formatColumn', [80, 100, 120].map((n) => [n, String(n)])),
+          choice('Quotes', 'formatQuotes', [['double', 'Double'], ['single', 'Single']])) },
         { id: 'display', label: 'Display', body: h('div.w-scroll',
           choice('Font Size', 'fontSize', EP.CHOICES.fontSize.slice().sort((a, b) => a - b).map((n) => [n, String(n)])),
           choice('Line Numbers', 'lineNumbers', [['on', 'On'], ['relative', 'Relative'], ['off', 'Off']]),
@@ -1008,7 +1104,8 @@
             flag('Parameter Types', 'hintParams'),
             flag('Return Types', 'hintReturns'))) });
       }
-      const tabs = W.tabs(pages, pages.some((p) => p.id === tab) ? tab : 'editing', (v) => { tab = v; });
+      const shown = pages.filter(Boolean);
+      const tabs = W.tabs(shown, shown.some((p) => p.id === tab) ? tab : 'editing', (v) => { tab = v; });
       tabs.el.classList.add('fill');
       reset = W.button('Reset', async () => {
         const ok = await UI.confirm({ title: 'Reset Editor Settings?', confirmLabel: 'Reset', destructive: true });
@@ -1073,7 +1170,7 @@
         ]);
       } catch (e) {
         stamp = null;
-        list.say(blank('Audit Log Unavailable', { label: 'Try Again', onClick: load }));
+        list.say(blank('Audit Log Unavailable', { label: 'Try Again', onClick: load }, A.trouble(e)));
         return;
       }
       events = (Array.isArray(events) ? events : []).filter((ev) => ev && ev.event_type && ev.occurred_at);

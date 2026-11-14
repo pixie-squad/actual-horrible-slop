@@ -295,7 +295,8 @@
   }
 
   const byRecent = (list) => list.slice().sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
-  const errorState = (retry) => emptyState('warning', 'Couldn’t Load', null, { label: 'Try Again', onClick: retry, style: 'gray' });
+  // err: what went wrong, for the line that says why (NT.actions.trouble), where there is one.
+  const errorState = (retry, err) => emptyState('warning', 'Couldn’t Load', NT.actions.trouble(err) || null, { label: 'Try Again', onClick: retry, style: 'gray' });
 
   /* ---------- Script actions ---------- */
 
@@ -310,6 +311,7 @@
     UI.menu(anchor, [
       { label: 'Share', icon: 'share', onSelect: () => shareScript(s) },
       API.session && { label: 'View Source', icon: 'code', onSelect: () => NT.nav.go(`/scripts/${id}/view`) },
+      API.session && { label: 'Duplicate', icon: 'duplicate', onSelect: () => NT.actions.duplicate(s) },
       owner && '-',
       owner && { label: 'Edit', icon: 'pencil', onSelect: () => NT.nav.go(`/scripts/${id}/edit`) },
       owner && !s.published_at && { label: 'Publish', icon: 'send', onSelect: () => publishScript(s, ctx.refresh) },
@@ -343,7 +345,7 @@
       } catch (err) {
         s.is_favorite = !next;
         sync();
-        UI.toast('Couldn’t update favorites', { warn: true });
+        NT.actions.failed('update favorites', err);
       }
     });
     return b;
@@ -356,6 +358,7 @@
     const more = h('button.more-btn', { type: 'button', 'aria-label': 'Script actions', title: 'Script actions', onclick: (e) => { e.stopPropagation(); scriptMenu(more, s, ctx); } }, icon('ellipsis', 20));
     const art = cover(s, '', 96);
     if (!s.published_at) art.append(h('span.badge.on-art', 'Draft'));
+    else if (NT.seen.updated(s)) art.append(h('span.badge.on-art', 'Updated'));
     if (fav) art.append(fav);
     const card = h('article.card.script-card.pressable' + (rise == null ? '' : '.rise'), { tabIndex: 0, style: { '--i': rise || 0 } },
       art,
@@ -462,9 +465,9 @@
       }
       try {
         const [all, mine, favs] = await Promise.all([
-          API.scripts().catch(() => []),
+          API.scripts().catch(API.signedOut([])),
           me ? API.userScripts(me.user_id) : [],
-          me ? API.favorites(me.user_id).catch(() => []) : [],
+          me ? API.favorites(me.user_id).catch(API.signedOut([])) : [],
         ]);
         // Coming back to Home reloads it; if nothing changed, leave the page as it is.
         const fresh = JSON.stringify([all, mine, favs]);
@@ -475,9 +478,11 @@
       } catch (e) {
         loaded = false;
         stamp = '';
-        settle(body, [errorState(load)]);
+        settle(body, [errorState(load, e)]);
       }
     }
+    // A delete taken back: the script is in the lists again.
+    page.listen('scripts', () => { if (loaded) load(); });
 
     function render(me, all, mine, favs) {
       const ctx = { refresh: load, onFavorite: () => load() };
@@ -642,7 +647,7 @@
         const [all, mine, favs] = await Promise.all([
           API.scripts(),
           me ? API.userScripts(me.user_id) : [],
-          me ? API.favorites(me.user_id).catch(() => []) : [],
+          me ? API.favorites(me.user_id).catch(API.signedOut([])) : [],
         ]);
         // Coming back to the tab reloads the list; if nothing changed, leave the page alone.
         const fresh = JSON.stringify([all, mine, favs]);
@@ -657,10 +662,11 @@
         else {
           settle(grid, emptyGrid);
           clearStates();
-          grid.after(errorState(load));
+          grid.after(errorState(load, e));
         }
       }
     }
+    page.listen('scripts', () => { if (data) load(); });
 
     page.onShow = () => {
       if (NT.state.scriptsFilter) {
@@ -683,7 +689,7 @@
     page.inner.append(body);
     hold(body, ph.detail(!!API.session));
 
-    let script = null, params = [], releases = [];
+    let script = null, params = [], releases = [], since = null;
     const values = {};
     const valueOf = (p) => (p.id in values ? values[p.id] : p.default_value);
 
@@ -717,7 +723,9 @@
           UI.toast('Battle ready (demo)', { icon: 'play' });
         }
       } catch (e) {
-        UI.toast('The author isn’t verified', { warn: true });
+        // The service refuses to share a script whose author it does not vouch for.
+        if (API.unreachable(e) || e.status === 401) NT.actions.failed('start the battle', e, startBattle);
+        else UI.toast('The author isn’t verified', { warn: true });
       } finally {
         battle.disabled = false;
       }
@@ -772,6 +780,7 @@
       const heroEl = cover(s, '.detail-hero', 190);
       const badges = [];
       if (!s.published_at) badges.push(h('span.badge.on-art', 'Draft'));
+      if (since != null) badges.push(h('span.badge.on-art', 'Updated'));
       if (API.isOutdated(s)) badges.push(h('span.badge.on-art', 'Outdated'));
       if (badges.length) heroEl.append(h('div.badges', badges));
       heroEl.append(
@@ -785,6 +794,8 @@
 
       const actions = [];
       if (API.session) actions.push(glassButton('View Source', 'code', go(`/scripts/${s.script_id}/view`)));
+      // Released again since it was last opened here: what changed in between.
+      if (since != null) actions.push(glassButton('See Changes', 'diff', go(NT.compare.path(s.script_id, NT.compare.before(releases, null), since)), '.tinted'));
       if (owner) actions.push(glassButton('Edit', 'pencil', go(`/scripts/${s.script_id}/edit`)));
       if (owner && !s.published_at) actions.push(glassButton('Publish', 'send', () => publishScript(s, load), '.tinted'));
       if (actions.length) kids.push(h('div.detail-actions', actions));
@@ -806,12 +817,16 @@
       if (releases && releases.length) {
         const sorted = releases.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
         kids.push(sectionHeader('Releases'));
+        // A release opens on what changed in it; the first, on its source.
+        const opens = (r) => API.session && Number.isSafeInteger(r.revision);
         kids.push(h('ol.timeline', sorted.map((r, i) => h('li',
           h('span.tl-dot'),
-          h('div.tl-head', new Date(r.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
-            i === 0 ? h('span.badge.green', 'Latest') : null,
-            h('time', { dateTime: r.created_at }, rel(r.created_at))),
-          r.description ? h('p', r.description) : null))));
+          h(opens(r) ? 'button.tl-open' : 'div', opens(r) ? { type: 'button', onclick: go(NT.compare.path(s.script_id, r.revision, NT.compare.before(releases, r.revision))) } : {},
+            h('div.tl-head', new Date(r.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
+              i === 0 ? h('span.badge.green', 'Latest') : null,
+              h('time', { dateTime: r.created_at }, rel(r.created_at)),
+              opens(r) ? icon('chevron-right', 14) : null),
+            r.description ? h('p', r.description) : null)))));
       }
       settle(body, kids);
     }
@@ -830,57 +845,111 @@
         NT.nav.updateChrome();
         return;
       }
+      const [ps, rs] = await Promise.all([API.parameters(id), API.releases(id)]);
       script = s;
-      const [ps, rs] = await Promise.all([API.parameters(id).catch(() => null), API.releases(id).catch(() => [])]);
       params = ps || [];
       releases = rs || [];
+      // What came out since this page was last opened here, read before it counts as seen.
+      since = NT.seen.since(s, releases);
+      NT.seen.mark(s);
       render();
     }
 
-    let shown = false;
     page.onShow = () => {
-      // Re-read on return (after editing or publishing) without resetting parameter choices.
-      load().catch(() => { if (!shown) settle(body, [errorState(() => page.onShow())]); });
-      shown = true;
+      // Re-read on return (after editing or publishing) without resetting parameter
+      // choices. What is shown stays when that fails; a first load says it failed.
+      load().catch((e) => {
+        if (script) return void NT.actions.failed('refresh', e);
+        settle(body, [errorState(() => { hold(body, ph.detail(!!API.session)); page.onShow(); }, e)]);
+      });
     };
     return page;
   };
 
   /* ---------- Source viewer ---------- */
 
-  P.viewer = function (id, revision) {
-    const page = makePage({ title: 'Source', back: true, large: false, className: 'page-editor.page-code' });
+  // The source of a script (a revision of it, or what it is now), or with `against`, what
+  // changed since that revision (compare.js). Changes turns the second on and off where
+  // there is an earlier release to compare with.
+  P.viewer = function (id, revision, against) {
+    // As the editor: the code has the screen, and the title says which version it is.
+    const page = makePage({ title: 'Source', back: true, large: false, hideTabbar: true, className: 'page-editor.page-code' });
     const host = h('div.code-host');
     page.inner.append(host);
-    let view = null, ready = false;
+    let view = null, ready = false, content = '', rev = null, earlier = null, stats = null, turn = 0;
+    let mode = against != null && against !== '' ? 'changes' : 'source';
+
+    const subtitle = () => {
+      if (mode === 'changes') {
+        const words = NT.compare.words(stats);
+        return page.setSubtitle(NT.compare.title(revision, earlier) + (words ? ' · ' + words : ''));
+      }
+      const lines = content ? content.split('\n').length : 0;
+      page.setSubtitle(`${lines} line${lines === 1 ? '' : 's'}${rev ? ' · Revision ' + rev : ''}`);
+    };
+
+    async function show(next) {
+      mode = next;
+      const t = ++turn;
+      if (diffBtn) diffBtn.setAttribute('aria-pressed', String(mode === 'changes'));
+      if (view) view.dispose();
+      view = null;
+      stats = null;
+      host.replaceChildren();
+      subtitle();
+      let made;
+      if (mode === 'changes') {
+        let pair;
+        try { pair = await NT.compare.load(id, revision, earlier); } catch (e) {
+          if (t === turn) host.replaceChildren(errorState(() => show('changes')));
+          return;
+        }
+        if (t !== turn) return;
+        made = await NT.code.diff(host, { before: pair.before.text, after: pair.after.text, onStats: (s) => { if (t === turn) { stats = s; subtitle(); } } });
+      } else {
+        if (!content) return void host.replaceChildren(emptyState('doc', 'Empty Script'));
+        made = await NT.code.mount(host, { value: content, readOnly: true });
+      }
+      // Switched again while it was being made.
+      if (t !== turn) return void made.dispose();
+      view = made;
+    }
+
+    let diffBtn = null;
+    const copyBtn = groupButton('copy', 'Copy', async () => {
+      try { await navigator.clipboard.writeText(content); UI.toast('Copied', { icon: 'copy' }); }
+      catch (e) { UI.toast('Couldn’t copy', { warn: true }); }
+    });
 
     page.onShow = async () => {
       if (ready) return;
       ready = true;
-      const script = await API.script(id);
-      if (script) page.setTitle(script.name || 'Source');
+      let releases = [];
       let res;
       try {
+        const [script, rs] = await Promise.all([API.script(id), API.releases(id).catch(() => [])]);
+        releases = rs;
+        if (script) page.setTitle(script.name || 'Source');
         res = await API.scriptContent(id, revision);
       } catch (e) {
         ready = false;
-        host.replaceChildren(API.session
-          ? emptyState('doc', 'Source Unavailable')
-          : emptyState('doc', 'Sign In to View Source', null, { label: 'Sign In', onClick: signIn }));
+        host.replaceChildren(!API.session
+          ? emptyState('doc', 'Sign In to View Source', null, { label: 'Sign In', onClick: signIn })
+          : e.status === 403 || e.status === 404 ? emptyState('doc', 'Source Unavailable')
+            : errorState(() => page.onShow(), e));
         return;
       }
-      const content = (res && res.content) || '';
-      const lines = content ? content.split('\n').length : 0;
-      const rev = revision || (res && res.revision);
-      page.setSubtitle(`${lines} line${lines === 1 ? '' : 's'}${rev ? ' · Revision ' + rev : ''}`);
-      page.setTrailing(navButton('copy', 'Copy', async () => {
-        try { await navigator.clipboard.writeText(content); UI.toast('Copied', { icon: 'copy' }); }
-        catch (e) { UI.toast('Couldn’t copy', { warn: true }); }
-      }));
-      if (!content) return void host.replaceChildren(emptyState('doc', 'Empty Script'));
-      view = await NT.code.mount(host, { value: content, readOnly: true });
+      content = (res && res.content) || '';
+      rev = revision || (res && res.revision);
+      earlier = mode === 'changes' ? Number(against) : NT.compare.before(releases, revision);
+      if (earlier != null) diffBtn = groupButton('diff', 'Changes', () => show(mode === 'changes' ? 'source' : 'changes'));
+      page.setTrailing(navGroup(diffBtn, copyBtn));
+      show(mode);
     };
-    page.onDestroy(() => { if (view) view.dispose(); });
+    page.onDestroy(() => {
+      turn++;
+      if (view) view.dispose();
+    });
     return page;
   };
 
@@ -917,7 +986,7 @@
           m.name = next;
           title.textContent = next;
           try { await API.renameMap(m.user_map_id, next); }
-          catch (e) { m.name = old; title.textContent = old; UI.toast('Couldn’t rename', { warn: true }); }
+          catch (e) { m.name = old; title.textContent = old; NT.actions.failed('rename', e); }
         };
         input.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') { e.preventDefault(); finish(true); }
@@ -936,14 +1005,16 @@
           catch (e) { UI.toast('Couldn’t copy', { warn: true }); }
         } },
         '-',
-        { label: 'Delete', icon: 'trash', danger: true, onSelect: async () => {
-          const ok = await UI.confirm({ title: `Delete “${m.name}”?`, message: 'This can’t be undone.', confirmLabel: 'Delete', destructive: true, source: more });
-          if (!ok) return;
-          try {
-            await API.deleteMap(m.user_map_id);
+        { label: 'Delete', icon: 'trash', danger: true, onSelect: () => {
+          // Gone at once, with a moment to take it back (actions.js).
+          const at = maps.indexOf(m);
+          NT.actions.removeMap(m, () => {
             maps = maps.filter((x) => x !== m);
             renderList();
-          } catch (e) { UI.toast('Couldn’t delete', { warn: true }); }
+          }, () => {
+            if (!maps.includes(m)) maps.splice(Math.min(at, maps.length), 0, m);
+            renderList();
+          });
         } },
       ]));
       return el;
@@ -986,7 +1057,8 @@
           input.value = '';
           renderList();
         } catch (e) {
-          say('Couldn’t save. Try again.', 'err');
+          const words = NT.actions.couldnt('save', e);
+          say(words === 'Couldn’t save' ? 'Couldn’t save. Try again.' : words + '.', 'err');
         } finally {
           busy = false;
         }
@@ -1032,7 +1104,7 @@
         renderList();
       } catch (e) {
         listed = '';
-        settle(listHost, [errorState(() => page.onShow())]);
+        settle(listHost, [errorState(() => page.onShow(), e)]);
       }
     };
     return page;
@@ -1058,12 +1130,12 @@
         [user, scripts, favs] = await Promise.all([
           userId ? API.user(userId) : Promise.resolve(me),
           API.userScripts(target),
-          API.favorites(target).catch(() => []),
+          API.favorites(target).catch(API.signedOut([])),
         ]);
       } catch (e) {
         settle(body, [e && e.status === 404 ? emptyState('person', 'User Not Found')
           : e && e.status === 401 && !me ? emptyState('person', 'Sign In to View', null, { label: 'Sign In', onClick: signIn })
-            : errorState(load)]);
+            : errorState(load, e)]);
         loaded = false;
         return;
       }
@@ -1105,6 +1177,7 @@
     }
 
     page.onShow = load;
+    page.listen('scripts', () => { if (loaded) load(); });
     return page;
   }
 
@@ -1246,6 +1319,11 @@
           h('div.row', h('span.row-title', 'Indent With'), indent.el),
           pickRow('Width', 'tabSize', [2, 3, 4, 8].map((n) => [n, String(n)])),
           switchRow('Detect From File', 'detectIndent')),
+        // StyLua's, where there is one (format.js).
+        ...(NT.format.available() ? [header('Formatting'), h('div.list',
+          switchRow('Format on Save', 'formatOnSave'),
+          pickRow('Line Width', 'formatColumn', [80, 100, 120].map((n) => [n, String(n)])),
+          pickRow('Quotes', 'formatQuotes', [['double', 'Double'], ['single', 'Single']]))] : []),
         header('Display'),
         h('div.list',
           pickRow('Font Size', 'fontSize', EP.CHOICES.fontSize.slice().sort((a, b) => a - b).map((n) => [n, String(n)])),
@@ -1366,7 +1444,7 @@
         ]);
       } catch (e) {
         stamp = null;
-        settle(body, [emptyState('list', 'Audit Log Unavailable', null, { label: 'Try Again', onClick: load, style: 'gray' })]);
+        settle(body, [emptyState('list', 'Audit Log Unavailable', NT.actions.trouble(e) || null, { label: 'Try Again', onClick: load, style: 'gray' })]);
         return;
       }
       events = (Array.isArray(events) ? events : [])

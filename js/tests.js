@@ -7,6 +7,11 @@
   the battle ran its time without the script stopping it. The saved script is what
   runs, so an editor saves before it starts one.
 
+  That alone does not say the script ran: the game server starts the battle all the
+  same when it cannot fetch the script, and the battle then looks no different. What
+  a client sees of a script is what it printed and a battle it stopped, so a pass
+  with nothing printed is told as no sign of the script, not as a pass.
+
     NT.tests.available()        there is a runner (asked once, with the extensions)
     NT.tests.seconds            { least, most, usual }: how long a battle is watched
     NT.tests.start(script, { values, seconds })
@@ -200,8 +205,17 @@
       }
       const r = this.result;
       if (r.verdict === 'passed') {
-        const time = r.reason === 'battle-ended' ? `Battle ended after ${plural(r.battle, 'second')}` : plural(r.battle, 'second');
-        return { title: 'No errors', detail: printed ? `${time} · ${plural(printed, 'line')}` : time, tone: 'good', progress: 1 };
+        const ended = r.reason === 'battle-ended';
+        if (!printed) {
+          return {
+            title: 'No sign it ran',
+            detail: ended ? `Battle ended after ${plural(r.battle, 'second')} · nothing printed` : `Nothing printed in ${plural(r.battle, 'second')}`,
+            tone: 'off',
+            progress: null,
+          };
+        }
+        const time = ended ? `Battle ended after ${plural(r.battle, 'second')}` : plural(r.battle, 'second');
+        return { title: 'No errors', detail: `${time} · ${plural(printed, 'line')}`, tone: 'good', progress: 1 };
       }
       if (r.verdict === 'cancelled') return { title: 'Stopped', detail: '', tone: 'off', progress: null };
       if (r.verdict === 'failed') {

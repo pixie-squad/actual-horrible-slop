@@ -347,6 +347,8 @@
     await Promise.all([NT.api.init(), NT.ext.init()]);
     app.classList.remove('is-busy');
     app.removeAttribute('aria-busy');
+    // The service did not answer: Windows says so in a message box, and Retry starts again.
+    if (NT.api.down) return void W.message({ text: 'Upstream is unreachable.', icon: 'error', buttons: [{ label: 'Retry', value: true, primary: true }] }).then(() => location.reload());
     Nav.start();
     readRecent();
   }

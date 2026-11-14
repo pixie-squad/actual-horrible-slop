@@ -31,6 +31,7 @@
     right: 'M2 0v7h1V6h1V5h1V4h1V3H5V2H4V1H3V0z',
     check: 'M0 3h1v1h1v1h1V4h1V3h1V2h1V1h1v2H6v1H5v1H4v1H3v1H2V6H1V5H0z',
     bullet: 'M2 1h3v1h1v3H5v1H2V5H1V2h1z',
+    close: 'M0 0h2v1H0zM5 0h2v1H5zM1 1h2v1H1zM4 1h2v1H4zM2 2h3v3H2zM1 5h2v1H1zM4 5h2v1H4zM0 6h2v1H0zM5 6h2v1H5z',
   };
   W.glyph = function (name, w = 7, hgt = 7) {
     const t = document.createElement('template');
@@ -52,7 +53,8 @@
 
   // at: an element (the menu drops from its lower left corner; { align: 'right' } from
   // its lower right) or { x, y }.
-  // items: { label, onSelect, checked, radio, disabled, pix } | '-' | falsy (left out)
+  // items: { label, keys, onSelect, checked, radio, disabled, pix } | '-' | falsy (left out)
+  //   keys: the shortcut, written after the label as Windows writes it ("Ctrl+S")
   // opts: { align, owner, onClose, onSide, cls }. An item's `pix` is its picture, in the gutter its mark would be in.
   W.menu = function (at, items, opts = {}) {
     W.closeMenu();
@@ -95,12 +97,19 @@
         onpointerenter: (e) => { if (!e.currentTarget.disabled) e.currentTarget.focus({ preventScroll: true }); },
       },
         h('i.w-menu-mark', it.checked ? W.glyph(it.radio === false ? 'check' : 'bullet', 7, 7) : it.pix ? W.icon(it.pix, 16) : null),
-        h('span', it.label)));
+        h('span', it.label),
+        it.keys ? h('span.w-menu-keys', it.keys) : null));
     }
     if (list.lastChild && list.lastChild.classList.contains('w-menu-sep')) list.lastChild.remove();
     if (opts.cls) list.classList.add(opts.cls);
 
     W.layers.pop.append(list);
+    // The shortcuts start in one column, past the longest label, as a tab in a menu item puts them.
+    if (list.querySelector('.w-menu-keys')) {
+      const widths = [...list.querySelectorAll('.w-menu-item > span:not(.w-menu-keys)')].map((s) => s.offsetWidth);
+      list.style.setProperty('--w-label', Math.max(...widths) + 'px');
+      list.classList.add('has-keys');
+    }
     // Where it fits: below the control, or above it; never off the screen.
     const mw = list.offsetWidth, mh = list.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
     let x, y;
@@ -843,10 +852,59 @@
 
   /* ---------- What the core asks for ---------- */
 
+  // A balloon from the notification area, as XP draws one: the tooltip's yellow in a
+  // rounded box with a tail to the app's icon there, the words in bold beside an icon,
+  // a close button, and what pressing the balloon does said under them as a link.
+  // One at a time.
+  let balloon = null;
+  W.balloon = function (text, opts = {}) {
+    if (balloon) balloon.close();
+    const act = opts.action;
+    let timer = 0, done = false;
+    const shut = h('button.w-balloon-x', { type: 'button', 'aria-label': 'Close', title: 'Close' }, W.glyph('close'));
+    const el = h('div.w-balloon' + (act ? '.has-action' : ''), { role: 'status' },
+      h('div.w-balloon-head', W.icon(opts.warn ? 'warning' : 'info', 16), h('b', text), shut),
+      act ? h('button.w-link.w-balloon-act', { type: 'button' }, act.label) : null);
+    const self = {
+      close() {
+        clearTimeout(timer);
+        done = true;
+        if (balloon === self) balloon = null;
+        el.remove();
+      },
+    };
+    shut.addEventListener('click', (e) => { e.stopPropagation(); self.close(); });
+    el.addEventListener('click', () => {
+      if (done) return;
+      self.close();
+      if (act) act.onSelect();
+    });
+    W.layers.pop.append(el);
+    const tray = W.layers.tray;
+    if (tray && tray.getClientRects().length) {
+      const t = tray.getBoundingClientRect(), b = el.getBoundingClientRect();
+      el.style.setProperty('--tail', Math.max(12, Math.round(b.right - (t.left + t.width / 2) - 8)) + 'px');
+    }
+    timer = setTimeout(() => self.close(), opts.duration || (act ? 6000 : 5000));
+    balloon = self;
+    return self;
+  };
+
   // Said in the status bar of the window in front, for a moment; with no window to say
-  // it in, a warning is a message box and anything else goes unsaid.
+  // it in, a warning is a message box and anything else goes unsaid. What can be acted
+  // on is a balloon (Undo) or, for a failure, a message box (Retry, Cancel).
   UI.toast = function (message, opts = {}) {
     const dialog = W.layers.modal.lastElementChild;
+    const act = opts.action;
+    if (act && opts.warn) {
+      W.message({
+        text: message,
+        icon: 'error',
+        buttons: [{ label: act.label === 'Try Again' ? 'Retry' : act.label, value: true, primary: true }, { label: 'Cancel', value: false }],
+      }).then((v) => { if (v === true) act.onSelect(); });
+      return;
+    }
+    if (act) return void W.balloon(message, opts);
     const win = W.active();
     if (win && win.note(message, opts)) return;
     if (opts.warn && !dialog) W.message({ text: message, icon: 'warning' });
@@ -935,7 +993,7 @@
         if (err.message === 'live-unavailable') error.textContent = 'Start the app with “node server.js” to sign in.';
         else if (err.status === 401) error.textContent = 'Wrong username or password.';
         else if (err.status === 409) error.textContent = 'That username is taken.';
-        else error.textContent = 'Could not sign in. Try again.';
+        else error.textContent = NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not sign in. Try again.';
       } finally {
         submit.disabled = false;
       }
@@ -972,7 +1030,7 @@
         NT.bus.emit('session');
         UI.toast('Password changed');
       } catch (err) {
-        error.textContent = err.status === 401 ? 'Current password is incorrect.' : 'Could not change the password. Try again.';
+        error.textContent = err.status === 401 ? 'Current password is incorrect.' : NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not change the password. Try again.';
         submit.disabled = false;
       }
     });

@@ -57,7 +57,8 @@
 
   // at: an element (the menu drops from its lower left corner; { align: 'right' } from
   // its lower right) or { x, y }.
-  // items: { label, onSelect, checked, radio, disabled, pix } | '-' | falsy (left out)
+  // items: { label, keys, onSelect, checked, radio, disabled, pix } | '-' | falsy (left out)
+  //   keys: the shortcut, written after the label as Windows writes it ("Ctrl+S")
   // opts: { align, owner, onClose, onSide, icons (their size: items show their `pix`), cls, band,
   //         rise (it comes up out of what it opens from, as the Start menu does) }
   W.menu = function (at, items, opts = {}) {
@@ -103,7 +104,8 @@
       },
         marks ? h('i.w-menu-mark', it.checked ? W.glyph(it.radio === false ? 'check' : 'bullet', 7, 7) : null) : null,
         opts.icons ? h('i.w-menu-icon', it.pix ? W.icon(it.pix, opts.icons) : null) : null,
-        h('span', it.label)));
+        h('span', it.label),
+        it.keys ? h('span.w-menu-keys', it.keys) : null));
     }
     if (list.lastChild && list.lastChild.classList.contains('w-menu-sep')) list.lastChild.remove();
     if (opts.cls) list.classList.add(opts.cls);
@@ -111,6 +113,12 @@
     if (opts.band) list.prepend(h('div.w-menu-band', { 'aria-hidden': 'true' }, h('span', opts.band)));
 
     W.layers.pop.append(list);
+    // The shortcuts start in one column, past the longest label, as a tab in a menu item puts them.
+    if (list.querySelector('.w-menu-keys')) {
+      const widths = [...list.querySelectorAll('.w-menu-item > span:not(.w-menu-keys)')].map((s) => s.offsetWidth);
+      list.style.setProperty('--w-label', Math.max(...widths) + 'px');
+      list.classList.add('has-keys');
+    }
     // Where it fits: below the control, or above it; never off the screen.
     const mw = list.offsetWidth, mh = list.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
     let x, y;
@@ -447,6 +455,16 @@
      o: { title, icon, width, height, dialog (no minimise or maximise, not resizable),
           menus: [{ label, items: () => [...] }], toolbar: [nodes], status: false (no status bar) } */
 
+  // What can still be taken back (UI.toast's action), and the menu item for it.
+  let undo = null, undoTimer = 0;
+  function takeBack() {
+    const act = undo;
+    undo = null;
+    clearTimeout(undoTimer);
+    if (act) act.onSelect();
+  }
+  const undoFirst = (items) => (undo ? [{ label: undo.label, onSelect: takeBack }, '-', ...items] : items);
+
   const wins = [];   // every window on the desktop, lowest first
   const MIN_W = 260, MIN_H = 180;
   const EDGES = [['n', 0, -1], ['s', 0, 1], ['w', -1, 0], ['e', 1, 0], ['nw', -1, -1], ['ne', 1, -1], ['sw', -1, 1], ['se', 1, 1]];
@@ -517,7 +535,7 @@
           const b = h('button.w-menubtn', { type: 'button', role: 'menuitem', 'aria-haspopup': 'menu', tabIndex: i ? -1 : 0 }, m.label);
           const drop = () => {
             b.classList.add('is-open');
-            open = W.menu(b, m.items(), {
+            open = W.menu(b, i === 0 ? undoFirst(m.items()) : m.items(), {
               owner: menubar,
               onClose: () => { b.classList.remove('is-open'); if (open && open.el.isConnected === false) open = null; },
               onSide: (d) => { const n = buttons[(i + d + buttons.length) % buttons.length]; n.focus(); n.click(); },
@@ -719,6 +737,11 @@
       // Alt+F4 belongs to the browser's own window; Escape closes a dialog box.
       if (e.key === 'Escape' && o.dialog && !e.defaultPrevented) { e.preventDefault(); win.close(); }
       if (e.key === 'F10' && !e.shiftKey && !menubar.hidden) { e.preventDefault(); menubar.firstChild.focus(); }
+      // Ctrl+Z takes back what can still be taken back, outside a field of text.
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' && undo && !e.target.closest('input, textarea, .monaco-editor, .ex-tree')) {
+        e.preventDefault();
+        takeBack();
+      }
     });
 
     if (o.menus) win.setMenus(o.menus);
@@ -791,9 +814,32 @@
 
   // Said in the status bar of the window in front, for a moment; with no window to say
   // it in, a warning is a message box and anything else goes unsaid.
+  // What can be acted on is what Windows 95 had for it. A failure that can be tried
+  // again is a message box (Retry, Cancel). Something that can be taken back is said in
+  // the status bar and taken back as Explorer does: the first item of the window's first
+  // menu, and Ctrl+Z, for as long as it lasts (there were no balloons yet).
   UI.toast = function (message, opts = {}) {
     const dialog = W.layers.modal.lastElementChild;
+    const act = opts.action;
+    if (act && opts.warn) {
+      W.message({
+        text: message,
+        icon: 'error',
+        buttons: [{ label: act.label === 'Try Again' ? 'Retry' : act.label, value: true, primary: true }, { label: 'Cancel', value: false }],
+      }).then((v) => { if (v === true) act.onSelect(); });
+      return;
+    }
     const win = W.active();
+    if (act) {
+      clearTimeout(undoTimer);
+      undo = act;
+      undoTimer = setTimeout(() => { if (undo === act) undo = null; }, opts.duration || 6000);
+      if (win && win.note(message, Object.assign({}, opts, { duration: opts.duration || 6000 }))) return;
+      // No window to say it in or to have a menu: then a message box asks.
+      W.message({ text: message, icon: 'info', buttons: [{ label: act.label, value: true }, { label: 'OK', value: false, primary: true }] })
+        .then((v) => { if (v === true) takeBack(); });
+      return;
+    }
     if (win && win.note(message, opts)) return;
     if (opts.warn && !dialog) W.message({ text: message, icon: 'warning' });
   };
@@ -881,7 +927,7 @@
         if (err.message === 'live-unavailable') error.textContent = 'Start the app with “node server.js” to sign in.';
         else if (err.status === 401) error.textContent = 'Wrong username or password.';
         else if (err.status === 409) error.textContent = 'That username is taken.';
-        else error.textContent = 'Could not sign in. Try again.';
+        else error.textContent = NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not sign in. Try again.';
       } finally {
         submit.disabled = false;
       }
@@ -918,7 +964,7 @@
         NT.bus.emit('session');
         UI.toast('Password changed');
       } catch (err) {
-        error.textContent = err.status === 401 ? 'Current password is incorrect.' : 'Could not change the password. Try again.';
+        error.textContent = err.status === 401 ? 'Current password is incorrect.' : NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not change the password. Try again.';
         submit.disabled = false;
       }
     });

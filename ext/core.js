@@ -35,7 +35,7 @@ class HttpError extends Error {
   }
 }
 
-const BASE_HEADERS = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
+const BASE_HEADERS = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'cross-origin-resource-policy': 'same-origin' };
 
 function send(res, status, body, headers) {
   if (res.headersSent) return;
@@ -183,9 +183,13 @@ async function session(req) {
 
 /* ---------- Guards ---------- */
 
-// A browser sends Origin with anything that is not a plain navigation. When it is
-// there it has to be this server; other pages do not get to act with the session.
+// A browser says where a request comes from: Sec-Fetch-Site in any recent one, Origin
+// with anything that is not a plain navigation. Where either is there it has to be
+// this server; other pages, another port of this host included, do not get to act
+// with the session. A request with neither is not from a page, and goes by its cookie.
 function sameOrigin(req) {
+  const site = req.headers['sec-fetch-site'];
+  if (site && site !== 'same-origin' && site !== 'none') return false;
   const origin = req.headers.origin;
   if (!origin) return true;
   try { return new URL(origin).host === req.headers.host; } catch (e) { return false; }

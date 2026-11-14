@@ -7,12 +7,13 @@
 
   - luau-lsp   language server            (ext/lsp.js)
   - darklua    bundler and minifier       (ext/bundle.js)
+  - stylua     formatter                  (ext/format.js)
   - defs       Luau definitions of the game's scripting API, from
                github.com/nulls-mods-community/scripting-docs
 
   An extension asks for a path with tools.bin('darklua') or tools.defs(); it gets
   null when the tool is not installed and reports itself unavailable.
-  LUAU_LSP_PATH and DARKLUA_PATH point at binaries installed some other way.
+  LUAU_LSP_PATH, DARKLUA_PATH and STYLUA_PATH point at binaries installed some other way.
 */
 'use strict';
 
@@ -48,6 +49,19 @@ const TOOLS = {
       'linux-arm64': ['darklua-linux-aarch64.zip', 'b308a5724b4781e89fbac42bd5906342d9ea0374961d64b8b5f0681bba2cdcac'],
       'darwin-x64': ['darklua-macos-x86_64.zip', 'bb364f898e83e8204d56b6d6d9e6edd8c391300dd4a82cd06e4d36d1f0a66b1a'],
       'darwin-arm64': ['darklua-macos-aarch64.zip', 'b97be3d771dd82c11134af96fb8ed48f4163740eacc1f32eeda735074f51e59b'],
+    },
+  },
+  // The musl builds are static, so they run on any Linux, the image's Debian included.
+  stylua: {
+    env: 'STYLUA_PATH',
+    version: '2.6.0',
+    base: 'https://github.com/JohnnyMorganz/StyLua/releases/download/v2.6.0/',
+    assets: {
+      'win32-x64': ['stylua-windows-x86_64.zip', 'fd13b4014e3b779c244bbc03f2c282e357f15bc526de6a6fa5ecbc447538313c'],
+      'linux-x64': ['stylua-linux-x86_64-musl.zip', '48ee7db28346f96f4bd545e190ab080a88a7b5a664e97649cf5d5c60426f402d'],
+      'linux-arm64': ['stylua-linux-aarch64-musl.zip', '278495597e3827417f3af7b9ad38011ad4a5ec725503553160ab69b7301059bb'],
+      'darwin-x64': ['stylua-macos-x86_64.zip', '90779aa873837b2dff8eb3361bd27950303914c24265a59cae0a0d0629d71585'],
+      'darwin-arm64': ['stylua-macos-aarch64.zip', 'dab9b66d340ca5ffc8225211f1dcf89b84783e09b8cbec8c518497eba81f3c42'],
     },
   },
 };

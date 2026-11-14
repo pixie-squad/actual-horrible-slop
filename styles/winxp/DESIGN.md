@@ -56,6 +56,12 @@ Top to bottom (`ui.js`, `W.window`):
   lower right corner (`ui.js`, `size`; `.w-size`).
 - What a toast says elsewhere is said in the status bar of the window in front
   (`UI.toast`). Only a warning with no window to say it in is a message box.
+- What can be acted on is never only in a status bar. Something that can be taken back
+  (Undo) is a balloon from the app's icon in the notification area, as XP draws one:
+  the tooltip's yellow, a tail to the icon, the words in bold, a close box, and the
+  action as a link; a press anywhere on it does it (`W.balloon`). A failure that can be
+  tried again is a message box with the error icon, Retry and Cancel; one the app
+  cannot start without (the service out of reach) has Retry alone.
 - A dialog box is modal, has Close alone in its title bar, and its buttons along the
   bottom. A message box has XP's icon for what it is and its buttons centred.
 

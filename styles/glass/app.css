@@ -128,6 +128,8 @@
 /* A group is one piece of glass. A press swells the glyph and lights the glass where it
    was touched, as on a lone button; no shape is drawn around the button inside it. */
 .nav-group-btn:active { transform: scale(1.18); transition-duration: 0.14s; }
+/* A button that stays on (Changes in the source viewer) says so in its glyph's tint alone. */
+.nav-group-btn[aria-pressed="true"] { color: var(--accent); }
 .nav-group:has(.nav-group-btn:active)::after { opacity: 0.8; transition-duration: 0.1s; }
 @media (hover: hover) {
   .nav-group:has(.nav-group-btn:hover):not(:has(.nav-group-btn:active))::after { opacity: 0.4; }
@@ -307,6 +309,9 @@
   --press: 1.04;
 }
 
+/* The screen in place of the pages when the service did not answer (app.js). */
+.boot-down { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; }
+
 /* ---------- Overlays ---------- */
 
 .overlays { position: absolute; inset: 0; z-index: 40; pointer-events: none; }
@@ -338,6 +343,24 @@
 }
 .toast svg { color: var(--accent); }
 .toast.warn svg { color: var(--orange); }
+/* A toast that can be acted on takes presses; its action is a plain label in the
+   accent, as in an iOS banner, with no shape of its own inside the glass. */
+.toast.has-action { pointer-events: auto; padding-right: 6px; }
+.toast-action {
+  position: relative;
+  min-height: 34px;
+  margin-left: 4px;
+  padding: 0 14px;
+  border-radius: 17px;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  transition: opacity 0.2s ease;
+}
+.toast-action::after { content: ""; position: absolute; inset: -6px -2px; }
+.toast-action:active { opacity: 0.35; transition-duration: 0s; }
+.toast-action:focus-visible { outline-offset: -3px; }
+@media (hover: hover) { .toast-action:hover:not(:active) { opacity: 0.7; } }
 
 .pop-catcher { position: absolute; inset: 0; }
 .pop-catcher.dim { background: rgb(0 0 0 / 0.22); }
@@ -751,6 +774,11 @@ button.row:active, a.row:active { background: var(--fill); }
 .tl-head { display: flex; align-items: center; gap: 8px; font-size: 17px; font-weight: 600; }
 .tl-head time { margin-left: auto; font-size: 13px; font-weight: 400; color: var(--label-2); }
 .timeline p { margin-top: 3px; font-size: 15px; line-height: 20px; color: var(--label-2); }
+/* A release that opens (its changes, in the viewer). */
+.tl-open { display: block; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; transition: opacity 0.2s; -webkit-tap-highlight-color: transparent; }
+.tl-open:active { opacity: 0.45; transition-duration: 0s; }
+.tl-open .tl-head > svg { flex: none; color: var(--label-3); }
+.tl-open .tl-head time { margin-right: -2px; }
 
 /* ---------- Code ---------- */
 
@@ -915,7 +943,6 @@ button.row.accent { color: var(--accent); }
 .code-host.is-basic { display: flex; }
 .code-host.is-basic .code-card { flex: 1; border-radius: 0; }
 .code-host > .empty { height: 100%; justify-content: center; }
-.page-code .page-scroll { padding-bottom: calc(var(--tab-clear) + var(--safe-bottom) + 12px); }
 
 .monaco-editor, .monaco-editor .overflow-guard, .monaco-editor-background { border-radius: var(--r-card); }
 .monaco-editor { --vscode-focusBorder: transparent; outline: none !important; }
@@ -1087,10 +1114,6 @@ html[data-solid] .monaco-editor .suggest-details { background: var(--surface-2) 
 .context-view .monaco-menu .monaco-action-bar.vertical .action-label.separator { height: var(--hairline); margin: 5px 14px; padding: 0; border: 0; background: var(--sep) !important; }
 .context-view .monaco-scrollable-element { border-radius: 14px !important; box-shadow: none !important; background: none !important; }
 
-@media (min-width: 820px) {
-  .page-code .navbar.always-title .navbar-title { display: none; }
-  .page-code .page-scroll { padding-bottom: 20px; }
-}
 
 /* ---------- Glass as a separate layer ----------
    The tab bar and sheets hold controls that turn into lenses. Their glass is a

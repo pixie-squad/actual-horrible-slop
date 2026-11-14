@@ -277,11 +277,22 @@
         // With the script's page right underneath, "Script Page" would only be Back.
         const paths = NT.nav.paths();
         const under = paths[paths.length - 2] === `/scripts/${id}`;
+        // Across files, where there is more than one.
+        const many = !!ed.goToFile && ed.paths().length > 1;
         UI.menu(more, [
           !under && { label: 'Script Page', icon: 'doc', onSelect: () => NT.nav.go(`/scripts/${id}`) },
           !script.published_at && { label: 'Publish', icon: 'send', onSelect: async () => { if (await S.commit(false)) A.publish(script, () => { script.published_at = new Date().toISOString(); }); } },
+          // What this text changes since the last release, once it is saved (compare.js).
+          !!script.published_at && { label: 'Compare with Release', icon: 'diff', onSelect: async () => {
+            if (!(await S.commit(false))) return;
+            const latest = NT.compare.before(await API.releases(id).catch(() => []), null);
+            if (latest != null) NT.nav.go(NT.compare.path(id, null, latest));
+          } },
           { label: 'Details', icon: 'info', onSelect: details },
           '-',
+          many && { label: 'Go to File', icon: 'doc', onSelect: () => ed.goToFile() },
+          many && { label: 'Find in Files', icon: 'search', onSelect: () => ed.findInFiles() },
+          ed.format && NT.format.available() && { label: 'Format Document', icon: 'wand', onSelect: () => S.format() },
           { label: 'Editor Settings', icon: 'gear', onSelect: () => NT.nav.go('/settings/editor') },
           '-',
           { label: 'Delete', icon: 'trash', danger: true, onSelect: () => A.remove(script, () => { S.removed(); NT.nav.back(); }) },

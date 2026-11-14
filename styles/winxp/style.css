@@ -411,6 +411,23 @@ img.pix { -webkit-user-drag: none; }
 .w-task.is-active:hover { background: var(--luna-task-down-hot); }
 .w-task:focus-visible { outline: 1px dotted #ffffff; outline-offset: -4px; }
 .w-tray { flex: none; display: flex; align-items: center; margin-left: 10px; padding: 0 12px 0 14px; background: var(--luna-tray); border-left: 1px solid var(--luna-tray-edge); box-shadow: inset 1px 0 1px var(--luna-tray-rim); }
+/* The app's own icon there, which balloons come from. */
+.w-tray-icon { display: grid; place-items: center; width: 20px; height: 20px; margin-right: 8px; }
+.w-tray-icon:focus-visible { outline: 1px dotted #fff; outline-offset: -1px; }
+/* A balloon (ui.js, W.balloon): the tooltip's yellow in a rounded box with a 1 px line
+   and a tail down to that icon; the words bold beside the icon, a close box, and what a
+   press on it does as a link under them. */
+.w-balloon { position: absolute; right: 8px; bottom: calc(var(--bar) + 16px + env(safe-area-inset-bottom, 0px)); max-width: min(300px, calc(100vw - 16px)); padding: 7px 7px 9px 10px; border: 1px solid var(--tip-text); border-radius: 7px; background: var(--tip); color: var(--tip-text); box-shadow: 2px 2px 3px rgb(0 0 0 / 0.3); font: 400 11px/1.3 var(--font); pointer-events: auto; }
+.w-balloon::after { content: ""; position: absolute; right: var(--tail, 30px); bottom: -9px; width: 16px; height: 9px; background: var(--tip-text); clip-path: polygon(0 0, 100% 0, 100% 100%); }
+.w-balloon::before { content: ""; position: absolute; z-index: 1; right: calc(var(--tail, 30px) + 1px); bottom: -7px; width: 14px; height: 8px; background: var(--tip); clip-path: polygon(0 0, 100% 0, 100% 100%); }
+.w-balloon.has-action { cursor: pointer; }
+.w-balloon-head { display: flex; align-items: center; gap: 6px; }
+.w-balloon-head b { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.w-balloon-x { flex: none; display: grid; place-items: center; width: 15px; height: 15px; margin-left: 6px; border: 1px solid transparent; border-radius: 2px; color: var(--tip-text); }
+.w-balloon-x:hover { border-color: var(--tip-text); }
+.w-balloon-x:active { background: rgb(0 0 0 / 0.12); }
+.w-balloon-x:focus-visible { outline: 1px dotted var(--tip-text); }
+.w-balloon-act { display: block; margin: 5px 0 0 22px; padding: 0; }
 
 /* ---------- The Start menu ---------- */
 
@@ -606,6 +623,9 @@ img.pix { -webkit-user-drag: none; }
 .w-buttons { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; }
 .w-buttons.centre { justify-content: center; }
 .w-buttons.left { justify-content: flex-start; }
+/* A list with its buttons under it, filling a tab (the releases). */
+.w-list-pane { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; height: 100%; }
+.w-list-pane > .w-list { flex: 1; min-height: 0; }
 .w-buttons.stack { flex-direction: column; align-items: stretch; }
 
 /* ---------- Menus ---------- */
@@ -616,6 +636,9 @@ img.pix { -webkit-user-drag: none; }
 .w-menu-mark { flex: none; display: grid; place-items: center; width: 17px; margin-right: 3px; }
 .w-menu-item:focus { background: var(--hilight); color: var(--hilight-text); }
 .w-menu-item:disabled { color: var(--gray-text); }
+/* A shortcut, in its own column (ui.js lines them up). */
+.w-menu.has-keys .w-menu-item > span:not(.w-menu-keys) { min-width: var(--w-label); }
+.w-menu-keys { padding-left: 24px; }
 .w-menu-sep { height: 1px; margin: 3px 1px; background: var(--edge); }
 .w-menu.w-droplist { padding: 0; border-color: var(--text); box-shadow: none; }
 .w-droplist .w-menu-mark { display: none; }
@@ -824,6 +847,24 @@ button.w-link:hover { text-decoration: underline; }
 .monaco-editor .monaco-hover { border: 1px solid var(--text) !important; border-radius: 0 !important; box-shadow: var(--shadow-menu) !important; font-family: var(--font) !important; }
 .monaco-editor .find-widget { background: var(--face) !important; }
 .monaco-editor .find-widget .monaco-inputbox, .monaco-editor .rename-box .rename-input { border-radius: 0 !important; border: 1px solid var(--field-edge) !important; }
+/* Monaco's quick input (Go to File, Find in Files, the command palette). Its rows are
+   placed by Monaco at a fixed height, so only their look changes here. */
+.quick-input-widget .quick-input-header { padding: 0 !important; margin-bottom: 0 !important; }
+.quick-input-widget .monaco-list, .quick-input-widget .monaco-list-rows { background: none !important; }
+.quick-input-widget .quick-input-list .monaco-list-row { outline: 0 !important; }
+/* Everything in the chosen row is in the chosen row's colour. */
+.quick-input-widget .quick-input-list .monaco-list-row.focused * { color: inherit !important; opacity: 1 !important; }
+.quick-input-widget { border: 1px solid var(--edge) !important; border-radius: 0 !important; box-shadow: var(--shadow-menu) !important; padding: 4px !important; background: var(--face) !important; color: var(--text) !important; font-family: var(--font) !important; font-size: var(--fs) !important; }
+.quick-input-widget .monaco-inputbox { border: 1px solid var(--field-edge) !important; border-radius: 0 !important; background: var(--window) !important; }
+.quick-input-widget .monaco-inputbox .input { padding: 2px 3px !important; color: var(--text) !important; font-family: var(--font) !important; font-size: var(--fs) !important; }
+.quick-input-widget .quick-input-list { margin-top: 4px; border: 1px solid var(--field-edge); background: var(--window); }
+.quick-input-widget .quick-input-list .monaco-list-row { border-radius: 0 !important; color: var(--text) !important; font-family: var(--font); font-size: var(--fs); }
+.quick-input-widget .quick-input-list .monaco-list-row.focused { background: var(--hilight) !important; color: var(--hilight-text) !important; }
+/* Monaco colours a match by these, firmly; they are set here instead. */
+html .quick-input-widget { --vscode-list-highlightForeground: var(--text); --vscode-list-focusHighlightForeground: var(--hilight-text); }
+.quick-input-widget .monaco-highlighted-label .highlight { font-weight: bold; }
+.quick-input-widget .label-description, .quick-input-widget .quick-input-list-separator { color: var(--gray-text) !important; opacity: 1 !important; }
+.quick-input-widget .quick-input-list-separator-border { border-top-color: var(--edge-soft) !important; }
 .context-view .monaco-menu .monaco-action-bar.vertical .action-menu-item { border-radius: 0 !important; height: calc(var(--row) + 2px); font-family: var(--font); font-size: var(--fs); }
 /* Monaco draws its own scroll bars: Luna's track, thumb and arrows on them. */
 .monaco-scrollable-element > .scrollbar.vertical { background: var(--sb-track-v); }

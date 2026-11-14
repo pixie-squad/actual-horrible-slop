@@ -32,7 +32,7 @@ const fs = require('fs');
 const path = require('path');
 const core = require('./core');
 
-const NAMES = ['bundle', 'lsp', 'tests', 'keep'];
+const NAMES = ['bundle', 'format', 'lsp', 'tests', 'keep'];
 const wanted = (process.env.NT_EXT || '').trim();
 const enabled = wanted === 'off' ? [] : wanted ? wanted.split(',').map((s) => s.trim()).filter((s) => NAMES.includes(s)) : NAMES;
 

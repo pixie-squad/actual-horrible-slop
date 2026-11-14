@@ -253,6 +253,11 @@
     await Promise.all([NT.api.init(), NT.ext.init()]);
     splash.remove();
     app.removeAttribute('aria-busy');
+    // The service did not answer: there is nothing to show, and no one to sign in as.
+    if (NT.api.down) {
+      stage.append(h('div.m-down', M.kit.empty('cloud_off', 'Upstream is unreachable', null, { label: 'Try Again', onClick: () => location.reload() })));
+      return;
+    }
     Nav.start();
   }
 

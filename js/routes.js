@@ -2,7 +2,7 @@
   Routes: what each address is, whichever style shows it.
 
     NT.routes.match(path) → {
-      name, args      the page: home, scripts, maps, profile, script(id), viewer(id, revision),
+      name, args      the page: home, scripts, maps, profile, script(id), viewer(id, revision, against),
                       editor(id), audit(userId), user(userId), settings, editorSettings,
                       lintRules, notFound
       path            the address as it is kept
@@ -38,7 +38,7 @@
     let m;
     if (TABS[pn]) return { name: TABS[pn], args: [], path: pn, tab: true, root: pn };
     if ((m = pn.match(/^\/scripts\/([^/]+)$/))) return { name: 'script', args: [decode(m[1])], path: pn, root: '/scripts' };
-    if ((m = pn.match(/^\/scripts\/([^/]+)\/view$/))) return { name: 'viewer', args: [decode(m[1]), q.get('revision')], path: full, root: '/scripts', parents: [`/scripts/${m[1]}`] };
+    if ((m = pn.match(/^\/scripts\/([^/]+)\/view$/))) return { name: 'viewer', args: [decode(m[1]), q.get('revision'), q.get('against')], path: full, root: '/scripts', parents: [`/scripts/${m[1]}`] };
     if ((m = pn.match(/^\/scripts\/([^/]+)\/edit$/))) return { name: 'editor', args: [decode(m[1])], path: pn, root: '/scripts', parents: [`/scripts/${m[1]}`] };
     if ((m = pn.match(/^\/users\/([^/]+)\/audit$/) || pn.match(/^\/(@[^/]+)\/audit$/))) return { name: 'audit', args: [decode(m[1])], path: pn, root: '/profile' };
     if ((m = pn.match(/^\/users\/([^/]+)\/maps$/))) return { name: 'maps', args: [], path: '/maps', tab: true, root: '/maps' };

@@ -6,21 +6,49 @@
 
     NT.actions.share(script)             the share sheet where there is one, else the link is copied
     NT.actions.publish(script, done)
-    NT.actions.remove(script, done, source)   asks first
+    NT.actions.remove(script, done)      at once, with a few seconds to take it back (Undo);
+                                         NT.bus says 'scripts' when it comes back
+    NT.actions.removeMap(map, done, back) the same for a map; back() when it comes back
     NT.actions.create()                  a new script, opened in the editor
     NT.actions.upload(file)              a file from the device, as a new script
+    NT.actions.duplicate(script)         a copy of it as a new script of one's own, opened in the editor
     NT.actions.favorite(script, on)      → Promise; script.is_favorite is set at once and
                                            put back if it does not go through
     NT.actions.copy(text)                to the clipboard
     NT.actions.mapLink(text)             → { id } | { error }
     NT.actions.event(ev, scripts)        an audit event, in words: { type, title, notes: [],
                                            path, script, onScript }
+
+  When something does not go through, the words are these, in every style:
+    NT.actions.couldnt(what, err)        'Couldn’t publish', with why where there is
+                                         more to say: 'Couldn’t publish: no connection'
+    NT.actions.failed(what, err, again)  that as a warning toast, with Try Again (again)
+                                         or, when the session is over, Sign In
+    NT.actions.trouble(err)              under a page that did not load: 'Can’t reach
+                                         scripting.nulls.gg', 'Signed out', or ''
 */
 (function () {
   'use strict';
   const NT = window.NT;
   const API = NT.api;
   const toast = (...a) => NT.ui.toast(...a);
+
+  // How long a delete can be taken back.
+  const UNDO = 6000;
+
+  // Why a call did not go through, where it is worth saying: the service out of reach,
+  // or a session that is over (and could not be begun again: api.js tries that first).
+  const reason = (e) => (API.unreachable(e) ? 'offline' : e && e.status === 401 ? 'signed-out' : null);
+  const couldnt = (what, e) => {
+    const why = reason(e);
+    return `Couldn’t ${what}${why === 'offline' ? ': no connection' : why === 'signed-out' ? ': signed out' : ''}`;
+  };
+  const failed = (what, e, again) => {
+    const action = reason(e) === 'signed-out'
+      ? { label: 'Sign In', onSelect: () => NT.ui.signIn('login') }
+      : again ? { label: 'Try Again', onSelect: again } : null;
+    toast(couldnt(what, e), { warn: true, action });
+  };
 
   // What each kind of event is called.
   const EVENT = {
@@ -45,6 +73,10 @@
   };
 
   NT.actions = {
+    couldnt,
+    failed,
+    trouble: (e) => (reason(e) === 'offline' ? 'Upstream is unreachable' : reason(e) === 'signed-out' ? 'Signed out' : ''),
+
     async share(s) {
       const url = new URL(NT.nav.href(`/scripts/${s.script_id}`), location.href).href;
       if (navigator.share && window.matchMedia('(pointer: coarse)').matches) {
@@ -64,26 +96,61 @@
         toast('Published', { icon: 'send' });
         if (done) done();
       } catch (e) {
-        toast('Couldn’t publish', { warn: true });
+        failed('publish', e, () => this.publish(s, done));
       }
     },
 
-    async remove(s, done, source) {
-      const ok = await NT.ui.confirm({
-        title: `Delete “${s.name || s.script_id}”?`,
-        message: 'This can’t be undone.',
-        confirmLabel: 'Delete',
-        destructive: true,
-        source,
+    // Not asked about first: it can be taken back for a few seconds, and only then goes.
+    remove(s, done) {
+      const d = API.deleting(s.script_id);
+      let settled = false; // taken back, or gone for good
+      if (done) done();
+      toast('Deleted', {
+        icon: 'trash',
+        duration: UNDO,
+        action: { label: 'Undo', onSelect: () => {
+          if (settled) return;
+          settled = true;
+          d.cancel();
+          NT.bus.emit('scripts', { id: s.script_id });
+        } },
       });
-      if (!ok) return;
-      try {
-        await API.deleteScript(s.script_id);
-        toast('Deleted', { icon: 'trash' });
-        if (done) done();
-      } catch (e) {
-        toast('Couldn’t delete', { warn: true });
-      }
+      setTimeout(async () => {
+        if (settled) return;
+        settled = true;
+        try {
+          await d.commit();
+        } catch (e) {
+          NT.bus.emit('scripts', { id: s.script_id });
+          failed('delete', e, () => this.remove(s));
+        }
+      }, UNDO);
+    },
+
+    removeMap(m, done, back) {
+      const d = API.deletingMap(m.user_map_id);
+      let settled = false; // taken back, or gone for good
+      if (done) done();
+      toast('Deleted', {
+        icon: 'trash',
+        duration: UNDO,
+        action: { label: 'Undo', onSelect: () => {
+          if (settled) return;
+          settled = true;
+          d.cancel();
+          if (back) back();
+        } },
+      });
+      setTimeout(async () => {
+        if (settled) return;
+        settled = true;
+        try {
+          await d.commit();
+        } catch (e) {
+          if (back) back();
+          failed('delete', e, () => this.removeMap(m, done, back));
+        }
+      }, UNDO);
     },
 
     async create() {
@@ -93,7 +160,7 @@
         const id = await API.createScript(`New Script ${mine.length + 1}`, '');
         NT.nav.go(`/scripts/${id}/edit`);
       } catch (e) {
-        toast('Couldn’t create a script', { warn: true });
+        failed('create a script', e, () => this.create());
       }
     },
 
@@ -108,14 +175,39 @@
       if (text.length > 1000000) return void toast('Scripts are limited to 1,000,000 characters', { warn: true });
       let name = file.name.replace(/\.(luau?|txt)$/i, '').slice(0, 32);
       if (name.length < 3) name = (name + ' script').slice(0, 32);
+      const send = async () => {
+        try {
+          const id = await API.createScript(name, text);
+          NT.nav.go(`/scripts/${id}/edit`);
+        } catch (e) {
+          failed('upload', e, send);
+        }
+      };
+      return send();
+    },
+
+    // A new script of the person's own with this one's code, opened in the editor. A
+    // project of their own comes with its files; anyone else's comes as the code they
+    // can read. The copy is a draft, and has no picture.
+    async duplicate(s) {
+      if (!API.session) return void NT.ui.signIn('login');
       try {
-        const id = await API.createScript(name, text);
+        const res = await API.scriptContent(s.script_id);
+        const code = (res && res.content) || '';
+        const p = API.isOwner(s) && NT.project.multi() ? await NT.project.load(s.script_id, code).catch(() => null) : null;
+        const name = `${(s.name || 'Script').slice(0, 27).trimEnd()} Copy`;
+        const id = await API.createScript(name, code);
+        if (p && Object.keys(p.files).length > 1) {
+          const r = await NT.project.store(id, p.files, p.minify);
+          if (r.bundle && r.bundle.code != null && NT.project.fits(id, r.bundle)) await NT.project.report(id, r.bundle, r.base);
+        }
         NT.nav.go(`/scripts/${id}/edit`);
       } catch (e) {
-        toast('Couldn’t upload', { warn: true });
+        failed('duplicate', e, () => NT.actions.duplicate(s));
       }
     },
 
+    // The control that was pressed is the way to try again.
     async favorite(s, on) {
       s.is_favorite = on;
       try {
@@ -123,7 +215,7 @@
         return true;
       } catch (e) {
         s.is_favorite = !on;
-        toast('Couldn’t update favorites', { warn: true });
+        failed('update favorites', e);
         return false;
       }
     },

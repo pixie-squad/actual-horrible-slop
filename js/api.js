@@ -130,6 +130,9 @@
     try {
       res = await fetch(LIVE_BASE + path, init);
       text = await res.text();
+    } catch (e) {
+      // Nothing came back: this server is gone, or the call took too long.
+      throw new StatusError(0, 'unreachable');
     } finally {
       clearTimeout(timer);
     }
@@ -597,6 +600,75 @@
     return mine;
   }
 
+  /* ---------- Deleting, with time to take it back ----------
+     A script deleted from a page is gone from every list at once (api.deleting) and
+     from the service a few seconds later (actions.js), so it can still be taken back.
+     If the page is left before then, the deletes go out as keepalive requests, which
+     the browser sends even as the page closes. */
+
+  const doomed = new Map(); // script id → { mode, ready: what goes with it, once known, done }
+  const doomedMaps = new Map(); // map id → { mode, done }
+  const standing = (list) => (doomed.size ? list.filter((s) => !doomed.has(s.script_id)) : list);
+
+  // What goes with a script of the person's own: its project's parts and its thumbnail.
+  async function companions(id) {
+    const parts = await api.sourcesOf(id).then(() => partsOf(id), () => []);
+    const was = sources.get(id);
+    const thumb = await ownThumb(id).catch(() => null);
+    return { parts, was, thumb };
+  }
+
+  async function deleteNow(id, { parts, was, thumb }) {
+    await live(at(id), { method: 'DELETE' });
+    extras.delete(id);
+    sources.delete(id);
+    for (const part of parts) live(at(part), { method: 'DELETE', quiet: true }).catch(() => {});
+    if (thumb) {
+      live(at(thumb.id), { method: 'DELETE', quiet: true }).catch(() => {});
+      if (was) api.setThumb({ author_uuid: api.session.user_id, name: was.name }, thumb.id, null);
+    }
+  }
+
+  function demoDelete(id) {
+    delete db.scripts[id];
+    delete db.releases[id];
+    for (const k of Object.keys(db.favorites)) db.favorites[k] = db.favorites[k].filter((x) => x !== id);
+    logEvent('ScriptDelete', id);
+  }
+
+  if (typeof window === 'object') {
+    window.addEventListener('pagehide', () => {
+      for (const e of doomed.values()) {
+        if (e.done) continue;
+        e.done = true;
+        if (e.mode !== 'live') {
+          if (db.scripts[e.id]) demoDelete(e.id);
+          store.set(DEMO_KEY, db);
+          continue;
+        }
+        const gone = (id) => fetch(LIVE_BASE + at(id), { method: 'DELETE', credentials: 'include', keepalive: true }).catch(() => {});
+        gone(e.id);
+        if (e.ready) {
+          for (const part of e.ready.parts) gone(part);
+          if (e.ready.thumb) gone(e.ready.thumb.id);
+        }
+        log('ScriptDelete', e.id);
+      }
+      for (const [id, e] of doomedMaps) {
+        if (e.done) continue;
+        e.done = true;
+        if (e.mode !== 'live') {
+          db.maps = db.maps.filter((x) => x.user_map_id !== id);
+          for (const s of Object.values(db.scripts)) if (s.user_map_id === id) s.user_map_id = null;
+          store.set(DEMO_KEY, db);
+          continue;
+        }
+        fetch(LIVE_BASE + '/maps/' + encodeURIComponent(id), { method: 'DELETE', credentials: 'include', keepalive: true }).catch(() => {});
+        log('MapDelete', id);
+      }
+    });
+  }
+
   function base62(bytes) {
     const A = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
     const digits = [0];
@@ -689,12 +761,39 @@
 
   /* ---------- Public API ---------- */
 
+  // Whether a failure is the service out of reach (from this server, or this server
+  // from here) rather than an answer: worth saying so, and worth trying again.
+  const unreachable = (e) => !!e && (e.status === 0 || e.status === 502 || e.status === 503 || e.status === 504);
+
+  // Whether the local server is there, for when the service did not answer in time.
+  async function ours() {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 2500);
+      const res = await fetch(NT.ext.base, { signal: ctrl.signal });
+      clearTimeout(timer);
+      return res.ok && !!(await res.json()).extensions;
+    } catch (e) {
+      return false;
+    }
+  }
+
   const api = (NT.api = {
     mode: 'demo',
     session: null,
     liveAvailable: false,
+    // True when this server answered and the service behind it did not, as the app
+    // started: there is nothing to show, and no telling who is signed in.
+    down: false,
     StatusError,
     API_BREAK,
+    unreachable,
+    // A catch for a call whose 401 only means "signed out": that is `value`, anything
+    // else is still a failure.
+    signedOut: (value) => (e) => {
+      if (e && e.status === 401) return value;
+      throw e;
+    },
 
     async init() {
       loadDemo();
@@ -702,10 +801,20 @@
         try {
           const ctrl = new AbortController();
           const timer = setTimeout(() => ctrl.abort(), 4500);
-          const res = await fetch(LIVE_BASE + '/users/me', { credentials: 'include', signal: ctrl.signal });
+          const res = await fetch(LIVE_BASE + '/users/me', { credentials: 'include', signal: ctrl.signal }).catch(async (e) => {
+            // No answer in time is the service being slow when this server is ours.
+            if (e && e.name === 'AbortError' && !db.signedIn && (await ours())) return { headers: new Headers({ 'x-nt-proxy': '1' }), ok: false, status: 504 };
+            throw e;
+          });
           clearTimeout(timer);
           if (res.headers.get('x-nt-proxy')) {
             this.liveAvailable = true;
+            if (unreachable(res) && !db.signedIn) {
+              this.mode = 'live';
+              this.session = null;
+              this.down = true;
+              return;
+            }
             let me = res.ok ? await res.json() : null;
             // The session ran out while the app was closed: remembered, it begins again.
             if (!me && res.status === 401 && kept() && (await renew())) me = await live('/users/me', { final: true, timeout: 8000 }).catch(() => null);
@@ -851,24 +960,24 @@
     /* ----- Scripts ----- */
 
     async scripts() {
-      if (this.mode === 'live') return sift((await live('/scripts')).scripts, 'all');
+      if (this.mode === 'live') return standing(sift((await live('/scripts')).scripts, 'all'));
       await lag();
-      return Object.values(db.scripts).filter((s) => s.published_at).map(listItem);
+      return standing(Object.values(db.scripts).filter((s) => s.published_at).map(listItem));
     },
     async userScripts(userId) {
-      if (this.mode === 'live') return sift((await live(`/users/${encodeURIComponent(userId)}/scripts`)).scripts, userId);
+      if (this.mode === 'live') return standing(sift((await live(`/users/${encodeURIComponent(userId)}/scripts`)).scripts, userId));
       await lag();
       const u = resolveUser(userId);
       if (!u) return [];
       const mine = u.user_id === demoMe();
-      return Object.values(db.scripts).filter((s) => s.author_uuid === u.user_id && (mine || s.published_at)).map(listItem);
+      return standing(Object.values(db.scripts).filter((s) => s.author_uuid === u.user_id && (mine || s.published_at)).map(listItem));
     },
     async favorites(userId) {
-      if (this.mode === 'live') return sift((await live(`/users/${encodeURIComponent(userId)}/favorites`)).scripts, null);
+      if (this.mode === 'live') return standing(sift((await live(`/users/${encodeURIComponent(userId)}/favorites`)).scripts, null));
       await lag();
       const u = resolveUser(userId);
       if (!u) return [];
-      return (db.favorites[u.user_id] || []).map((id) => db.scripts[id]).filter(Boolean).map(listItem);
+      return standing((db.favorites[u.user_id] || []).map((id) => db.scripts[id]).filter(Boolean).map(listItem));
     },
     async setFavorite(scriptId, on) {
       if (!this.session) throw new StatusError(401, 'unauthorized');
@@ -883,9 +992,15 @@
       if (!on && i >= 0) list.splice(i, 1);
       persist();
     },
+    // → the script, or null when there is none to show (not found, not shared, signed
+    // out, or deleted here a moment ago). Rejects when the service could not say.
     async script(id) {
+      if (doomed.has(id)) return null;
       if (this.mode === 'live') {
-        try { return await live(`/scripts/${encodeURIComponent(id)}`); } catch (e) { return null; }
+        try { return await live(`/scripts/${encodeURIComponent(id)}`); } catch (e) {
+          if (e.status === 401 || e.status === 403 || e.status === 404) return null;
+          throw e;
+        }
       }
       await lag();
       const s = db.scripts[id];
@@ -908,6 +1023,9 @@
       if (!demoMe()) throw new StatusError(401, 'unauthorized');
       const s = db.scripts[id];
       if (!s) throw new StatusError(404, 'script not found');
+      // A release's own text where it was kept; the sample releases have none.
+      const r = revision != null && revision !== '' && (db.releases[id] || []).find((x) => String(x.revision) === String(revision));
+      if (r && typeof r.content === 'string') return { content: r.content, revision: r.revision };
       return { content: s.content, revision: s.revision };
     },
     async createScript(name, content) {
@@ -1008,34 +1126,44 @@
       if (!first) s.revision += 1;
       s.published_at = now;
       s.updated_at = now;
-      (db.releases[id] = db.releases[id] || []).unshift({ revision: s.revision, created_at: now, description: first ? 'First public release.' : null });
+      // Each release keeps its text, as the service does, so releases can be compared.
+      (db.releases[id] = db.releases[id] || []).unshift({ revision: s.revision, created_at: now, description: first ? 'First public release.' : null, content: s.content });
       logEvent('ScriptPublish', id, { revision: s.revision });
       persist();
       return id;
     },
     async deleteScript(id) {
-      if (this.mode === 'live') {
-        // A project's files and a thumbnail go with their script.
-        const parts = await this.sourcesOf(id).then(() => partsOf(id), () => []);
-        const was = sources.get(id);
-        const thumb = await ownThumb(id).catch(() => null);
-        await live(at(id), { method: 'DELETE' });
-        extras.delete(id);
-        sources.delete(id);
-        for (const part of parts) live(at(part), { method: 'DELETE', quiet: true }).catch(() => {});
-        if (thumb) {
-          live(at(thumb.id), { method: 'DELETE', quiet: true }).catch(() => {});
-          this.setThumb({ author_uuid: this.session.user_id, name: was.name }, thumb.id, null);
-        }
-        return;
-      }
+      if (this.mode === 'live') return deleteNow(id, await companions(id));
       await lag();
       ownScript(id);
-      delete db.scripts[id];
-      delete db.releases[id];
-      for (const k of Object.keys(db.favorites)) db.favorites[k] = db.favorites[k].filter((x) => x !== id);
-      logEvent('ScriptDelete', id);
+      demoDelete(id);
       persist();
+    },
+    // A delete that can still be taken back: the script is out of every list and
+    // page from now on, and out of the service once commit() is called, or once this
+    // page is left before that (keepalive requests, which outlive the page).
+    //   → { commit() → Promise, cancel() }
+    deleting(id) {
+      const entry = { id, mode: this.mode, ready: null, done: false };
+      if (this.mode === 'live') companions(id).then((c) => { entry.ready = c; }, () => { entry.ready = { parts: [], thumb: null, was: null }; });
+      doomed.set(id, entry);
+      return {
+        commit: async () => {
+          if (entry.done) return;
+          entry.done = true;
+          try {
+            if (entry.mode === 'live') await deleteNow(id, entry.ready || (await companions(id)));
+            else await this.deleteScript(id);
+          } finally {
+            doomed.delete(id);
+          }
+        },
+        cancel() {
+          if (entry.done) return;
+          entry.done = true;
+          doomed.delete(id);
+        },
+      };
     },
     async parameters(id) {
       if (this.mode === 'live') return (await live(`/scripts/${encodeURIComponent(id)}/parameters`)).parameters;
@@ -1214,10 +1342,28 @@
     /* ----- Maps ----- */
 
     async maps(userId) {
-      if (this.mode === 'live') return (await live(`/users/${encodeURIComponent(userId)}/maps`)).maps;
+      const left = (list) => (Array.isArray(list) ? list.filter((m) => !doomedMaps.has(m.user_map_id)) : list);
+      if (this.mode === 'live') return left((await live(`/users/${encodeURIComponent(userId)}/maps`)).maps);
       await lag();
       const u = resolveUser(userId);
-      return db.maps.filter((m) => u && m.owner === u.user_id).map((m) => ({ user_map_id: m.user_map_id, name: m.name, internal_id: m.internal_id }));
+      return left(db.maps.filter((m) => u && m.owner === u.user_id).map((m) => ({ user_map_id: m.user_map_id, name: m.name, internal_id: m.internal_id })));
+    },
+    // A map's delete that can still be taken back, as deleting() is for a script.
+    deletingMap(userMapId) {
+      const entry = { mode: this.mode, done: false };
+      doomedMaps.set(userMapId, entry);
+      return {
+        commit: async () => {
+          if (entry.done) return;
+          entry.done = true;
+          try { await this.deleteMap(userMapId); } finally { doomedMaps.delete(userMapId); }
+        },
+        cancel() {
+          if (entry.done) return;
+          entry.done = true;
+          doomedMaps.delete(userMapId);
+        },
+      };
     },
     async addMap(internalId, name) {
       if (this.mode === 'live') return (await live('/maps', { method: 'POST', body: { map_internal_id: internalId, name } })).user_map;

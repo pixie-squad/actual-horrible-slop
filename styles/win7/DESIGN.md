@@ -61,6 +61,10 @@ Top to bottom (`ui.js`, `W.window`):
 - What a toast says elsewhere is said in the **status bar** of the window in front.
   Where there is none (a place, a property sheet, no window) it is a **balloon** from
   the app's icon in the notification area (`UI.toast`, `W.balloon`).
+- What can be acted on is never only in a status bar. Something that can be taken back
+  (Undo) is a balloon: a press on it does it, and it says so as a link. A failure that
+  can be tried again is a message box with the error icon, Retry and Cancel; one the
+  app cannot start without (the service out of reach) has Retry alone.
 
 ## 3. Dialog boxes
 

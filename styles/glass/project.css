@@ -262,6 +262,9 @@ html[data-solid] .quick-input-widget { background: var(--surface-2) !important; 
 .quick-input-widget .quick-input-list .monaco-list-row.focused .codicon,
 .quick-input-widget .quick-input-list .monaco-list-row.focused .monaco-icon-label::after,
 .quick-input-widget .quick-input-list .monaco-list-row.focused .label-description { color: #fff !important; opacity: 1; }
+/* Monaco colours a match by these, firmly; they are set here instead. */
+html .quick-input-widget { --vscode-list-highlightForeground: var(--accent); --vscode-list-focusHighlightForeground: #fff; }
 .quick-input-widget .quick-input-list .monaco-list-row .monaco-highlighted-label .highlight { color: var(--accent); }
-.quick-input-widget .quick-input-list .monaco-list-row.focused .monaco-highlighted-label .highlight { color: #fff; }
+.quick-input-widget .quick-input-list .monaco-list-row.focused .monaco-highlighted-label .highlight,
+.quick-input-widget .quick-input-list .monaco-list-row.focused .quick-input-list-separator { color: #fff !important; opacity: 1; }
 .quick-input-widget .quick-input-list-separator { color: var(--label-2) !important; }

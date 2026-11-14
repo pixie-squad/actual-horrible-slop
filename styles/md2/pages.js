@@ -100,7 +100,8 @@
     return h('div.m-empty', M.icon(icon, { size: 48 }), h('h3', title), text ? h('p', text) : null,
       action ? M.button(action.label, action.onClick, { variant: action.variant || 'filled' }) : null);
   }
-  const failed = (retry) => empty('error', 'Couldn’t Load', null, { label: 'Try Again', onClick: retry, variant: 'tonal' });
+  // err: what went wrong, for the line that says why (NT.actions.trouble), where there is one.
+  const failed = (retry, err) => empty('error', 'Couldn’t Load', A.trouble(err) || null, { label: 'Try Again', onClick: retry, variant: 'tonal' });
   // While a page reads for the first time.
   const wait = (host) => host.replaceChildren(M.loading('.block'));
 
@@ -114,6 +115,7 @@
     UI.menu(anchor, [
       { label: 'Share', icon: 'share', onSelect: () => A.share(s) },
       API.session && { label: 'View Source', icon: 'code', onSelect: () => NT.nav.go(`/scripts/${id}/view`) },
+      API.session && { label: 'Duplicate', icon: 'duplicate', onSelect: () => A.duplicate(s) },
       owner && '-',
       owner && { label: 'Edit', icon: 'pencil', onSelect: () => NT.nav.go(`/scripts/${id}/edit`) },
       owner && !s.published_at && { label: 'Publish', icon: 'send', onSelect: () => A.publish(s, ctx.refresh) },
@@ -152,6 +154,7 @@
     const more = M.iconButton('more_vert', 'Script actions', (e) => { e.stopPropagation(); scriptMenu(more, s, ctx); });
     const art = cover(s);
     if (!s.published_at) art.append(h('span.m-badge', 'Draft'));
+    else if (NT.seen.updated(s)) art.append(h('span.m-badge', 'Updated'));
     if (API.session) art.append(favButton(s, ctx, 'tonal'));
     const card = h('article.m-card.m-press', { tabIndex: 0 },
       art,
@@ -283,9 +286,9 @@
       if (!loaded) wait(body);
       try {
         const [all, mine, favs] = await Promise.all([
-          API.scripts().catch(() => []),
+          API.scripts().catch(API.signedOut([])),
           me ? API.userScripts(me.user_id) : [],
-          me ? API.favorites(me.user_id).catch(() => []) : [],
+          me ? API.favorites(me.user_id).catch(API.signedOut([])) : [],
         ]);
         // Coming back to Home reads again; if nothing changed, the page is left as it is.
         const fresh = JSON.stringify([all, mine, favs]);
@@ -296,10 +299,12 @@
       } catch (e) {
         loaded = false;
         stamp = '';
-        body.replaceChildren(failed(load));
+        body.replaceChildren(failed(load, e));
       }
     }
     page.onShow = load;
+    // A delete taken back: the script is in the lists again.
+    page.listen('scripts', () => { if (loaded) load(); });
     return page;
   };
 
@@ -390,7 +395,7 @@
         const [all, mine, favs] = await Promise.all([
           API.scripts(),
           me ? API.userScripts(me.user_id) : [],
-          me ? API.favorites(me.user_id).catch(() => []) : [],
+          me ? API.favorites(me.user_id).catch(API.signedOut([])) : [],
         ]);
         const fresh = JSON.stringify([all, mine, favs]);
         if (!first && !signedOut && fresh === stamp) return;
@@ -403,10 +408,11 @@
         if (e && e.status === 401) { signedOut = true; data = { all: [], mine: [], favs: [] }; render(); }
         else {
           clear();
-          note.replaceChildren(failed(load));
+          note.replaceChildren(failed(load, e));
         }
       }
     }
+    page.listen('scripts', () => { if (data) load(); });
 
     page.onShow = () => {
       if (state.scriptsFilter) {
@@ -428,7 +434,7 @@
     page.inner.append(body);
     wait(body);
 
-    let script = null, params = [], releases = [];
+    let script = null, params = [], releases = [], since = null;
     const values = {};
     const valueOf = (p) => (p.id in values ? values[p.id] : p.default_value);
 
@@ -457,7 +463,9 @@
           UI.toast('Battle ready (demo)');
         }
       } catch (e) {
-        UI.toast('The author isn’t verified', { warn: true });
+        // The service refuses to share a script whose author it does not vouch for.
+        if (API.unreachable(e) || e.status === 401) A.failed('start the battle', e, startBattle);
+        else UI.toast('The author isn’t verified', { warn: true });
       } finally {
         battle.disabled = false;
       }
@@ -513,6 +521,7 @@
       const art = cover(s, '.detail');
       const flags = [];
       if (!s.published_at) flags.push(h('span.m-badge', 'Draft'));
+      if (since != null) flags.push(h('span.m-badge', 'Updated'));
       if (API.isOutdated(s)) flags.push(h('span.m-badge', 'Outdated'));
       if (flags.length) art.append(h('div.m-badges', flags));
       const kids = [art,
@@ -521,6 +530,8 @@
       if (s.description) kids.push(h('p.m-desc', s.description));
 
       const actions = [];
+      // Released again since it was last opened here: what changed in between.
+      if (since != null) actions.push(M.button('See Changes', go(NT.compare.path(s.script_id, NT.compare.before(releases, null), since)), { icon: 'difference' }));
       if (API.session) actions.push(M.button('View Source', go(`/scripts/${s.script_id}/view`), { icon: 'code', variant: 'tonal' }));
       if (owner) actions.push(M.button('Edit', go(`/scripts/${s.script_id}/edit`), { icon: 'edit', variant: 'tonal' }));
       if (owner && !s.published_at) actions.push(M.button('Publish', () => A.publish(s, load), { icon: 'send' }));
@@ -539,11 +550,15 @@
       if (releases && releases.length) {
         const sorted = releases.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
         kids.push(M.header('Releases'));
+        // A release opens on what changed in it; the first, on its source.
+        const opens = (r) => API.session && Number.isSafeInteger(r.revision);
         kids.push(M.list(sorted.map((r, i) => M.item({
           icon: 'history',
           headline: new Date(r.created_at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }),
           supporting: r.description || null,
           value: i === 0 ? 'Latest' : rel(r.created_at),
+          chevron: opens(r),
+          onClick: opens(r) ? () => NT.nav.go(NT.compare.path(s.script_id, r.revision, NT.compare.before(releases, r.revision))) : null,
         }))));
       }
       body.replaceChildren(...kids);
@@ -561,7 +576,7 @@
           : empty('draft', 'Sign In to View', null, { label: 'Sign In', onClick: signIn }));
         return;
       }
-      const [ps, rs] = await Promise.all([API.parameters(id).catch(() => null), API.releases(id).catch(() => [])]);
+      const [ps, rs] = await Promise.all([API.parameters(id), API.releases(id)]);
       const fresh = JSON.stringify([s, ps, rs]);
       // Read again on return (after editing or publishing); parameter choices stay as they were set.
       if (script && fresh === load.stamp) return;
@@ -569,47 +584,98 @@
       script = s;
       params = ps || [];
       releases = rs || [];
+      // What came out since this page was last opened here, read before it counts as seen.
+      since = NT.seen.since(s, releases);
+      NT.seen.mark(s);
       render();
     }
 
-    let shown = false;
+    // What is shown stays when reading it again fails; a first read says it failed.
     page.onShow = () => {
-      load().catch(() => { if (!shown) body.replaceChildren(failed(() => page.onShow())); });
-      shown = true;
+      load().catch((e) => {
+        if (script) return void A.failed('refresh', e);
+        body.replaceChildren(failed(() => { wait(body); page.onShow(); }, e));
+      });
     };
     return page;
   };
 
   /* ---------- Source viewer ---------- */
 
-  P.viewer = function (id, revision) {
+  // The source of a script (a revision of it, or what it is now), or with `against`, what
+  // changed since that revision (compare.js). The Changes toggle switches between the two
+  // where there is an earlier release to compare with.
+  P.viewer = function (id, revision, against) {
     const page = makePage({ title: 'Source', back: true, className: 'm-codepage' });
     const host = h('div.m-code');
     page.inner.append(host);
-    let view = null, ready = false;
+    let view = null, ready = false, content = '', rev = null, earlier = null, stats = null, turn = 0, diffBtn = null;
+    let mode = against != null && against !== '' ? 'changes' : 'source';
+
+    const subtitle = () => {
+      if (mode === 'changes') {
+        const words = NT.compare.words(stats);
+        return page.setSubtitle(NT.compare.title(revision, earlier) + (words ? ' · ' + words : ''));
+      }
+      const lines = content ? content.split('\n').length : 0;
+      page.setSubtitle(`${lines} line${lines === 1 ? '' : 's'}${rev ? ' · Revision ' + rev : ''}`);
+    };
+
+    async function show(next) {
+      mode = next;
+      const t = ++turn;
+      if (diffBtn) diffBtn.setAttribute('aria-pressed', String(mode === 'changes'));
+      if (view) view.dispose();
+      view = null;
+      stats = null;
+      host.replaceChildren();
+      subtitle();
+      let made;
+      if (mode === 'changes') {
+        let pair;
+        try { pair = await NT.compare.load(id, revision, earlier); } catch (e) {
+          if (t === turn) host.replaceChildren(failed(() => show('changes')));
+          return;
+        }
+        if (t !== turn) return;
+        made = await NT.code.diff(host, { before: pair.before.text, after: pair.after.text, onStats: (s) => { if (t === turn) { stats = s; subtitle(); } } });
+      } else {
+        if (!content) return void host.replaceChildren(empty('draft', 'Empty Script'));
+        made = await NT.code.mount(host, { value: content, readOnly: true });
+      }
+      // Switched again while it was being made.
+      if (t !== turn) return void made.dispose();
+      view = made;
+    }
 
     page.onShow = async () => {
       if (ready) return;
       ready = true;
-      const script = await API.script(id);
-      if (script) page.setTitle(nameOf(script));
+      let releases = [];
       let res;
       try {
+        const [script, rs] = await Promise.all([API.script(id), API.releases(id).catch(() => [])]);
+        releases = rs;
+        if (script) page.setTitle(nameOf(script));
         res = await API.scriptContent(id, revision);
       } catch (e) {
         ready = false;
-        host.replaceChildren(API.session ? empty('draft', 'Source Unavailable') : empty('draft', 'Sign In to View Source', null, { label: 'Sign In', onClick: signIn }));
+        host.replaceChildren(!API.session ? empty('draft', 'Sign In to View Source', null, { label: 'Sign In', onClick: signIn })
+          : e.status === 403 || e.status === 404 ? empty('draft', 'Source Unavailable')
+            : failed(() => page.onShow(), e));
         return;
       }
-      const content = (res && res.content) || '';
-      const lines = content ? content.split('\n').length : 0;
-      const rev = revision || (res && res.revision);
-      page.setSubtitle(`${lines} line${lines === 1 ? '' : 's'}${rev ? ' · Revision ' + rev : ''}`);
-      page.setTrailing(M.iconButton('content_copy', 'Copy', () => A.copy(content)));
-      if (!content) return void host.replaceChildren(empty('draft', 'Empty Script'));
-      view = await NT.code.mount(host, { value: content, readOnly: true });
+      content = (res && res.content) || '';
+      rev = revision || (res && res.revision);
+      earlier = mode === 'changes' ? Number(against) : NT.compare.before(releases, revision);
+      if (earlier != null) diffBtn = M.iconButton('difference', 'Changes', () => show(mode === 'changes' ? 'source' : 'changes'));
+      page.setTrailing(diffBtn, M.iconButton('content_copy', 'Copy', () => A.copy(content)));
+      show(mode);
     };
-    page.onDestroy(() => { if (view) view.dispose(); });
+    page.onDestroy(() => {
+      turn++;
+      if (view) view.dispose();
+    });
     return page;
   };
 
@@ -645,7 +711,7 @@
           m.name = next;
           title.textContent = next;
           try { await API.renameMap(m.user_map_id, next); }
-          catch (e) { m.name = old; title.textContent = old; UI.toast('Couldn’t rename', { warn: true }); }
+          catch (e) { m.name = old; title.textContent = old; A.failed('rename', e); }
         };
         input.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') { e.preventDefault(); finish(true); }
@@ -661,14 +727,16 @@
         { label: 'Rename', icon: 'pencil', onSelect: () => setTimeout(rename, 200) },
         { label: 'Copy ID', icon: 'copy', onSelect: () => A.copy(m.internal_id) },
         '-',
-        { label: 'Delete', icon: 'trash', danger: true, onSelect: async () => {
-          const ok = await UI.confirm({ title: `Delete “${m.name}”?`, message: 'This can’t be undone.', confirmLabel: 'Delete', destructive: true });
-          if (!ok) return;
-          try {
-            await API.deleteMap(m.user_map_id);
+        { label: 'Delete', icon: 'trash', danger: true, onSelect: () => {
+          // Gone at once, with a moment to take it back (actions.js).
+          const at = maps.indexOf(m);
+          A.removeMap(m, () => {
             maps = maps.filter((x) => x !== m);
             renderList();
-          } catch (e) { UI.toast('Couldn’t delete', { warn: true }); }
+          }, () => {
+            if (!maps.includes(m)) maps.splice(Math.min(at, maps.length), 0, m);
+            renderList();
+          });
         } },
       ]));
       return el;
@@ -703,7 +771,8 @@
           field.input.value = '';
           renderList();
         } catch (e) {
-          say('Couldn’t save. Try again.', true);
+          const words = A.couldnt('save', e);
+          say(words === 'Couldn’t save' ? 'Couldn’t save. Try again.' : words + '.', true);
         } finally {
           busy = false;
         }
@@ -747,7 +816,7 @@
         renderList();
       } catch (e) {
         listed = '';
-        listHost.replaceChildren(failed(() => page.onShow()));
+        listHost.replaceChildren(failed(() => page.onShow(), e));
       }
     };
     return page;
@@ -772,12 +841,12 @@
         [user, scripts, favs] = await Promise.all([
           userId ? API.user(userId) : Promise.resolve(me),
           API.userScripts(target),
-          API.favorites(target).catch(() => []),
+          API.favorites(target).catch(API.signedOut([])),
         ]);
       } catch (e) {
         body.replaceChildren(e && e.status === 404 ? empty('person', 'User Not Found')
           : e && e.status === 401 && !me ? empty('person', 'Sign In to View', null, { label: 'Sign In', onClick: signIn })
-            : failed(load));
+            : failed(load, e));
         loaded = false;
         return;
       }
@@ -816,6 +885,7 @@
       loaded = true;
     }
     page.onShow = load;
+    page.listen('scripts', () => { if (loaded) load(); });
     return page;
   }
   P.profile = () => userPage(null, true);
@@ -924,6 +994,11 @@
           h('div.m-item', h('span.m-item-text', h('span.m-item-headline', 'Indent With')), indent.el),
           choiceItem('Width', 'tabSize', [2, 3, 4, 8].map((n) => [n, String(n)])),
           switchItem('Detect From File', 'detectIndent')),
+        // StyLua's, where there is one (format.js).
+        ...(NT.format.available() ? [M.header('Formatting'), M.list(
+          switchItem('Format on Save', 'formatOnSave'),
+          choiceItem('Line Width', 'formatColumn', [80, 100, 120].map((n) => [n, String(n)])),
+          choiceItem('Quotes', 'formatQuotes', [['double', 'Double'], ['single', 'Single']]))] : []),
         M.header('Display'),
         M.list(
           choiceItem('Font Size', 'fontSize', EP.CHOICES.fontSize.slice().sort((a, b) => a - b).map((n) => [n, String(n)])),
@@ -1013,7 +1088,7 @@
         ]);
       } catch (e) {
         stamp = null;
-        return void body.replaceChildren(empty('list_alt', 'Audit Log Unavailable', null, { label: 'Try Again', onClick: load, variant: 'tonal' }));
+        return void body.replaceChildren(empty('list_alt', 'Audit Log Unavailable', A.trouble(e) || null, { label: 'Try Again', onClick: load, variant: 'tonal' }));
       }
       events = (Array.isArray(events) ? events : [])
         .filter((ev) => ev && ev.event_type && ev.occurred_at)

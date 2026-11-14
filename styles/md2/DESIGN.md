@@ -66,6 +66,11 @@ Material Design 2 differs.
   with a 2 border at 54 % and a 2 corner in a 40 ripple, its label 4 on in body 2;
   chosen, it fills with the secondary colour in 90 ms and its mark is drawn on in 180.
 - Waiting is a ring that turns (`M.loading`).
+- A snackbar that can be acted on (Undo, Try Again, Sign In) has its action as a text
+  button in capitals at its trailing end, 8 from the edge, in the primary's light tone
+  on the dark snackbar (its dark tone on the dark theme's light one) (`M.snackbar`).
+- When the service did not answer as the app started, an empty state stands in place
+  of the pages, with Try Again (`app.js`, `.m-down`).
 - How far along is the **linear progress indicator** (`tests.js`): 4 high and edge to
   edge, primary on a #e6e6e6 track (12 % white in the dark, `--track`). Determinate,
   the bar grows over 250 ms on the sharp curve (0.4, 0, 0.6, 1); with no telling, two

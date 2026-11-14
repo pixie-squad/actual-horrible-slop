@@ -26,6 +26,9 @@
     s.changed()         the files changed
     s.commit(cheer, source)   a save someone asked for → true when the script is now
                         what the project says. With a conflict it asks which side stays.
+                        cheer: Save itself, which formats first with Format on Save
+    s.format()          format the file on screen (format.js) → false when it could not
+                        be, which is said; NT.format.available() says whether to offer it
     s.leave(source)     → true when the page may be left (saved, or kept in the draft)
     s.ctx               what the explorer is given (explorer.js); s.views, the explorers
                         showing it, are drawn again with every paint
@@ -259,9 +262,31 @@
       return true;
     }
 
+    // The file on screen, formatted (format.js). → false when it could not be; that is
+    // said, with the line StyLua could not read.
+    async function format() {
+      if (!ed || gone || !ed.format || !ed.path) return false;
+      const r = await ed.format(ed.path);
+      if (!r.error) return true;
+      toast(r.line ? `Couldn’t format: error on line ${r.line}` : 'Couldn’t format', { warn: true });
+      return false;
+    }
+
+    // With Format on Save, a save someone asked for formats the file on screen and every
+    // other Luau file edited since the last save. One that cannot be read is saved as it
+    // is: what is wrong with it is marked in it already.
+    async function tidy() {
+      if (!NT.editorPrefs.data.formatOnSave || !ed.format || !NT.format.available()) return;
+      const paths = new Set([ed.path, ...ed.paths().filter(fileDirty)].filter((p) => p && /\.luau?$/i.test(p)));
+      for (const path of paths) await ed.format(path).catch(() => {});
+      autosave.cancel();
+    }
+
     // A save someone asked for. With a conflict it first asks which side stays.
+    // cheer is true for Save itself (the button, Ctrl+S): that is what formats first.
     async function commit(cheer, source) {
       autosave.cancel();
+      if (cheer && !clash) await tidy();
       if (!clash && (await save(cheer, true))) return true;
       if (!clash) return false;
       const pick = await hooks.choose({ title: 'Changed Elsewhere', options: [{ label: 'Keep Mine', value: 'mine' }, { label: 'Take Theirs', value: 'theirs' }], source });
@@ -290,10 +315,11 @@
       paint,
       changed,
       commit,
+      format,
       dirty,
 
       async open() {
-        script = await API.script(id);
+        try { script = await API.script(id); } catch (e) { return 'failed'; }
         if (!script) return 'missing';
         if (!API.isOwner(script)) return 'readonly';
         // Without the script's text and its project there is nothing safe to edit: an
@@ -339,6 +365,7 @@
           failing = ed.failing();
           paint();
         });
+        if (ed.format) ed.on('format', () => format());
       },
 
       start() {

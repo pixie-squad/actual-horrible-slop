@@ -83,7 +83,13 @@ Prefer space and grouping to a line. Where a line is right:
 - Popovers are not new layers that fade in: the control that was tapped becomes the
   menu or dialog and collapses back into it (`UI.popover`).
 - A dialog grows about the centre of the control it came from (`UI.confirm`). Only an
-  action that loses something asks first: Delete and Reset do, Log Out does not.
+  action that loses something asks first: Reset does, Log Out does not. Delete does
+  not ask either: it can be taken back for a few seconds, from Undo in its toast.
+- A toast that can be acted on (Undo, Try Again, Sign In) has the action as a label in
+  the accent at its trailing end, as an iOS banner does: no shape of its own inside the
+  glass, dimming while held (`UI.toast`, `.toast-action`).
+- When the service did not answer as the app started, the pages give way to one
+  screen that says so, with Try Again (`app.js`, `.boot-down`).
 - Only a control becomes a popover, never content. Content that can be changed (your
   own avatar) stays in view and carries a glass badge; the badge is what opens, centred
   on the content it belongs to (`NT.media.editable`, `align: 'center'`).

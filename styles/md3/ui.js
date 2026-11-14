@@ -45,7 +45,7 @@
   // hidden till then (style.css), and if the font never comes the app's own drawings
   // stand in.
   const OWN = {
-    home: 'home', code: 'code', map: 'map', person: 'person', search: 'search', add: 'plus', favorite: 'heart', share: 'share',
+    home: 'home', code: 'code', map: 'map', person: 'person', search: 'search', add: 'plus', favorite: 'heart', share: 'share', difference: 'diff', auto_fix_high: 'wand',
     more_vert: 'ellipsis', arrow_back: 'chevron-left', chevron_right: 'chevron-right', settings: 'gear', edit: 'pencil', delete: 'trash',
     visibility: 'eye', play_arrow: 'play', check: 'check', close: 'xmark', schedule: 'clock', description: 'doc', content_copy: 'copy',
     link: 'link', key: 'key', palette: 'appearance', info: 'info', warning: 'warning', sort: 'sort', send: 'send', logout: 'logout',
@@ -523,6 +523,7 @@
     copy: 'content_copy', doc: 'description', gear: 'settings', link: 'link', heart: 'favorite', 'doc-plus': 'note_add', 'folder-plus': 'create_new_folder',
     scissors: 'content_cut', clipboard: 'content_paste', duplicate: 'file_copy', download: 'download', collapse: 'unfold_less', folder: 'folder',
     check: 'check', person: 'person', key: 'key', reset: 'restart_alt', sort: 'sort', 'doc-text': 'description', braces: 'data_object', sidebar: 'folder_open',
+    wand: 'auto_fix_high', clock: 'history', eye: 'visibility', diff: 'difference',
   };
   const matIcon = (name) => MAT[name] || name;
 
@@ -634,20 +635,34 @@
     return { el, close: rec.close };
   };
 
+  // opts.action: { label, onSelect }, the snackbar's one action, a text button at its
+  // trailing end in inverse primary (SnackbarTokens, Snackbar.kt). Choosing it dismisses
+  // the snackbar.
   let snack = null;
   M.snackbar = function (message, opts = {}) {
     if (snack) snack.remove();
-    const el = h('div.m-snackbar' + (opts.warn ? '.warn' : ''), { role: opts.warn ? 'alert' : 'status' }, h('span', message));
+    const act = opts.action;
+    const el = h('div.m-snackbar' + (opts.warn ? '.warn' : '') + (act ? '.has-action' : ''), { role: opts.warn ? 'alert' : 'status' }, h('span', message));
     snack = el;
-    M.layers.snack.append(el);
-    play(el, [{ opacity: 0, transform: 'translateY(24px) scale(0.92)' }, { opacity: 1, transform: 'none' }], M.motion.spatial);
-    setTimeout(() => {
-      if (snack !== el) return;
-      snack = null;
+    let gone = false;
+    const away = () => {
+      if (gone) return;
+      gone = true;
+      if (snack === el) snack = null;
       const out = play(el, [{ opacity: 1 }, { opacity: 0 }], M.motion.effects, { fill: 'forwards' });
       if (out) out.onfinish = () => el.remove();
       else el.remove();
-    }, opts.duration || (opts.warn ? 5000 : 3000));
+    };
+    if (act) {
+      el.append(M.button(act.label, () => {
+        if (gone) return;
+        away();
+        act.onSelect();
+      }, { variant: 'text', cls: '.m-snack-action' }));
+    }
+    M.layers.snack.append(el);
+    play(el, [{ opacity: 0, transform: 'translateY(24px) scale(0.92)' }, { opacity: 1, transform: 'none' }], M.motion.spatial);
+    setTimeout(() => { if (snack === el) away(); }, opts.duration || (act ? 6000 : opts.warn ? 5000 : 3000));
   };
 
   /* ---------- What the core asks for ---------- */
@@ -743,7 +758,7 @@
         if (err.message === 'live-unavailable') error.textContent = 'Start the app with “node server.js” to sign in.';
         else if (err.status === 401) error.textContent = 'Wrong username or password.';
         else if (err.status === 409) error.textContent = 'That username is taken.';
-        else error.textContent = 'Could not sign in. Try again.';
+        else error.textContent = NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not sign in. Try again.';
       } finally {
         submit.disabled = false;
       }
@@ -777,7 +792,7 @@
         NT.bus.emit('session');
         UI.toast('Password changed');
       } catch (err) {
-        error.textContent = err.status === 401 ? 'Current password is incorrect.' : 'Could not change the password. Try again.';
+        error.textContent = err.status === 401 ? 'Current password is incorrect.' : NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not change the password. Try again.';
         submit.disabled = false;
       }
     });

@@ -557,38 +557,66 @@
       if (hidden) NT.ui.toast(`${k.name} saved, but not published`, { warn: true });
       else NT.ui.toast(`${k.name} updated`);
     } catch (e) {
-      NT.ui.toast(FAILED[e.message] || 'Couldn’t upload', { warn: true });
+      if (FAILED[e.message]) NT.ui.toast(FAILED[e.message], { warn: true });
+      else NT.actions.failed('upload', e, () => upload(kind, id, file));
     } finally {
       clearTimeout(slow);
       busy.delete(key);
     }
   }
 
-  async function remove(kind, id) {
+  // The image goes from every place it shows at once, and from its holder a few
+  // seconds later, so it can be taken back (Undo) until then. If the page is left
+  // before that, the holder is deleted by a keepalive request, which outlives it.
+  const UNDO = 6000;
+  function remove(kind, id) {
     const key = `${kind}/${id}`;
     if (busy.has(key)) return;
     busy.add(key);
-    try {
-      if (kind === 'thumbs') {
-        const s = scripts.get(id);
-        await API.userScripts(s.author_uuid);
-        const had = await API.thumbOf(s);
-        if (had) await API.drop(had.id);
-        API.setThumb(s, had && had.id, null);
-      } else {
-        await API.userScripts(id);
-        const had = API.peekFace(id);
-        if (had) await API.drop(had.id);
-        API.setFace(id, null);
-      }
-      cache.remove(key);
-      publish(key, { stamp: LOCAL, info: null });
-      NT.ui.toast(`${KINDS[kind].name} removed`, { icon: 'trash' });
-    } catch (e) {
-      NT.ui.toast('Couldn’t remove', { warn: true });
-    } finally {
+    const before = known.get(key) || { stamp: '', info: null };
+    const s = kind === 'thumbs' ? scripts.get(id) : null;
+    const holder = (async () => {
+      await API.userScripts(s ? s.author_uuid : id);
+      return s ? API.thumbOf(s) : API.peekFace(id);
+    })();
+    let had = null, settled = false;
+    holder.then((x) => { had = x; }, () => {});
+    const leave = () => {
+      if (settled || !had) return;
+      settled = true;
+      fetch(`/api/scripts/${encodeURIComponent(had.id)}`, { method: 'DELETE', credentials: 'include', keepalive: true }).catch(() => {});
+    };
+    window.addEventListener('pagehide', leave);
+    const end = () => {
+      settled = true;
+      window.removeEventListener('pagehide', leave);
       busy.delete(key);
-    }
+    };
+    publish(key, { stamp: LOCAL, info: null });
+    NT.ui.toast(`${KINDS[kind].name} removed`, {
+      icon: 'trash',
+      duration: UNDO,
+      action: { label: 'Undo', onSelect: () => {
+        if (settled) return;
+        end();
+        publish(key, before);
+      } },
+    });
+    setTimeout(async () => {
+      if (settled) return;
+      try {
+        const x = await holder;
+        if (x) await API.drop(x.id);
+        if (s) API.setThumb(s, x && x.id, null);
+        else API.setFace(id, null);
+        cache.remove(key);
+      } catch (e) {
+        publish(key, before);
+        NT.actions.failed(`remove the ${KINDS[kind].name.toLowerCase()}`, e, () => remove(kind, id));
+      } finally {
+        end();
+      }
+    }, UNDO);
   }
 
   // One hidden file input serves every picker.

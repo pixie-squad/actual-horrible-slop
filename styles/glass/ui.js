@@ -46,10 +46,32 @@
 
   let currentToast = null;
 
+  // opts.action: { label, onSelect }, a text button at the toast's trailing end, as
+  // iOS puts Undo in a banner: no shape of its own inside the glass, the label in the
+  // accent, dimming while held. Choosing it puts the toast away.
   UI.toast = function (message, opts = {}) {
     if (currentToast) currentToast.remove();
-    const el = h('div.toast.glass.thick' + (opts.warn ? '.warn' : ''), { role: 'status' },
+    const act = opts.action;
+    const el = h('div.toast.glass.thick' + (opts.warn ? '.warn' : '') + (act ? '.has-action' : ''), { role: 'status' },
       icon(opts.icon || (opts.warn ? 'warning' : 'check'), 20), h('span', message));
+    let gone = false;
+    const away = () => {
+      if (gone || !el.isConnected) return;
+      gone = true;
+      if (currentToast === el) currentToast = null;
+      if (reduced()) return void el.remove();
+      const a = el.animate(
+        [{ transform: 'none', opacity: 1, filter: 'blur(0px)' }, { transform: 'translateY(-12px) scale(0.7)', opacity: 0, filter: 'blur(8px)' }],
+        { duration: 240, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' });
+      a.onfinish = () => el.remove();
+    };
+    if (act) {
+      el.append(h('button.toast-action', { type: 'button', onclick: () => {
+        if (gone) return;
+        away();
+        act.onSelect();
+      } }, act.label));
+    }
     currentToast = el;
     NT.dom.toasts.append(el);
     NT.glass.refract(el, { bezel: 18, magnify: 0.008 });
@@ -58,15 +80,7 @@
         [{ transform: 'translateY(-16px) scale(0.6)', opacity: 0, filter: 'blur(10px)' }, { transform: 'none', opacity: 1, filter: 'blur(0px)' }],
         { duration: motion.bouncy.duration, easing: motion.bouncy.easing });
     }
-    setTimeout(() => {
-      if (!el.isConnected) return;
-      if (currentToast === el) currentToast = null;
-      if (reduced()) return void el.remove();
-      const a = el.animate(
-        [{ transform: 'none', opacity: 1, filter: 'blur(0px)' }, { transform: 'translateY(-12px) scale(0.7)', opacity: 0, filter: 'blur(8px)' }],
-        { duration: 240, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' });
-      a.onfinish = () => el.remove();
-    }, opts.duration || 2600);
+    setTimeout(away, opts.duration || (act ? 6000 : 2600));
   };
 
   /* ---------- Morphing popover ----------
@@ -711,7 +725,7 @@
         if (err.message === 'live-unavailable') error.textContent = 'Start the app with “node server.js” to sign in.';
         else if (err.status === 401) error.textContent = 'Wrong username or password.';
         else if (err.status === 409) error.textContent = 'That username is taken.';
-        else error.textContent = 'Could not sign in. Try again.';
+        else error.textContent = NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not sign in. Try again.';
       } finally {
         submit.disabled = false;
       }
@@ -746,7 +760,7 @@
         NT.bus.emit('session');
         UI.toast('Password changed');
       } catch (err) {
-        error.textContent = err.status === 401 ? 'Current password is incorrect.' : 'Could not change the password. Try again.';
+        error.textContent = err.status === 401 ? 'Current password is incorrect.' : NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not change the password. Try again.';
         submit.disabled = false;
       }
     });

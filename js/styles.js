@@ -8,7 +8,8 @@
   This file is the list of them and the loader. It runs in <head>, before anything is
   painted: it reads which style this browser uses, puts the saved appearance on <html>
   and writes that style's stylesheets into the page. NT.styles.scripts(), called at the
-  end of <body>, writes the core's scripts and then the style's.
+  end of <body>, writes the core's scripts and then the style's. Each is asked for by
+  the version the server lists in the page, where it does.
 
     NT.styles.list        [{ id, name }]
     NT.styles.current     the id in use
@@ -19,11 +20,17 @@
 
   What a style provides (see styles/glass for the first):
     NT.nav        go(path), back(), reset(paths?), paths(), href(path)
-    NT.ui         toast(text, { warn, icon, duration }), confirm({ title, message,
+    NT.ui         toast(text, { warn, icon, duration, action }), confirm({ title, message,
                   confirmLabel, destructive, source }) → Promise<bool>,
                   menu(anchor, items, { align }), signIn(mode)
+                  action: { label, onSelect }: a way to act on what the toast says
+                  (Undo, Try Again, Sign In), drawn as the platform draws one; it stays
+                  as long as `duration` says, and onSelect is called at most once
     NT.look       optional: { pane(el), codeFont, still }   (monaco.js, util.js)
     a page for every route name in NT.routes, and a way to change style in its settings
+    when NT.api.down (the service did not answer as the app started), a screen that says
+    "Upstream is unreachable" with Try Again in place of the pages
+    NT.bus 'scripts' heard by the pages that list scripts: a delete was taken back
     Remember Me on its way in, off until chosen, where NT.api.canKeep (api.login and
     api.register take it last)
 */
@@ -31,7 +38,7 @@
   'use strict';
   var NT = (window.NT = window.NT || {});
 
-  var CORE = ['util', 'icons', 'data', 'pack', 'api', 'ext', 'luau', 'editor-prefs', 'project', 'monaco', 'lsp', 'media', 'explorer', 'routes', 'session', 'actions', 'tests'];
+  var CORE = ['util', 'icons', 'data', 'pack', 'api', 'ext', 'luau', 'editor-prefs', 'format', 'project', 'monaco', 'lsp', 'media', 'explorer', 'routes', 'session', 'actions', 'tests', 'compare', 'seen'];
 
   var STYLES = [
     {
@@ -75,6 +82,18 @@
     },
   ];
 
+  // What each of the app's files holds, by a tag, where the server says (server.js): a
+  // file asked for by its tag is one the browser may keep without asking again.
+  var V = {};
+  var listed = document.querySelector('meta[name="nt-files"]');
+  if (listed) {
+    listed.content.split(' ').forEach(function (x) {
+      var i = x.lastIndexOf(':');
+      if (i > 0) V[x.slice(0, i)] = x.slice(i + 1);
+    });
+  }
+  var at = function (file) { return V[file] ? file + '?v=' + V[file] : file; };
+
   var KEY = 'nt.prefs';
   var p = {};
   try { p = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) {}
@@ -110,7 +129,7 @@
       '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>' +
       '<link rel="stylesheet" href="' + style.fonts + '">';
   }
-  for (var i = 0; i < style.css.length; i++) out += '<link rel="stylesheet" href="styles/' + style.id + '/' + style.css[i] + '.css">';
+  for (var i = 0; i < style.css.length; i++) out += '<link rel="stylesheet" href="' + at('styles/' + style.id + '/' + style.css[i] + '.css') + '">';
   document.write(out);
 
   NT.styles = {
@@ -118,8 +137,8 @@
     current: style.id,
     scripts: function () {
       var tags = '';
-      for (var i = 0; i < CORE.length; i++) tags += '<script src="js/' + CORE[i] + '.js"><\/script>';
-      for (var j = 0; j < style.js.length; j++) tags += '<script src="styles/' + style.id + '/' + style.js[j] + '.js"><\/script>';
+      for (var i = 0; i < CORE.length; i++) tags += '<script src="' + at('js/' + CORE[i] + '.js') + '"><\/script>';
+      for (var j = 0; j < style.js.length; j++) tags += '<script src="' + at('styles/' + style.id + '/' + style.js[j] + '.js') + '"><\/script>';
       document.write(tags);
     },
     use: function (id) {

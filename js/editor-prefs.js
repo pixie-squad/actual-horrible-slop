@@ -30,6 +30,10 @@
     tabSize: [4, 2, 3, 8],
     detectIndent: [true, false],     // a file that is already indented keeps its own way
     autosave: [true, false],
+    // Formatting (format.js)
+    formatOnSave: [false, true],     // a save that was asked for formats first
+    formatColumn: [120, 80, 100],    // the line length StyLua wraps at
+    formatQuotes: ['double', 'single'],
     // Display
     fontSize: [13, 11, 12, 14, 15, 16, 18, 20],
     wrap: [false, true],

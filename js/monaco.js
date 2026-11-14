@@ -285,6 +285,33 @@
           'peekViewResult.selectionBackground': c.sel + '80',
           'peekViewEditor.matchHighlightBackground': c.sel + 'aa',
           'peekViewResult.matchHighlightBackground': c.sel + 'aa',
+          // The quick input (the command palette, Go to File, Find in Files).
+          'quickInput.background': c.widget,
+          'quickInput.foreground': c.fg,
+          'quickInputList.focusBackground': c.sel,
+          'quickInputList.focusForeground': c.fg,
+          'quickInputTitle.background': c.widget,
+          'pickerGroup.foreground': c.numOn,
+          'pickerGroup.border': c.guide,
+          'list.highlightForeground': token('--blue', '#0088ff'),
+          'list.focusHighlightForeground': c.fg,
+          'input.background': c.bg,
+          'input.foreground': c.fg,
+          'input.border': c.guide,
+          'inputValidation.errorBackground': c.widget,
+          'inputValidation.errorBorder': token('--red', '#ff383c'),
+          // Comparing (NT.code.diff): what was added in the style's green, removed in its red.
+          'diffEditor.insertedTextBackground': token('--green', '#34c759') + '40',
+          'diffEditor.removedTextBackground': token('--red', '#ff383c') + '40',
+          'diffEditor.insertedLineBackground': token('--green', '#34c759') + '1f',
+          'diffEditor.removedLineBackground': token('--red', '#ff383c') + '1f',
+          'diffEditorGutter.insertedLineBackground': token('--green', '#34c759') + '2e',
+          'diffEditorGutter.removedLineBackground': token('--red', '#ff383c') + '2e',
+          'diffEditor.diagonalFill': c.guide,
+          'diffEditor.border': c.guide,
+          'diffEditor.unchangedRegionBackground': c.widget,
+          'diffEditor.unchangedRegionForeground': c.numOn,
+          'diffEditor.unchangedCodeBackground': '#00000000',
         },
       };
       return (look().codeTheme && look().codeTheme(t, dark)) || t;
@@ -308,6 +335,30 @@
       if (e.fontfaces.some((face) => font().includes(face.family.replace(/["']/g, '')))) monaco.editor.remeasureFonts();
     });
 
+    // StyLua formats Luau (format.js): Format Document, Format Selection, Shift+Alt+F.
+    if (NT.format.available()) {
+      const LF = monaco.editor.EndOfLinePreference.LF;
+      const formatter = async (model, range, options, token) => {
+        const text = model.getValue(LF);
+        const o = { tabs: !options.insertSpaces, width: options.tabSize };
+        if (range) o.range = { start: model.getOffsetAt(range.getStartPosition()), end: model.getOffsetAt(range.getEndPosition()) };
+        const r = await NT.format.text(text, o);
+        outcomes.set(model, r);
+        // Typed over while it was away: what came back is of a text that is gone.
+        if (token.isCancellationRequested || r.error || !r.changed || model.getValue(LF) !== text) return [];
+        // Monaco narrows this down to what changed, so the caret and the undo stay where they belong.
+        return [{ range: model.getFullModelRange(), text: r.text }];
+      };
+      monaco.languages.registerDocumentFormattingEditProvider('luau', {
+        displayName: 'StyLua',
+        provideDocumentFormattingEdits: (model, options, token) => formatter(model, null, options, token),
+      });
+      monaco.languages.registerDocumentRangeFormattingEditProvider('luau', {
+        displayName: 'StyLua',
+        provideDocumentRangeFormattingEdits: (model, range, options, token) => formatter(model, range, options, token),
+      });
+    }
+
     // "Go to definition" may point into another file. Each editor shows one file at a
     // time, so the editor it was asked in is told to show that file instead.
     monaco.editor.registerEditorOpener({
@@ -321,6 +372,38 @@
   // Every mounted editor keeps its own set of files, told apart by this name in their addresses.
   const spaces = new Map();
   let spaceSeq = 0;
+  // model → what its last formatting came to (format.js), read by mount's format().
+  const outcomes = new WeakMap();
+
+  // Monaco's own quick input, the box its command palette is: Go to File and Find in
+  // Files open in it. Reached by its module names in the CDN build; null where they move.
+  let quickInput = null;
+  const quick = () => quickInput || (quickInput = new Promise((resolve) => {
+    window.require(['vs/platform/quickinput/common/quickInput', 'vs/editor/standalone/browser/standaloneServices'], (qi, ss) => {
+      try { resolve(ss.StandaloneServices.get(qi.IQuickInputService) || null); } catch (e) { resolve(null); }
+    }, () => resolve(null));
+  }));
+
+  // What was typed into Find in Files, as a pattern: /…/flags is one as written, and
+  // anything else is looked for as it is, without regard to case unless it has a capital.
+  function pattern(q) {
+    const re = /^\/(.+)\/([imsu]*)$/.exec(q);
+    try {
+      if (re) return new RegExp(re[1], [...new Set(re[2] + 'g')].join(''));
+      return new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), /[A-Z]/.test(q) ? 'g' : 'gi');
+    } catch (e) { return null; }
+  }
+  const SEARCH_MAX = 500;
+
+  // The one stretch where `a` and `b` differ: { start, end } in a, and what goes there.
+  function narrowest(a, b) {
+    const most = Math.min(a.length, b.length);
+    let s = 0;
+    while (s < most && a.charCodeAt(s) === b.charCodeAt(s)) s++;
+    let e = 0;
+    while (e < most - s && a.charCodeAt(a.length - 1 - e) === b.charCodeAt(b.length - 1 - e)) e++;
+    return { start: s, end: a.length - e, text: b.slice(s, b.length - e) };
+  }
 
   /* ---------- Settings ----------
      What someone has set (editor-prefs.js), as Monaco's own options. A mounted editor
@@ -433,7 +516,13 @@
        failing()            the files with an error in them, as a Set
        back()               leave a read-only document for the file shown before it
        on(event, fn)        'change' (path, edit), 'show' (path, document), 'add', 'remove',
-                            'rename' (from, to), 'reset', 'problems'; returns its undo
+                            'rename' (from, to), 'reset', 'problems', 'format' (Shift+Alt+F
+                            was pressed); returns its undo
+
+     With Monaco and a formatter (format.js) there is also format(p) → Promise of
+     { changed } or { error, line, column }. An editor that is not read-only also has
+     goToFile() (Ctrl+P) and findInFiles() (Ctrl+Shift+F), which open in Monaco's quick
+     input; their keys work anywhere on the page while it is on screen.
        focus() dispose()
 
      With Monaco there is also `monaco`, `editor`, model(p), pathOf(model) and
@@ -448,7 +537,12 @@
         (subs[ev] = subs[ev] || new Set()).add(fn);
         return () => subs[ev].delete(fn);
       },
-      emit(ev, ...args) { if (subs[ev]) for (const fn of [...subs[ev]]) fn(...args); },
+      // → how many heard it
+      emit(ev, ...args) {
+        const fns = subs[ev] ? [...subs[ev]] : [];
+        for (const fn of fns) fn(...args);
+        return fns.length;
+      },
     };
   }
 
@@ -558,6 +652,11 @@
     }
 
     if (!opts.readOnly) {
+      // Shift+Alt+F is said on the bus, so whoever holds the session can say when it fails;
+      // with no one listening it is Monaco's Format Document.
+      editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.KeyF, () => {
+        if (!bus.emit('format')) editor.getAction('editor.action.formatDocument').run();
+      }, '!editorReadonly');
       editor.addAction({
         id: 'nt.enter',
         label: 'New Line',
@@ -588,7 +687,11 @@
         const locked = !!opts.readOnly || !path;
         editor.updateOptions({ readOnly: locked, domReadOnly: locked, renderLineHighlight: locked ? 'none' : 'line' });
         shown = path;
-        if (path) last = path;
+        if (path) {
+          last = path;
+          if (recent.includes(path)) recent.splice(recent.indexOf(path), 1);
+          recent.unshift(path);
+        }
         bus.emit('show', path, path ? null : model.uri.path.split('/').pop());
       }
       if (at) {
@@ -597,6 +700,131 @@
         editor.revealRangeInCenterIfOutsideViewport(range, monaco.editor.ScrollType.Immediate);
       }
     }
+
+    /* ----- Go to File, Find in Files ----- */
+
+    const nameOf = (p) => p.slice(p.lastIndexOf('/') + 1);
+    const recent = []; // project paths, the one shown last first
+
+    async function goToFile() {
+      const svc = await quick();
+      if (!svc || !host.isConnected) return;
+      editor.focus();
+      const qp = svc.createQuickPick();
+      // The files seen last come first, the one on screen last of all, as in a desktop editor.
+      const order = [...recent.filter((p) => models.has(p) && p !== shown), ...[...models.keys()].sort()];
+      qp.items = [...new Set([...order.filter((p) => p !== shown), shown].filter(Boolean))].map((path) => ({
+        label: nameOf(path),
+        description: path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '',
+        path,
+      }));
+      qp.placeholder = 'Go to file';
+      qp.matchOnDescription = true;
+      // name:12 goes to line 12 of it.
+      qp.filterValue = (v) => v.replace(/:\d*(?::\d*)?$/, '');
+      qp.onDidAccept(() => {
+        const it = qp.selectedItems[0] || qp.activeItems[0];
+        const m = /:(\d+)(?::(\d+))?$/.exec(qp.value);
+        qp.hide();
+        if (!it || !models.has(it.path)) return;
+        show(models.get(it.path), m ? { lineNumber: Number(m[1]), column: Number(m[2] || 1) } : null);
+        editor.focus();
+      });
+      qp.onDidHide(() => qp.dispose());
+      qp.show();
+    }
+
+    async function findInFiles() {
+      const svc = await quick();
+      if (!svc || !host.isConnected) return;
+      // What is selected on one line is what is looked for.
+      const sel = editor.getSelection();
+      const model = editor.getModel();
+      const picked = sel && !sel.isEmpty() && sel.startLineNumber === sel.endLineNumber && model ? model.getValueInRange(sel) : '';
+      editor.focus();
+      const qp = svc.createQuickPick();
+      qp.placeholder = 'Search in files';
+      qp.matchOnLabel = false;
+      qp.sortByLabel = false;
+      const run = () => {
+        const q = qp.value;
+        qp.validationMessage = undefined;
+        if (!q) return void (qp.items = []);
+        const re = pattern(q);
+        if (!re) {
+          qp.validationMessage = 'Not a regular expression';
+          return void (qp.items = []);
+        }
+        const out = [];
+        let count = 0;
+        for (const path of [...models.keys()].sort()) {
+          const lines = models.get(path).getLinesContent();
+          const hits = [];
+          for (let i = 0; i < lines.length && count < SEARCH_MAX; i++) {
+            re.lastIndex = 0;
+            let m;
+            while ((m = re.exec(lines[i])) && count < SEARCH_MAX) {
+              hits.push({ line: i + 1, at: m.index, len: m[0].length, text: lines[i] });
+              count++;
+              if (!m[0].length) re.lastIndex++;
+            }
+          }
+          if (!hits.length) continue;
+          out.push({ type: 'separator', label: path });
+          for (const hit of hits) {
+            // The line from its first word, and from a little before the match where it is far in.
+            const lead = hit.text.length - hit.text.trimStart().length;
+            const from = Math.max(lead, hit.at - 40);
+            const cut = from > lead ? '…' : '';
+            const label = cut + hit.text.slice(from, from + 200);
+            const start = cut.length + hit.at - from;
+            out.push({
+              label,
+              description: String(hit.line),
+              highlights: { label: [{ start, end: start + Math.max(1, hit.len) }] },
+              path,
+              range: { startLineNumber: hit.line, startColumn: hit.at + 1, endLineNumber: hit.line, endColumn: hit.at + 1 + hit.len },
+            });
+          }
+        }
+        qp.items = out;
+      };
+      let timer = null;
+      qp.onDidChangeValue(() => {
+        clearTimeout(timer);
+        timer = setTimeout(run, 80);
+      });
+      qp.onDidAccept(() => {
+        const it = qp.activeItems[0];
+        qp.hide();
+        if (!it || !it.range || !models.has(it.path)) return;
+        show(models.get(it.path), it.range);
+        editor.focus();
+      });
+      qp.onDidHide(() => {
+        clearTimeout(timer);
+        qp.dispose();
+      });
+      qp.value = picked;
+      run();
+      qp.show();
+    }
+
+    if (!opts.readOnly) {
+      editor.addAction({ id: 'nt.goToFile', label: 'Go to File…', keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyP], run: goToFile });
+      editor.addAction({ id: 'nt.findInFiles', label: 'Find in Files…', keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.KeyF], run: findInFiles });
+    }
+    // The same keys wherever the keyboard is on the editor's page (the file tree, its
+    // buttons), so Ctrl+P is never the browser's Print there. Not from a dialog over it.
+    const pageKeys = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || !host.isConnected || !host.offsetParent || host.closest('[inert]')) return;
+      const k = e.key.toLowerCase();
+      const run = k === 'p' && !e.shiftKey ? goToFile : k === 'f' && e.shiftKey ? findInFiles : null;
+      if (!run || editor.hasTextFocus() || document.activeElement.closest('[role=dialog], [role=alertdialog], .quick-input-widget')) return;
+      e.preventDefault();
+      run();
+    };
+    if (!opts.readOnly) window.addEventListener('keydown', pageKeys, true);
 
     spaces.set(id, {
       reveal(resource, at) {
@@ -684,9 +912,37 @@
         }
         return out;
       },
+      // → { changed } or { error, line, column }; { none: true } where there is no formatter.
+      // The file on screen goes through Monaco's Format Document; another is changed
+      // only where it differs, as one step to undo.
+      async format(path) {
+        const model = models.get(path);
+        if (!model || !NT.format.available()) return { none: true };
+        outcomes.delete(model);
+        if (editor.getModel() === model) {
+          // JSON has Monaco's own formatter, which says nothing of how it went.
+          await editor.getAction('editor.action.formatDocument').run();
+          return model.getLanguageId() === 'luau' ? outcomes.get(model) || { none: true } : { changed: false };
+        }
+        if (model.getLanguageId() !== 'luau') return { none: true };
+        const text = read(model);
+        const o = model.getOptions();
+        const r = await NT.format.text(text, { tabs: !o.insertSpaces, width: o.tabSize });
+        if (r.error || !r.changed || !models.has(path) || read(model) !== text) return r;
+        const d = narrowest(text, r.text);
+        const at = (n) => model.getPositionAt(n);
+        const from = at(d.start), to = at(d.end);
+        model.pushStackElement();
+        model.pushEditOperations([], [{ range: new monaco.Range(from.lineNumber, from.column, to.lineNumber, to.column), text: d.text }], () => null);
+        model.pushStackElement();
+        return r;
+      },
+      goToFile,
+      findInFiles,
       focus() { editor.focus(); },
       dispose() {
         spaces.delete(id);
+        window.removeEventListener('keydown', pageKeys, true);
         NT.bus.off('editor', retune);
         watch.dispose();
         popups.disconnect();
@@ -768,8 +1024,92 @@
     };
   }
 
+  /* ---------- Comparing ----------
+     Two texts side by side where there is room, one above the other where there is not,
+     with what did not change folded away. Read only. (compare.js says which two.) */
+
+  function mountDiff(monaco, host, opts) {
+    const LF = monaco.editor.EndOfLineSequence.LF;
+    const a = monaco.editor.createModel(opts.before, 'luau');
+    const b = monaco.editor.createModel(opts.after, 'luau');
+    a.setEOL(LF);
+    b.setEOL(LF);
+    const diff = monaco.editor.createDiffEditor(host, Object.assign({
+      theme: document.documentElement.dataset.theme === 'dark' ? 'nt-dark' : 'nt-light',
+      readOnly: true,
+      domReadOnly: true,
+      originalEditable: false,
+      automaticLayout: true,
+      fontFamily: font(),
+      fontLigatures: false,
+      padding: { top: 14, bottom: 14 },
+      scrollBeyondLastLine: false,
+      renderLineHighlight: 'none',
+      lineNumbersMinChars: 3,
+      lineDecorationsWidth: 12,
+      glyphMargin: false,
+      folding: false,
+      overviewRulerLanes: 0,
+      overviewRulerBorder: false,
+      renderOverviewRuler: false,
+      enableSplitViewResizing: false,
+      useInlineViewWhenSpaceIsLimited: true,
+      renderSideBySideInlineBreakpoint: 760,
+      ignoreTrimWhitespace: false,
+      hideUnchangedRegions: { enabled: true, contextLineCount: 3, minimumLineCount: 4, revealLineCount: 20 },
+      scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10, useShadows: false },
+      unicodeHighlight: { ambiguousCharacters: false, invisibleCharacters: false },
+      contextmenu: false,
+      ariaLabel: 'Changes',
+    }, look().codeOptions, tuned(true), { minimap: { enabled: false } }));
+    diff.setModel({ original: a, modified: b });
+    const retune = () => diff.updateOptions(tuned(true));
+    NT.bus.on('editor', retune);
+    // Lines added and removed, once the difference has been worked out (and again if it changes).
+    const counted = diff.onDidUpdateDiff(() => {
+      if (!opts.onStats) return;
+      let added = 0, removed = 0;
+      const changes = diff.getLineChanges() || [];
+      for (const c of changes) {
+        if (c.modifiedEndLineNumber > 0) added += c.modifiedEndLineNumber - c.modifiedStartLineNumber + 1;
+        if (c.originalEndLineNumber > 0) removed += c.originalEndLineNumber - c.originalStartLineNumber + 1;
+      }
+      opts.onStats({ added, removed, changes: changes.length });
+    });
+    return {
+      kind: 'monaco',
+      next() { diff.goToDiff('next'); },
+      previous() { diff.goToDiff('previous'); },
+      focus() { diff.getModifiedEditor().focus(); },
+      dispose() {
+        NT.bus.off('editor', retune);
+        counted.dispose();
+        diff.dispose();
+        a.dispose();
+        b.dispose();
+      },
+    };
+  }
+
   NT.code = {
     preload() { load().catch(() => {}); },
+    // Two texts compared, in `host`: { before, after, onStats({ added, removed, changes }) }.
+    // Without Monaco only `after` is shown. → { kind, next(), previous(), focus(), dispose() }
+    async diff(host, opts) {
+      const spinner = h('div.boot', h('div.spinner'));
+      host.append(spinner);
+      try {
+        const monaco = await load();
+        spinner.remove();
+        if (!host.isConnected) return { kind: 'none', next() {}, previous() {}, focus() {}, dispose() {} };
+        return mountDiff(monaco, host, opts);
+      } catch (e) {
+        spinner.remove();
+        host.classList.add('is-basic');
+        host.append(NT.luau.viewer(opts.after));
+        return { kind: 'basic', next() {}, previous() {}, focus() {}, dispose() {} };
+      }
+    },
     // Mount an editor into `host`.
     //   opts: { files: { path: text }, open: path, readOnly, onChange(path), onSave() }
     //   or, for one text: { value, readOnly }

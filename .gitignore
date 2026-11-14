@@ -21,3 +21,6 @@ desktop.ini
 .tools/
 # What the server stored before it stopped storing anything
 data/
+
+# Results of check/run.js
+check/out/

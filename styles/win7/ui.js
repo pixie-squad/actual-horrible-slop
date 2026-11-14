@@ -72,7 +72,8 @@
 
   // at: an element (the menu drops from its lower left corner; { align: 'right' } from
   // its lower right) or { x, y }.
-  // items: { label, onSelect, checked, radio, disabled, pix } | '-' | falsy (left out)
+  // items: { label, keys, onSelect, checked, radio, disabled, pix } | '-' | falsy (left out)
+  //   keys: the shortcut, written after the label as Windows writes it ("Ctrl+S")
   // opts: { align, owner, onClose, onSide, icons (their size: items show their `pix`), cls, band }
   W.menu = function (at, items, opts = {}) {
     W.closeMenu();
@@ -116,12 +117,19 @@
       },
         // Every item has its place in the gutter, marked or not.
         h('i.w-menu-mark', it.checked ? W.glyph(it.radio === false ? 'check' : 'bullet', 7, 7) : null),
-        h('span', it.label)));
+        h('span', it.label),
+        it.keys ? h('span.w-menu-keys', it.keys) : null));
     }
     if (list.lastChild && list.lastChild.classList.contains('w-menu-sep')) list.lastChild.remove();
     if (opts.cls) list.classList.add(opts.cls);
 
     W.layers.pop.append(list);
+    // The shortcuts start in one column, past the longest label, as a tab in a menu item puts them.
+    if (list.querySelector('.w-menu-keys')) {
+      const widths = [...list.querySelectorAll('.w-menu-item > span:not(.w-menu-keys)')].map((s) => s.offsetWidth);
+      list.style.setProperty('--w-label', Math.max(...widths) + 'px');
+      list.classList.add('has-keys');
+    }
     // Where it fits: below the control, or above it; never off the screen.
     const mw = list.offsetWidth, mh = list.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
     let x, y;
@@ -934,14 +942,20 @@
 
   // A balloon from the notification area: what just happened, for a moment. One at a
   // time; a press on it puts it away.
+  // opts.action: { label, onSelect }: what pressing the balloon does, as a balloon from
+  // the notification area offers it, and said under the text as a link.
   let balloon = null;
   W.balloon = function (text, opts = {}) {
     if (balloon) balloon.close(true);
-    const el = h('div.w-balloon', { role: 'status' }, W.icon(opts.warn ? 'warning' : 'info', 16), h('span', text));
-    let timer = 0;
+    const act = opts.action;
+    const link = act ? h('button.w-link.w-balloon-act', { type: 'button' }, act.label) : null;
+    const el = h('div.w-balloon' + (act ? '.has-action' : ''), { role: 'status' }, W.icon(opts.warn ? 'warning' : 'info', 16),
+      act ? h('div.w-balloon-text', h('span', text), link) : h('span', text));
+    let timer = 0, done = false;
     const self = {
       close(now) {
         clearTimeout(timer);
+        done = true;
         if (balloon === self) balloon = null;
         if (now || still.matches) return void el.remove();
         el.classList.add('is-going');
@@ -949,7 +963,11 @@
         setTimeout(() => el.remove(), 600);
       },
     };
-    el.addEventListener('click', () => self.close());
+    el.addEventListener('click', () => {
+      if (done) return;
+      self.close();
+      if (act) act.onSelect();
+    });
     W.layers.pop.append(el);
     // Its tail points at the app's own icon there.
     const tray = W.layers.tray;
@@ -957,17 +975,29 @@
       const t = tray.getBoundingClientRect(), b = el.getBoundingClientRect();
       el.style.setProperty('--tail', Math.max(10, Math.round(b.right - (t.left + t.width / 2) - 6)) + 'px');
     }
-    timer = setTimeout(() => self.close(), opts.duration || (opts.warn ? 5000 : 2800));
+    timer = setTimeout(() => self.close(), opts.duration || (act ? 6000 : opts.warn ? 5000 : 2800));
     balloon = self;
     return self;
   };
 
+  // What could not be done and can be tried again: a message box, as Windows asks it
+  // (Retry, Cancel); `label` other than Try Again is a button of that name.
+  function retryBox(message, act) {
+    W.message({
+      text: message,
+      icon: 'error',
+      buttons: [{ label: act.label === 'Try Again' ? 'Retry' : act.label, value: true, primary: true }, { label: 'Cancel', value: false }],
+    }).then((v) => { if (v === true) act.onSelect(); });
+  }
+
   // Said in the status bar of the window in front, for a moment. A window that shows
   // a place has no status bar, and with no window there is none either: then it is a
-  // balloon from the notification area.
+  // balloon from the notification area. What can be acted on is a balloon (Undo) or,
+  // for a failure, a message box.
   UI.toast = function (message, opts = {}) {
+    if (opts.action && opts.warn) return void retryBox(message, opts.action);
     const win = W.active();
-    if (win && !W.layers.modal.lastElementChild && win.note(message, opts)) return;
+    if (!opts.action && win && !W.layers.modal.lastElementChild && win.note(message, opts)) return;
     W.balloon(message, opts);
   };
 
@@ -1054,7 +1084,7 @@
         if (err.message === 'live-unavailable') error.textContent = 'Start the app with “node server.js” to sign in.';
         else if (err.status === 401) error.textContent = 'Wrong username or password.';
         else if (err.status === 409) error.textContent = 'That username is taken.';
-        else error.textContent = 'Could not sign in. Try again.';
+        else error.textContent = NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not sign in. Try again.';
       } finally {
         submit.disabled = false;
       }
@@ -1091,7 +1121,7 @@
         NT.bus.emit('session');
         UI.toast('Password changed');
       } catch (err) {
-        error.textContent = err.status === 401 ? 'Current password is incorrect.' : 'Could not change the password. Try again.';
+        error.textContent = err.status === 401 ? 'Current password is incorrect.' : NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not change the password. Try again.';
         submit.disabled = false;
       }
     });

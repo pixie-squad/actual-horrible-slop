@@ -128,7 +128,10 @@
       h('img', { src: art('flag.png'), alt: '', draggable: false }), 'start');
     const tasks = h('div.w-tasks', { role: 'toolbar', 'aria-label': 'Windows' });
     const clock = h('span.w-clock');
-    const el = h('footer.w-taskbar', start, tasks, h('div.w-tray', clock));
+    // The app's own icon in the notification area: balloons come from it.
+    const tray = h('button.w-tray-icon', { type: 'button', 'aria-label': 'NT Scripting', title: 'NT Scripting', onclick: () => Nav.go('/') }, W.icon('app', 16));
+    W.layers.tray = tray;
+    const el = h('footer.w-taskbar', start, tasks, h('div.w-tray', tray, clock));
 
     // The Start menu: who is signed in across the top. Down the white side the places,
     // pinned, then the scripts worked on last (as many as there is room for) and All
@@ -257,6 +260,8 @@
     await Promise.all([NT.api.init(), NT.ext.init()]);
     app.classList.remove('is-busy');
     app.removeAttribute('aria-busy');
+    // The service did not answer: Windows says so in a message box, and Retry starts again.
+    if (NT.api.down) return void W.message({ text: 'Upstream is unreachable.', icon: 'error', buttons: [{ label: 'Retry', value: true, primary: true }] }).then(() => location.reload());
     Nav.start();
     readRecent();
   }

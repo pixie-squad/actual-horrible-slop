@@ -44,6 +44,11 @@ it takes after, and its own rules, with their sources, are in
   when the content comes.
 - Where a style animates, the animation is right in every frame, not only once it has
   settled.
+- Only what is lost for good asks first. What can be taken back is done at once and
+  offers Undo for a few seconds (a delete: `NT.actions.remove`).
+- What did not go through says so, and why where that is known; a page that did not
+  load offers Try Again. The service out of reach reads as that, never as "not found"
+  or as being signed out (`NT.actions.failed`, `trouble`; `NT.api.down`).
 
 ## 3. Colour and type
 
@@ -60,6 +65,10 @@ it takes after, and its own rules, with their sources, are in
   (OK, Cancel, Properties) are that style's.
 
 ## 5. Before calling a change done
+
+`node check/run.js` does the walk of every page, the states, the frame cost and the
+load cost below, in every style (see the head of `check/run.js`).
+
 
 - Both themes.
 - At 1280 px wide with 150 % scaling, and at phone width.

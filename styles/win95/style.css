@@ -395,6 +395,9 @@ html[data-wall] .w-desk-icon:not(:focus) span { background: var(--desktop); }
 .w-buttons { flex: none; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; }
 .w-buttons.centre { justify-content: center; }
 .w-buttons.left { justify-content: flex-start; }
+/* A list with its buttons under it, filling a tab (the releases). */
+.w-list-pane { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 0; height: 100%; }
+.w-list-pane > .w-list { flex: 1; min-height: 0; }
 .w-buttons.stack { flex-direction: column; align-items: stretch; }
 
 /* ---------- Menus ---------- */
@@ -415,6 +418,9 @@ html[data-wall] .w-desk-icon:not(:focus) span { background: var(--desktop); }
 .w-menu-mark { flex: none; display: grid; place-items: center; width: 14px; margin-right: 2px; }
 .w-menu-item:focus { background: var(--sel); color: var(--sel-text); }
 .w-menu-item:disabled { color: var(--gray-text); text-shadow: 1px 1px 0 var(--gray-emboss); }
+/* A shortcut, in its own column (ui.js lines them up). */
+.w-menu.has-keys .w-menu-item > span:not(.w-menu-keys) { min-width: var(--w-label); }
+.w-menu-keys { padding-left: 24px; }
 .w-menu-sep { height: 0; margin: 3px 1px; border-top: 1px solid var(--shadow); border-bottom: 1px solid var(--hilight); }
 /* A drop-down list is a field's own: white, a plain black edge. */
 .w-menu.w-droplist { padding: 0; background: var(--window); border: 1px solid var(--dark); border-image: none; }
@@ -653,6 +659,24 @@ textarea.w-edit { height: auto; resize: none; line-height: 1.3; }
 .monaco-editor .monaco-hover { border: 1px solid var(--dark) !important; border-radius: 0 !important; box-shadow: none !important; font-family: var(--font) !important; }
 .monaco-editor .find-widget { background: var(--face) !important; }
 .monaco-editor .find-widget .monaco-inputbox, .monaco-editor .rename-box .rename-input { border-radius: 0 !important; box-shadow: var(--sunken-shadow); }
+/* Monaco's quick input (Go to File, Find in Files, the command palette). Its rows are
+   placed by Monaco at a fixed height, so only their look changes here. */
+.quick-input-widget .quick-input-header { padding: 0 !important; margin-bottom: 0 !important; }
+.quick-input-widget .monaco-list, .quick-input-widget .monaco-list-rows { background: none !important; }
+.quick-input-widget .quick-input-list .monaco-list-row { outline: 0 !important; }
+/* Everything in the chosen row is in the chosen row's colour. */
+.quick-input-widget .quick-input-list .monaco-list-row.focused * { color: inherit !important; opacity: 1 !important; }
+.quick-input-widget { border: 2px solid transparent !important; border-image: var(--bi-frame) 2 !important; border-radius: 0 !important; box-shadow: none !important; padding: 3px !important; background: var(--face) !important; color: var(--text) !important; font-family: var(--font) !important; font-size: var(--fs) !important; }
+.quick-input-widget .monaco-inputbox { border: 2px solid transparent !important; border-image: var(--bi-sunken) 2 !important; border-radius: 0 !important; background: var(--window) !important; }
+.quick-input-widget .monaco-inputbox .input { padding: 2px 3px !important; color: var(--text) !important; font-family: var(--font) !important; font-size: var(--fs) !important; }
+.quick-input-widget .quick-input-list { margin-top: 3px; border: 2px solid transparent; border-image: var(--bi-sunken) 2; background: var(--window); }
+.quick-input-widget .quick-input-list .monaco-list-row { border-radius: 0 !important; color: var(--text) !important; font-family: var(--font); font-size: var(--fs); }
+.quick-input-widget .quick-input-list .monaco-list-row.focused { background: var(--sel) !important; color: var(--sel-text) !important; }
+/* Monaco colours a match by these, firmly; they are set here instead. */
+html .quick-input-widget { --vscode-list-highlightForeground: var(--text); --vscode-list-focusHighlightForeground: var(--sel-text); }
+.quick-input-widget .monaco-highlighted-label .highlight { font-family: var(--font-bold); font-weight: normal !important; }
+.quick-input-widget .label-description, .quick-input-widget .quick-input-list-separator { color: var(--gray-text) !important; opacity: 1 !important; }
+.quick-input-widget .quick-input-list-separator-border { border-top-color: var(--shadow) !important; }
 .context-view .monaco-menu .monaco-action-bar.vertical .action-menu-item { border-radius: 0 !important; height: calc(var(--row) + 2px); font-family: var(--font); font-size: var(--fs); }
 .monaco-editor .scrollbar .slider { background: var(--face) !important; border: 2px solid transparent; border-image: var(--bi-raised) 2; border-radius: 0 !important; }
 /* (Monaco clears the background of a scroll bar that is showing; this is said more firmly.) */

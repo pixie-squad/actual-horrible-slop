@@ -40,6 +40,11 @@ Top to bottom (`ui.js`, `W.window`):
   ends in an ellipsis.
 - What a toast says in other styles is said in the status bar of the window in front
   (`UI.toast`). Only a warning with no window to say it in is a message box.
+- There were no balloons yet. Something that can be taken back (Undo) is said in the
+  status bar and taken back as Explorer did it: the first item of the window's first
+  menu, and Ctrl+Z, for as long as it lasts. A failure that can be tried again is a
+  message box with the error icon, Retry and Cancel; one the app cannot start without
+  (the service out of reach) has Retry alone.
 - Waiting is the hourglass over the window (`win.busy`), and the list stays as it was.
 
 ## 3. Dialog boxes

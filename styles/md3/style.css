@@ -246,6 +246,8 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 
 .m-app { position: fixed; inset: 0; display: grid; grid-template: "stage" minmax(0, 1fr) "nav" auto / minmax(0, 1fr); background: var(--page); }
 .m-stage { grid-area: stage; position: relative; overflow: hidden; }
+/* In place of the pages when the service did not answer (app.js). */
+.m-down { position: absolute; inset: 0; display: grid; place-items: center; }
 
 /* The navigation bar (NavigationBarTokens, NavigationBarVerticalItemTokens): 64 high,
    the symbol in a 56 × 32 indicator, 4 above a label-medium label. */
@@ -363,6 +365,9 @@ svg.m-icon, svg.icon { flex: none; display: block; }
    round, 8 while pressed. One that is switched on is the 12 square, and takes the
    stronger colour of its kind. */
 .m-iconbtn { --round: 20px; flex: none; display: grid; place-items: center; width: 40px; height: 40px; margin: 4px; border-radius: var(--round); color: var(--on-surface-variant); transition: border-radius var(--m-effects-dur) var(--m-effects), background var(--m-effects-dur) var(--m-effects), color var(--m-effects-dur) var(--m-effects); }
+/* A toggle icon button, selected: its icon in primary, filled (Icon buttons, toggle). */
+.m-iconbtn.standard[aria-pressed="true"] { color: var(--primary); }
+.m-iconbtn.standard[aria-pressed="true"] .msr { font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24; }
 .m-iconbtn.filled { background: var(--primary); color: var(--on-primary); }
 .m-iconbtn.tonal { background: var(--secondary-container); color: var(--on-secondary-container); }
 .m-iconbtn.outlined { box-shadow: inset 0 0 0 1px var(--outline-variant); }
@@ -671,6 +676,12 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 /* SnackbarTokens: 48 for one line, the 4 corner, inverse surface, level 3, body-medium. */
 .m-snackbar { display: flex; align-items: center; min-height: 48px; max-width: 560px; padding: 14px 16px; border-radius: var(--r-xs); background: var(--inverse-surface); color: var(--inverse-on-surface); box-shadow: var(--elev-3); font: 400 14px/20px var(--font); letter-spacing: 0.25px; pointer-events: auto; }
 .m-snackbar.warn { background: var(--error-container); color: var(--on-error-container); }
+/* With an action (Snackbar.kt): 6 above and below, 8 at the trailing end, 8 between the
+   words and the text button; the action label-large in inverse primary. */
+.m-snackbar.has-action { padding: 6px 8px 6px 16px; }
+.m-snackbar.has-action > span { flex: 1; padding: 8px 0; }
+.m-snack-action.m-btn.text { margin-left: 8px; color: var(--inverse-primary); }
+.m-snackbar.warn .m-snack-action.m-btn.text { color: var(--on-error-container); }
 
 /* ---------- Code ---------- */
 
@@ -715,6 +726,24 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .context-view .monaco-menu .monaco-action-bar.vertical { padding: 4px; }
 .context-view .monaco-menu .monaco-action-bar.vertical .action-menu-item { height: 40px; border-radius: var(--r-m); font-family: var(--font); font-size: 14px; }
 .monaco-editor .find-widget .monaco-inputbox, .monaco-editor .rename-box .rename-input { border-radius: var(--r-xs) !important; }
+/* Monaco's quick input (Go to File, Find in Files, the command palette). Its rows are
+   placed by Monaco at a fixed height, so only their look changes here. */
+.quick-input-widget .quick-input-header { padding: 0 !important; margin-bottom: 0 !important; }
+.quick-input-widget .monaco-list, .quick-input-widget .monaco-list-rows { background: none !important; }
+.quick-input-widget .quick-input-list .monaco-list-row { outline: 0 !important; }
+/* Everything in the chosen row is in the chosen row's colour. */
+.quick-input-widget .quick-input-list .monaco-list-row.focused * { color: inherit !important; opacity: 1 !important; }
+.quick-input-widget { border: 0 !important; border-radius: var(--r-l) !important; box-shadow: var(--elev-2) !important; padding: 8px !important; background: var(--surface-container) !important; color: var(--on-surface) !important; font-family: var(--font) !important; overflow: hidden; }
+.quick-input-widget .monaco-inputbox { border: 0 !important; border-radius: 28px !important; background: var(--surface-container-highest) !important; }
+.quick-input-widget .monaco-inputbox .input { padding: 8px 16px !important; color: var(--on-surface) !important; font-family: var(--font) !important; font-size: 16px; }
+.quick-input-widget .quick-input-list { margin-top: 8px; }
+.quick-input-widget .quick-input-list .monaco-list-row { border-radius: var(--r-m) !important; color: var(--on-surface) !important; font-family: var(--font); font-size: 14px; }
+.quick-input-widget .quick-input-list .monaco-list-row.focused { background: var(--secondary-container) !important; color: var(--on-secondary-container) !important; }
+/* Monaco colours a match by these, firmly; they are set here instead. */
+html .quick-input-widget { --vscode-list-highlightForeground: var(--primary); --vscode-list-focusHighlightForeground: var(--on-secondary-container); }
+.quick-input-widget .monaco-highlighted-label .highlight { font-weight: 600 !important; }
+.quick-input-widget .label-description, .quick-input-widget .quick-input-list-separator { color: var(--on-surface-variant) !important; opacity: 1 !important; }
+.quick-input-widget .quick-input-list-separator-border { border-top-color: var(--outline-variant) !important; }
 
 /* ---------- The file tree (js/explorer.js) ---------- */
 

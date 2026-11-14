@@ -178,12 +178,18 @@
     const publish = async () => {
       if (await S.commit(false)) A.publish(script, () => { script.published_at = new Date().toISOString(); });
     };
+    // What this text changes since the last release, once it is saved (compare.js).
+    const compareRelease = async () => {
+      if (!(await S.commit(false))) return;
+      const latest = NT.compare.before(await API.releases(id).catch(() => []), null);
+      if (latest != null) NT.nav.go(NT.compare.path(id, null, latest));
+    };
     function menus() {
       win.setMenus([
         {
           label: 'File',
           items: () => [
-            { label: 'Save', disabled: saveBtn.disabled, onSelect: () => S.commit(true) },
+            { label: 'Save', keys: 'Ctrl+S', disabled: saveBtn.disabled, onSelect: () => S.commit(true) },
             !script.published_at && { label: 'Publish', onSelect: publish },
             '-',
             testBtn && { label: 'Test', onSelect: runTest },
@@ -198,12 +204,35 @@
           ],
         },
         {
+          label: 'Edit',
+          // What Monaco does, from the menu; a definition file on screen can only be read.
+          items: () => {
+            const code = ed.kind === 'monaco', typing = code && !shownDoc, many = !!ed.goToFile && ed.paths().length > 1;
+            const run = (action) => () => { ed.focus(); ed.editor.trigger('menu', action, null); };
+            return [
+              { label: 'Undo', keys: 'Ctrl+Z', disabled: !typing, onSelect: run('undo') },
+              { label: 'Redo', keys: 'Ctrl+Y', disabled: !typing, onSelect: run('redo') },
+              '-',
+              { label: 'Find…', keys: 'Ctrl+F', disabled: !code, onSelect: run('actions.find') },
+              { label: 'Replace…', keys: 'Ctrl+H', disabled: !typing, onSelect: run('editor.action.startFindReplaceAction') },
+              // Across files, where there is more than one.
+              many && { label: 'Find in Files…', keys: 'Ctrl+Shift+F', onSelect: () => ed.findInFiles() },
+              many && { label: 'Go to File…', keys: 'Ctrl+P', onSelect: () => ed.goToFile() },
+              '-',
+              { label: 'Select All', keys: 'Ctrl+A', disabled: !code, onSelect: run('editor.action.selectAll') },
+              ed.format && NT.format.available() && '-',
+              ed.format && NT.format.available() && { label: 'Format Document', keys: 'Shift+Alt+F', disabled: !typing, onSelect: () => S.format() },
+            ];
+          },
+        },
+        {
           label: 'View',
           items: () => [
             S.multi && { label: 'Files', checked: sideOpen, radio: false, onSelect: () => showSide(!sideOpen) },
             // The pane, with the last run in it; there is none to show before the first.
             testBtn && { label: 'Test', checked: testsOpen, radio: false, disabled: !testsOpen && !(tests && tests.run), onSelect: () => showTests(!testsOpen) },
-            (S.multi || testBtn) && '-',
+            !!script.published_at && { label: 'Compare with Release', onSelect: compareRelease },
+            (S.multi || testBtn || !!script.published_at) && '-',
             { label: 'Editor Settings', onSelect: () => NT.nav.go('/settings/editor') },
           ],
         },
