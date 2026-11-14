@@ -50,7 +50,7 @@
     visibility: 'eye', play_arrow: 'play', check: 'check', close: 'xmark', schedule: 'clock', description: 'doc', content_copy: 'copy',
     link: 'link', key: 'key', palette: 'appearance', info: 'info', warning: 'warning', sort: 'sort', send: 'send', logout: 'logout',
     upload: 'upload', image: 'photo', list_alt: 'list', folder_open: 'sidebar', save: 'check', restart_alt: 'reset', expand_more: 'chevron-down',
-    history: 'clock', tune: 'gear', error: 'warning', login: 'person', content_paste: 'clipboard', draft: 'doc',
+    history: 'clock', tune: 'sliders', error: 'warning', login: 'person', content_paste: 'clipboard', draft: 'doc', library_books: 'books',
   };
   let symbols = 'wait';
   M.icon = function (name, opts = {}) {
@@ -523,7 +523,7 @@
     copy: 'content_copy', doc: 'description', gear: 'settings', link: 'link', heart: 'favorite', 'doc-plus': 'note_add', 'folder-plus': 'create_new_folder',
     scissors: 'content_cut', clipboard: 'content_paste', duplicate: 'file_copy', download: 'download', collapse: 'unfold_less', folder: 'folder',
     check: 'check', person: 'person', key: 'key', reset: 'restart_alt', sort: 'sort', 'doc-text': 'description', braces: 'data_object', sidebar: 'folder_open',
-    wand: 'auto_fix_high', clock: 'history', eye: 'visibility', diff: 'difference',
+    wand: 'auto_fix_high', clock: 'history', eye: 'visibility', diff: 'difference', sliders: 'tune', books: 'library_books',
   };
   const matIcon = (name) => MAT[name] || name;
 
@@ -574,23 +574,38 @@
     return rec;
   }
 
-  // o: { icon, title, text, body (a node), actions: [nodes], onClose, wide, safe }
+  // o: { icon, title, text, body (a node), actions: [nodes], onClose, wide, safe,
+  //      full: a basic dialog as wide as one gets (DialogTokens: 560), and on a compact
+  //        window (under 600) a full-screen dialog: the headline in a bar with Close
+  //        before it and the last action after it, as a text button }
   M.dialog = function (o) {
-    const el = h('div.m-dialog' + (o.wide ? '.wide' : ''), { role: 'dialog', 'aria-modal': 'true', 'aria-label': o.title || null, tabIndex: -1 },
+    const el = h('div.m-dialog' + (o.wide ? '.wide' : '') + (o.full ? '.full' : ''), { role: 'dialog', 'aria-modal': 'true', 'aria-label': o.title || null, tabIndex: -1 },
+      o.full ? M.iconButton('close', 'Close', () => rec.close(), { cls: '.m-dialog-x' }) : null,
       o.icon ? h('div.m-dialog-icon', M.icon(o.icon)) : null,
       o.title ? h('h2', o.title) : null,
       o.text ? h('p', o.text) : null,
       o.body || null,
       o.actions && o.actions.length ? h('div.m-dialog-actions', o.actions) : null);
+    // Full-screen, it is a page of its own that comes up from the bottom edge on the
+    // spatial spring, as a sheet does, and goes back down; any other dialog grows in as it
+    // fades.
+    const whole = !!o.full && window.matchMedia('(max-width: 599px)').matches;
     const rec = modal(el, {
+      cls: o.full ? '.full' : '',
       onClose: o.onClose,
-      leave: () => play(el, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(0.94)' }], M.motion.effects, { fill: 'forwards' }),
+      leave: () => (whole
+        ? play(el, [{ transform: 'none' }, { transform: 'translateY(100%)' }], M.motion.effects, { fill: 'forwards' })
+        : play(el, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(0.94)' }], M.motion.effects, { fill: 'forwards' })),
     });
-    play(el, [{ opacity: 0, transform: 'scale(0.86)' }, { opacity: 1, transform: 'none' }], M.motion.spatial);
+    if (whole) play(el, [{ transform: 'translateY(100%)' }, { transform: 'none' }], M.motion.spatial);
+    else play(el, [{ opacity: 0, transform: 'scale(0.86)' }, { opacity: 1, transform: 'none' }], M.motion.spatial);
     // The keyboard starts in the first field, or on the action that goes on; where
     // that one destroys something, on the one that does not.
     // (A field that is not shown, like the name when logging in, cannot take it.)
-    ([...el.querySelectorAll('input, textarea')].find((n) => n.getClientRects().length) || el.querySelector(o.safe ? '.m-dialog-actions button:first-child' : '.m-dialog-actions button:last-child') || el).focus({ preventScroll: true });
+    // (Nor can an action that is not shown or not yet enabled; the dialog then has it.)
+    const first = [...el.querySelectorAll('input, textarea')].find((n) => n.getClientRects().length) || el.querySelector(o.safe ? '.m-dialog-actions button:first-child' : '.m-dialog-actions button:last-child');
+    if (first) first.focus({ preventScroll: true });
+    if (!el.contains(document.activeElement)) el.focus({ preventScroll: true });
     return { el, close: rec.close };
   };
 

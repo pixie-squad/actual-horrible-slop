@@ -40,8 +40,11 @@ Material Design 2 differs.
 - **Bottom navigation** has no indicator shape: the place you are in is the primary
   colour and its label a size larger. From 600 px it is a rail.
 - A choice between views of a list is **tabs** above it, the chosen one underlined in
-  the primary colour (`.m-filter .m-group`). Elsewhere the same choice is a group of
-  joined toggle buttons.
+  the primary colour (`.m-filter .m-group`). On a phone each is its label with 24
+  either side and at least 90; they share the row where they fit and scroll where they
+  do not (Scripts with Libraries), the chosen one brought into view (`mdc-tab`,
+  `mdc-tab-scroller`).
+  Elsewhere the same choice is a group of joined toggle buttons.
 - A list is one sheet with a line between its rows (`.m-list`).
 - A floating action button with more than one action opens a **speed dial**: small
   round buttons above it, each with its name beside it (`M.fab`).
@@ -50,8 +53,20 @@ Material Design 2 differs.
   the code: no shadow, a divider on its leading edge, and the code narrows to make
   room as it slides in. The guidelines fix its width without giving one; it is 360.
   Below 840 it is a bottom sheet, as the files are (for a phone the guidelines would
-  have a modal side sheet). Under its heading, Output and State are tabs; State is the
+  have a modal side sheet). Its heading is the run's title with the sheet's icon
+  buttons (Test Settings, Close), and under it the detail with the outlined button that
+  acts on the run. Under the heading, Output and State are tabs; State is the
   battle's objects as choice chips, a search bar and a data table.
+- What the tests run with is a **dialog**, Test Settings, from the side sheet's heading
+  and the More menu (`tests.js`, `M.testSettings`). A change holds at once, so it has
+  Done and no Cancel. Its content scrolls between the title and Done with a divider at
+  either edge while it does (`mdc-dialog--scrollable`), and a list in a dialog is part
+  of the dialog's paper: rows 24 from its edges, a line between them, no shadow.
+- History is a dialog of the saves (`editor.js`). A save opens on what it changes in a
+  dialog 560 wide with Cancel and Restore, and under 600 in a **full-screen dialog**:
+  the title in a bar coloured as the top app bar, Close before it and Restore after it
+  (`M.dialog`, `full`).
+- What waits for Save is a checkbox, so Library in Details is one (`M.check`).
 
 ## 4. Components
 
@@ -92,6 +107,8 @@ Material Design 2 differs.
   thing travels (`ui.js`, `M.motion`). Nothing overshoots and nothing springs.
 - A press spreads ink from where it landed (`.m-press`).
 - Going deeper moves forward along the horizontal axis; changing place fades through.
+- A dialog grows in as it fades; a full-screen dialog is a page of its own that comes
+  up from the bottom edge and goes back down (`M.dialog`).
 
 ## 6. Type and icons
 
@@ -120,3 +137,9 @@ Material Design 2 differs.
   padding, type and colours.
 - The guidelines' side sheets page (Sheets: side): standard side sheets, coplanar or
   raised, a fixed width, on tablet and desktop.
+- The guidelines' dialogs page: simple, confirmation and full-screen dialogs (a
+  full-screen dialog on a phone, its title in a top app bar with a close icon and the
+  confirming action), a dialog's width up to 560, and dividers on scrolling content;
+  Material Components for the web, `packages/mdc-dialog` (`mdc-dialog--scrollable`).
+- Material Components for the web, `packages/mdc-tab` and `packages/mdc-tab-scroller`:
+  a tab's 24 either side and 90 at least, and scrolling tabs where they do not fit.

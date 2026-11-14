@@ -18,7 +18,60 @@
   const icon = NT.icon;
   const UI = NT.ui;
 
-  function testsView({ onRun, onClose }) {
+  const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+  // What a script's tests run with (NT.tests.setup): how long, on which map, and its
+  // parameters as its page shows them. A change holds from the next run on.
+  async function testSettings(script) {
+    const API = NT.api;
+    const id = script.script_id;
+    const set = NT.tests.setup(id);
+    const values = Object.assign({}, set.values);
+    let seconds = set.seconds, map = set.map;
+    const limit = (API.mode === 'live' && NT.ext.info('tests').seconds) || NT.tests.seconds;
+    const keep = () => NT.tests.configure(id, { seconds, map, values });
+    const [params, maps] = await Promise.all([
+      API.parameters(id).catch(() => []),
+      API.maps(script.author_uuid).catch(() => []),
+    ]);
+
+    const shown = () => (seconds == null ? limit.usual : seconds);
+    const time = h('span.param-value', clock(shown()));
+    const timeReset = h('button.param-reset', { type: 'button', hidden: seconds == null }, 'Reset');
+    const setTime = (v) => {
+      seconds = v === limit.usual ? null : v;
+      time.textContent = clock(v);
+      timeReset.hidden = seconds == null;
+      keep();
+    };
+    const slider = UI.slider({ min: limit.least, max: limit.most, step: 5, value: shown(), label: 'Duration', onInput: setTime });
+    timeReset.addEventListener('click', () => { slider.set(limit.usual); setTime(limit.usual); });
+
+    const mapValue = h('span');
+    const mapPick = h('button.row-pick', { type: 'button', 'aria-label': 'Map' }, mapValue, icon('sort', 15));
+    const syncMap = () => {
+      const m = map && maps.find((x) => x.user_map_id === map.id);
+      mapValue.textContent = map === undefined ? 'Default' : m ? m.name : 'None';
+    };
+    const pickMap = (next) => () => { map = next; syncMap(); keep(); };
+    mapPick.addEventListener('click', () => UI.menu(mapPick, [
+      { label: 'Default', checked: map === undefined, onSelect: pickMap(undefined) },
+      { label: 'None', checked: map === null, onSelect: pickMap(null) },
+      maps.length ? '-' : null,
+      ...maps.map((m) => ({ label: m.name, checked: !!map && map.id === m.user_map_id, onSelect: pickMap({ id: m.user_map_id, internal: m.internal_id }) })),
+    ]));
+    syncMap();
+
+    const body = h('div',
+      h('div.list',
+        h('div.row.param.col', h('div.param-head', h('span.row-title', 'Duration'), timeReset, time), slider.el),
+        h('div.row', h('span.row-title', 'Map'), mapPick)),
+      params.length ? h('h3.list-header', 'Parameters') : null,
+      params.length ? NT.kit.paramGroups(params, values, keep) : null);
+    return UI.sheet({ title: 'Test Settings', body });
+  }
+
+  function testsView({ onRun, onClose, onSettings }) {
     let run = null, off = null, drawn = 0, tone = '';
     let view = 'output', kind = 'all', query = '';
 
@@ -30,6 +83,9 @@
     const act = NT.glass.shine(h('button.pill-btn.glass.interactive.tests-act', { type: 'button' }, label));
     const close = onClose
       ? NT.glass.shine(h('button.tests-close.glass.interactive', { type: 'button', 'aria-label': 'Close', title: 'Close', onclick: onClose }, icon('xmark', 15)))
+      : null;
+    const settings = onSettings
+      ? NT.glass.shine(h('button.tests-close.tests-settings.glass.interactive', { type: 'button', 'aria-label': 'Test Settings', title: 'Test Settings', onclick: () => onSettings() }, icon('sliders', 16)))
       : null;
     const views = UI.segmented([{ value: 'output', label: 'Output' }, { value: 'state', label: 'State' }], view, (v) => {
       view = v;
@@ -58,7 +114,7 @@
     const state = h('div.tests-state', { hidden: true }, h('div.tests-tools', kinds.el, search), summary, grid);
 
     const el = h('section.tests', { 'aria-label': 'Test' },
-      h('header.tests-head', mark, h('div.tests-title', title, detail), views.el, act, close),
+      h('header.tests-head', mark, h('div.tests-title', title, detail), views.el, act, settings, close),
       bar, h('div.tests-body', lines, state));
 
     act.addEventListener('click', () => {
@@ -140,4 +196,5 @@
   }
 
   NT.kit.testsView = testsView;
+  NT.kit.testSettings = testSettings;
 })();

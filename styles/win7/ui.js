@@ -351,7 +351,8 @@
 
   /* ---------- List view (details) ----------
      columns: [{ label, width (a grid track: '1fr', '120px'), cell(item) → text or node,
-                 sort(a, b) (clicking the header sorts by it), icon(item) (first column) }]
+                 sort(a, b) (clicking the header sorts by it), icon(item) (first column),
+                 align: 'right' (a column of numbers, and its heading) }]
      o: { empty (what the field says with nothing in it: text or node),
           onOpen(item)  double-click or Enter,
           onPick(item)  the selection changed (null: nothing chosen),
@@ -370,7 +371,7 @@
     const watch = new IntersectionObserver((seen) => { if (seen[seen.length - 1].isIntersecting) more(); }, { root: el, rootMargin: '0px 0px 400px 0px' });
 
     columns.forEach((c, i) => {
-      const b = h('button.w-col', { type: 'button', tabIndex: -1, disabled: !c.sort }, h('span', c.label));
+      const b = h('button.w-col' + (c.align === 'right' ? '.right' : ''), { type: 'button', tabIndex: -1, disabled: !c.sort }, h('span', c.label));
       if (c.sort) b.addEventListener('click', () => {
         sortBy = sortBy && sortBy[0] === i ? [i, -sortBy[1]] : [i, 1];
         if (o.onSort) o.onSort(sortBy);
@@ -643,6 +644,9 @@
         ].filter(Boolean));
         win.syncTravel();
       },
+      // The place is still being read: the address bar fills with green from its start,
+      // as Explorer's does while it searches.
+      loading(on) { addr.classList.toggle('is-loading', !!on); },
       // Back and Forward can be pressed when there is somewhere to go.
       syncTravel() {
         if (!back) return;

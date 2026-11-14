@@ -524,6 +524,8 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-item.m-press:focus-visible { outline-offset: -3px; }
 .m-item.plain { padding: 0; background: none; }
 .m-item.col { flex-direction: column; align-items: stretch; gap: 0; }
+/* (Down a column a slider keeps its height; grown from nothing it would have none.) */
+.m-item.col > .m-slider { flex: none; }
 .m-item-icon { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--secondary-container); color: var(--on-secondary-container); }
 .m-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .m-item-headline { font: 400 16px/24px var(--font); letter-spacing: 0.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -536,6 +538,14 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 /* A value that opens a menu: a text button. */
 .m-pick { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 40px; margin-right: -8px; padding: 0 8px 0 12px; border-radius: 20px; color: var(--primary); font: 500 14px/20px var(--font); letter-spacing: 0.1px; transition: border-radius var(--m-effects-dur) var(--m-effects); }
 .m-pick:active { border-radius: var(--r-s); }
+/* The line a script writes to use a library, in Roboto Mono; a long one wraps. */
+.m-lib-use { flex: 1; min-width: 0; font: 400 14px/20px var(--mono); letter-spacing: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.m-item > .m-lib-use + .m-iconbtn { margin-right: -8px; }
+/* A sheet of settings: lists, and between them a heading in label-large and primary,
+   lined up with what the items say. */
+.m-settings { flex: none; display: flex; flex-direction: column; gap: 8px; }
+.m-settings > .m-section { min-height: 40px; margin-top: 8px; padding-left: 16px; }
+.m-settings > .m-section h2 { padding: 0; font: 500 14px/20px var(--font); letter-spacing: 0.1px; color: var(--primary); }
 .m-inline { flex: 1; min-width: 0; height: 32px; padding: 0 8px; border-radius: var(--r-xs); box-shadow: inset 0 0 0 2px var(--primary); font: 400 16px/24px var(--font); letter-spacing: 0.5px; }
 .m-param-head { display: flex; align-items: center; gap: 8px; min-height: 40px; }
 .m-param-head .m-item-headline { flex: 1; }
@@ -664,9 +674,27 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-dialog.wide { width: min(480px, 100%); }
 .m-dialog-icon { display: grid; place-items: center; color: var(--secondary); }
 .m-dialog-icon + h2 { text-align: center; }
-.m-dialog h2 { font: 400 24px/32px var(--font); letter-spacing: 0; overflow-wrap: anywhere; }
-.m-dialog p { font: 400 14px/20px var(--font); letter-spacing: 0.25px; color: var(--on-surface-variant); }
+.m-dialog > h2 { font: 400 24px/32px var(--font); letter-spacing: 0; overflow-wrap: anywhere; }
+.m-dialog > p { font: 400 14px/20px var(--font); letter-spacing: 0.25px; color: var(--on-surface-variant); }
 .m-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+/* A basic dialog as wide as one gets (full: 560, AlertDialog.kt's DialogMaxWidth), and on
+   a compact window a full-screen dialog: a top app bar (64, AppBarSmallTokens) on the
+   surface with Close at its start, the headline in title-large, and the dialog's action
+   as a text button at its end; what it shows takes the rest. */
+.m-dialog.full { width: min(560px, 100%); }
+@media (max-width: 599px) {
+  .m-layer.full { padding: 0; }
+  /* (It runs 48 past the bottom edge, so that the spring's overshoot as it comes up
+     shows more of it, not what is under it.) */
+  .m-dialog.full { display: grid; grid-template: "x title act" calc(64px + env(safe-area-inset-top, 0px)) "body body body" minmax(0, 1fr) / auto minmax(0, 1fr) auto; align-self: start; width: 100%; height: calc(100% + 48px); max-height: none; padding: 0 0 calc(48px + env(safe-area-inset-bottom, 0px)); gap: 0; border-radius: 0; box-shadow: none; background: var(--surface); overflow: hidden; }
+  .m-dialog.full > .m-dialog-x { grid-area: x; align-self: end; margin: 0 4px 12px 8px; }
+  .m-dialog.full > h2 { grid-area: title; align-self: end; min-width: 0; margin-bottom: 18px; font: 400 22px/28px var(--font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .m-dialog.full > .m-dialog-actions { display: contents; }
+  .m-dialog.full > .m-dialog-actions > :not(:last-child) { display: none; }
+  .m-dialog.full > .m-dialog-actions > :last-child { grid-area: act; align-self: end; margin: 0 16px 12px 8px; }
+  .m-dialog.full > :not(.m-dialog-x):not(h2):not(.m-dialog-actions) { grid-area: body; min-height: 0; }
+}
+@media (min-width: 600px) { .m-dialog-x { display: none; } }
 /* SheetBottomTokens: 28 at its top corners, surface container low, level 1, a 32 × 4 handle. */
 .m-sheet { position: relative; display: flex; flex-direction: column; width: min(640px, 100%); max-height: 88%; padding: 0 16px calc(16px + env(safe-area-inset-bottom, 0px)); border-radius: var(--r-xl) var(--r-xl) 0 0; background: var(--surface-container-low); box-shadow: var(--elev-1); }
 .m-sheet-handle { flex: none; display: grid; place-items: center; height: 36px; cursor: grab; touch-action: none; }
@@ -694,6 +722,9 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-codepage > .m-scroll > .m-inner > .m-code { flex: 1; }
 .m-code.is-basic { display: flex; }
 .m-code-return { position: absolute; z-index: 5; right: 16px; bottom: 16px; box-shadow: var(--elev-2); }
+/* A save from History against the file as it is now. */
+.m-history-diff { flex: none; height: min(56vh, 520px); }
+@media (max-width: 599px) { .m-dialog.full > .m-history-diff { height: auto; border-radius: 0; } }
 
 /* The plain editor, where Monaco cannot be reached. */
 .code-card { flex: 1; display: flex; min-height: 0; overflow: hidden; background: var(--code-bg); }
@@ -744,6 +775,9 @@ html .quick-input-widget { --vscode-list-highlightForeground: var(--primary); --
 .quick-input-widget .monaco-highlighted-label .highlight { font-weight: 600 !important; }
 .quick-input-widget .label-description, .quick-input-widget .quick-input-list-separator { color: var(--on-surface-variant) !important; opacity: 1 !important; }
 .quick-input-widget .quick-input-list-separator-border { border-top-color: var(--outline-variant) !important; }
+/* Lines an #if leaves out (js/macro-view.js) are disabled content: 38 % (the tokens'
+   Disabled…Opacity). */
+.monaco-editor .nt-inactive { opacity: 0.38; }
 
 /* ---------- The file tree (js/explorer.js) ---------- */
 
@@ -823,19 +857,20 @@ html .quick-input-widget { --vscode-list-highlightForeground: var(--primary); --
   color: var(--on-surface);
 }
 
-/* The heading: the run's title in title-large, with its verdict once there is one, the
-   tonal button and the pane's close button on its line; the detail under it in
-   body-medium. The detail's line is there while it is empty. */
-.m-tests-head { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "title act close" "detail detail detail"; align-items: center; padding: 12px 4px 0 16px; }
+/* The heading: the run's title in title-large, with its verdict once there is one, and
+   the pane's icon buttons on its line, Test Settings and Close; under it the detail in
+   body-medium, with the tonal button that acts on the run at its end, lined up with the
+   symbols. The detail's line is there while it is empty. */
+.m-tests-head { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title tools" "detail act"; align-items: center; column-gap: 8px; padding: 12px 4px 0 16px; }
+.m-tests-tools { grid-area: tools; justify-self: end; display: flex; }
 .m-tests-title { grid-area: title; display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 48px; font: 400 22px/28px var(--font); letter-spacing: 0; }
 .m-tests-title > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .m-tests-verdict { flex: none; display: grid; place-items: center; }
 .m-tests-verdict:empty { display: none; }
 .m-tests[data-tone="good"] .m-tests-verdict { color: var(--primary); }
 .m-tests[data-tone="bad"] .m-tests-verdict { color: var(--error); }
-.m-tests-act { grid-area: act; margin-left: 8px; }
-.m-tests-close { grid-area: close; }
-.m-tests-detail { grid-area: detail; min-height: 20px; padding-right: 12px; font: 400 14px/20px var(--font); letter-spacing: 0.25px; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-tests-act { grid-area: act; margin-right: 12px; }
+.m-tests-detail { grid-area: detail; min-height: 20px; font: 400 14px/20px var(--font); letter-spacing: 0.25px; color: var(--on-surface-variant); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* The linear progress indicator (LinearProgressIndicatorTokens: 4 high), drawn by
    tests.js in these colours (ProgressIndicatorTokens). Once the run is over it goes,

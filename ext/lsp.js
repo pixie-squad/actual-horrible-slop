@@ -24,6 +24,14 @@
   when sent without one. Files open in the editor go through didOpen / didChange /
   didClose as usual and take precedence over the mirror.
 
+  Public libraries (require("@pixie/vec"); rules and limits in ext/core.js) are files
+  of the workspace too, file:///project/.libs/<user>/<name>.luau, found through an
+  alias for each user in the project's .luaurc. $/nt/libs { libs: { "@user/name": "…" } }
+  replaces them all, $/nt/lib { spec, text } adds or replaces one (a set too large for
+  one message goes in several). Both are answered as the mirror's are. luau-lsp answers
+  only about open documents, so a library's file may be opened too, within the
+  libraries' limits.
+
   How strictly it checks and what it offers is the client's to say, within a fixed
   list, with $/nt/settings at any time, before initialize included:
 
@@ -80,6 +88,7 @@ const MAX_DEPTH = 32;               // nesting of a client message
 const INTERNAL_WAIT = 5000;         // for the requests this module makes itself
 const BASE = path.join(os.tmpdir(), 'nt-lsp');
 const SESSION_DIR = /^(\d+)-[0-9a-f]{32}$/;
+const LIB_DIR = '.libs'; // in the project folder; no project path starts with a dot
 
 // Global functions the game calls; luau-lsp would call them unused.
 const ENTRY_POINTS = new Set(['tick']);
@@ -190,9 +199,9 @@ const TUNABLE = {
   completion: { addParentheses: 'boolean', fillCallArguments: 'boolean' },
   inlayHints: { parameterNames: ['none', 'literals', 'all'], variableTypes: 'boolean', parameterTypes: 'boolean', functionReturnTypes: 'boolean' },
 };
-// How strictly Luau checks, and its lint rules, are not settings of luau-lsp's but a
-// .luaurc at the project's root. No project path starts with a dot, so it is never
-// one of the project's files.
+// How strictly Luau checks, its lint rules and where libraries are, are not settings of
+// luau-lsp's but a .luaurc at the project's root. No project path starts with a dot, so
+// it is never one of the project's files.
 const RC = '.luaurc';
 const MODES = ['nonstrict', 'strict', 'nocheck']; // the first is what Luau does unasked
 const LINTS = new Set(['UnknownGlobal', 'DeprecatedGlobal', 'GlobalUsedAsLocal', 'LocalShadow', 'SameLineStatement', 'MultiLineStatement', 'LocalUnused', 'FunctionUnused', 'ImportUnused', 'BuiltinGlobalWrite', 'PlaceholderRead', 'UnreachableCode', 'UnknownType', 'ForRange', 'UnbalancedAssignment', 'ImplicitReturn', 'DuplicateLocal', 'FormatString', 'TableLiteral', 'UninitializedLocal', 'DuplicateFunction', 'DeprecatedApi', 'TableOperations', 'DuplicateCondition', 'MisleadingAndOr', 'CommentDirective', 'IntegerParsing', 'ComparisonPrecedence', 'RedundantNativeAttribute']);
@@ -200,8 +209,8 @@ const LINTS = new Set(['UnknownGlobal', 'DeprecatedGlobal', 'GlobalUsedAsLocal',
 const own = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const plain = (v) => Boolean(v) && typeof v === 'object' && !Array.isArray(v);
 
-// A client's choices, checked. → { settings, rc }: luau-lsp's settings with them in,
-// and the text of the .luaurc that says the rest ('' when there is nothing to say).
+// A client's choices, checked. → { settings, checks }: luau-lsp's settings with them in,
+// and what the .luaurc says of the rest.
 function tuned(p) {
   const bad = (what) => new Refused(ERR.params, 'bad-settings', { setting: String(what).slice(0, 100) });
   for (const key of Object.keys(p)) if (key !== 'mode' && key !== 'lint' && !own(TUNABLE, key)) throw bad(key);
@@ -231,7 +240,16 @@ function tuned(p) {
     }
     if (Object.keys(off).length) rc.lint = off;
   }
-  return { settings, rc: Object.keys(rc).length ? JSON.stringify(rc) : '' };
+  return { settings, checks: rc };
+}
+
+// The .luaurc's text ('' when there is nothing to say): the checks of tuned(), and an
+// alias for each user with a library, so require("@user/name") finds .libs/<user>/name.
+function rcText(checks, libs) {
+  const rc = Object.assign({}, checks);
+  const users = [...new Set([...libs.keys()].map((spec) => core.libSpec(spec).user))].sort();
+  if (users.length) rc.aliases = Object.fromEntries(users.map((user) => [user, `./${LIB_DIR}/${user}`]));
+  return Object.keys(rc).length ? JSON.stringify(rc) : '';
 }
 
 // What luau-lsp is told the client can do. No pull diagnostics (it then pushes
@@ -312,6 +330,21 @@ function fileUri(p) {
   let head = '';
   if (/^[A-Za-z]:$/.test(parts[0] || '')) head = '/' + parts.shift()[0].toLowerCase() + '%3A';
   return 'file://' + head + '/' + parts.map(encodeURIComponent).join('/');
+}
+
+// A path below a root as a URI spells it (library names may have spaces).
+const encodePath = (rel) => rel.split('/').map(encodeURIComponent).join('/');
+
+// A library's file, from the project's root.
+function libFile(spec) {
+  const { user, name } = core.libSpec(spec);
+  return `${LIB_DIR}/${user}/${name}.luau`;
+}
+
+// The "@user/name" whose file is `rel` (.libs/<user>/<name>.luau), or null.
+function libOf(rel) {
+  const m = /^\.libs\/([^/]+)\/([^/]+)\.luau$/.exec(rel);
+  return m && core.libSpec(`@${m[1]}/${m[2]}`) ? `@${m[1]}/${m[2]}` : null;
 }
 
 // The path inside a file: URI (any spelling: drive letter case, %3A) and its
@@ -439,11 +472,14 @@ class Session {
     this.nextId = 1;
     this.pending = new Map();  // our id → { clientId, method, params } or { internal }
     this.byClient = new Map(); // client id → our id, for $/cancelRequest
-    this.docs = new Map();     // open documents: project path → { text, version }
+    this.docs = new Map();     // open documents: path from the root → { text, version }
     this.docChars = 0;
+    this.libChars = 0;         // of the libraries' files among them
     this.mirror = new Map();   // files on disk: project path → text
+    this.libs = new Map();     // libraries on disk: "@user/name" → text
     this.unannounced = [];     // disk changes made before luau-lsp was initialized
     this.settings = SETTINGS;  // luau-lsp's, with what the client chose ($/nt/settings)
+    this.checks = {};          // the .luaurc's part of that
     this.rc = '';              // the .luaurc on disk ('' for none)
     this.configured = null;    // called when luau-lsp next asks for its settings
     this.queued = 0;
@@ -500,6 +536,7 @@ class Session {
     this.byClient.clear();
     this.docs.clear();
     this.mirror.clear();
+    this.libs.clear();
     this.conn.close(code, reason);
     const child = this.child;
     if (child && !this.exited) {
@@ -601,10 +638,7 @@ class Session {
       mapped = this.inbound(params, 0);
       if (method === 'textDocument/didClose') {
         const rel = this.relOf(docUri);
-        if (rel !== null && this.docs.has(rel)) {
-          this.docChars -= this.docs.get(rel).text.length;
-          this.docs.delete(rel);
-        }
+        if (rel !== null && this.docs.has(rel)) this.track(rel, '', this.docs.get(rel).text.length, null);
       }
     }
     if (method === 'initialized') {
@@ -662,26 +696,33 @@ class Session {
   }
 
   // An open document over the project's limits ends the session: refusing one change
-  // would leave luau-lsp's copy and the editor's apart.
+  // would leave luau-lsp's copy and the editor's apart. Libraries' files have the
+  // libraries' limits. A version of null closes the document.
   track(rel, text, old, version) {
-    const big = text.length > PROJECT.maxFileBytes / 3 && Buffer.byteLength(text) > PROJECT.maxFileBytes;
-    if (big || this.docChars - old + text.length > PROJECT.maxBytes) {
+    const lib = libOf(rel) !== null;
+    const big = lib ? text.length > core.LIBS.maxChars : text.length > PROJECT.maxFileBytes / 3 && Buffer.byteLength(text) > PROJECT.maxFileBytes;
+    const chars = (lib ? this.libChars : this.docChars) - old + text.length;
+    if (big || chars > (lib ? core.LIBS.maxTotal : PROJECT.maxBytes)) {
       this.end(1009, 'document too large');
       throw new Refused(ERR.params, 'too-large');
     }
-    this.docChars += text.length - old;
-    this.docs.set(rel, { text, version });
+    if (lib) this.libChars = chars;
+    else this.docChars = chars;
+    if (version === null) this.docs.delete(rel);
+    else this.docs.set(rel, { text, version });
   }
 
-  // Project path of a file:///project/… URI, or null.
+  // Path from the project's root of a file:///project/… URI (a project file or a
+  // library's), or null.
   relOf(uri) {
     if (typeof uri !== 'string' || !uri.startsWith(ROOT_URI + '/')) return null;
     let rel;
     try { rel = decodeURIComponent(uri.slice(ROOT_URI.length + 1)); } catch (e) { return null; }
-    return core.badPath(rel) ? null : rel;
+    return core.badPath(rel) && !libOf(rel) ? null : rel;
   }
 
   // A client's file: URI as luau-lsp knows it; null for anything outside the two roots.
+  // A library's file is in the project's root too.
   realOf(uri) {
     const m = /^file:\/\/\/(project|defs)(?:\/([^?#]*))?$/i.exec(uri);
     if (!m || !uri.slice(8).startsWith(m[1].toLowerCase())) return null;
@@ -692,8 +733,8 @@ class Session {
       return def ? fileUri(def.file) : null;
     }
     if (!rel) return this.rootUri;
-    if (core.badPath(rel) && core.badPath(rel, true)) return null;
-    return this.rootUri + '/' + rel;
+    if (core.badPath(rel) && core.badPath(rel, true) && !libOf(rel)) return null;
+    return this.rootUri + '/' + encodePath(rel);
   }
 
   // Client → luau-lsp: every string and key that is a file: URI is mapped, wherever it is.
@@ -760,20 +801,34 @@ class Session {
       if (isRequest) this.toClient({ jsonrpc: '2.0', id: msg.id, result: null }, true);
       return;
     }
+    const lib = msg.method === '$/nt/libs' || msg.method === '$/nt/lib';
     let next;
     try {
-      next = this.planMirror(msg.method, params);
+      next = lib ? this.planLibs(msg.method, params) : this.planMirror(msg.method, params);
     } catch (e) {
       if (e instanceof HttpError) throw fromHttp(e);
       throw e;
     }
     try {
-      await this.applyMirror(next);
+      if (lib) await this.applyLibs(next);
+      else await this.applyMirror(next);
     } catch (e) {
       if (e instanceof Refused) throw e;
       throw new Refused(ERR.internal, 'write-failed');
     }
     if (isRequest) this.toClient({ jsonrpc: '2.0', id: msg.id, result: null }, true);
+  }
+
+  // The .luaurc for these checks and libraries, on disk → the change to announce, or null.
+  async writeRc(checks, libs) {
+    const text = rcText(checks, libs);
+    if (text === this.rc) return null;
+    const file = path.join(this.projectDir, RC);
+    if (text) await fs.promises.writeFile(file, text);
+    else await fs.promises.rm(file, { force: true });
+    const change = { uri: `${this.rootUri}/${RC}`, type: !text ? 3 : this.rc ? 2 : 1 };
+    this.rc = text;
+    return change;
   }
 
   // $/nt/settings: how this session's luau-lsp checks and what it offers.
@@ -782,17 +837,12 @@ class Session {
     const same = JSON.stringify(next.settings) === JSON.stringify(this.settings);
     this.settings = next.settings;
     let change = null;
-    if (next.rc !== this.rc) {
-      const file = path.join(this.projectDir, RC);
-      try {
-        if (next.rc) await fs.promises.writeFile(file, next.rc);
-        else await fs.promises.rm(file, { force: true });
-      } catch (e) {
-        throw new Refused(ERR.internal, 'write-failed');
-      }
-      change = { uri: `${this.rootUri}/${RC}`, type: !next.rc ? 3 : this.rc ? 2 : 1 };
-      this.rc = next.rc;
+    try {
+      change = await this.writeRc(next.checks, this.libs);
+    } catch (e) {
+      throw new Refused(ERR.internal, 'write-failed');
     }
+    this.checks = next.checks;
     if (this.ended || (same && !change)) return;
     // Before luau-lsp is initialized there is nothing to tell it: it reads both then.
     if (this.phase !== 'ready') {
@@ -889,6 +939,59 @@ class Session {
     else this.unannounced.push(...changes);
   }
 
+  /* ----- Libraries ----- */
+
+  // The libraries as they should be after this change, checked.
+  planLibs(method, p) {
+    if (method === '$/nt/libs') return new Map(Object.entries(core.checkLibs(p.libs)));
+    if (!core.libSpec(p.spec)) throw new HttpError(400, 'bad-libs', { reason: 'name', spec: String(p.spec).slice(0, 200) });
+    const next = Object.fromEntries(this.libs);
+    next[p.spec] = p.text;
+    return new Map(Object.entries(core.checkLibs(next)));
+  }
+
+  // Each library at .libs/<user>/<name>.luau and the .luaurc's aliases to match. Whatever
+  // reached the disk is announced, even when a write fails.
+  async applyLibs(next) {
+    const changes = [];
+    const uri = (spec) => this.rootUri + '/' + encodePath(libFile(spec));
+    let failed = null;
+    try {
+      const users = new Set();
+      for (const spec of [...this.libs.keys()]) { // deletions first, as in applyMirror
+        if (next.has(spec)) continue;
+        await fs.promises.rm(this.diskPath(libFile(spec)), { force: true });
+        this.libs.delete(spec);
+        changes.push({ uri: uri(spec), type: 3 });
+        users.add(core.libSpec(spec).user);
+      }
+      for (const user of users) {
+        await fs.promises.rmdir(this.diskPath(`${LIB_DIR}/${user}`)).catch(() => {}); // not empty: still used
+      }
+      for (const [spec, text] of next) {
+        if (this.libs.get(spec) === text) continue;
+        const file = this.diskPath(libFile(spec));
+        await fs.promises.mkdir(path.dirname(file), { recursive: true });
+        await fs.promises.writeFile(file, text);
+        changes.push({ uri: uri(spec), type: this.libs.has(spec) ? 2 : 1 });
+        this.libs.set(spec, text);
+      }
+    } catch (e) {
+      failed = e;
+    }
+    try {
+      const rc = await this.writeRc(this.checks, this.libs);
+      if (rc) changes.push(rc);
+    } catch (e) {
+      failed = failed || e;
+    }
+    if (!this.ended) {
+      if (this.phase === 'ready') this.announce(changes);
+      else this.unannounced.push(...changes);
+    }
+    if (failed) throw failed;
+  }
+
   announce(changes) {
     if (!changes.length) return;
     this.toServer({ jsonrpc: '2.0', method: 'workspace/didChangeWatchedFiles', params: { changes } });
@@ -897,7 +1000,7 @@ class Session {
     // empty change (same version, same text) makes it check each open document and
     // publish its diagnostics.
     for (const [rel, doc] of this.docs) {
-      this.toServer({ jsonrpc: '2.0', method: 'textDocument/didChange', params: { textDocument: { uri: this.rootUri + '/' + rel, version: doc.version }, contentChanges: [] } });
+      this.toServer({ jsonrpc: '2.0', method: 'textDocument/didChange', params: { textDocument: { uri: this.rootUri + '/' + encodePath(rel), version: doc.version }, contentChanges: [] } });
     }
   }
 
@@ -1012,7 +1115,7 @@ class Session {
     if (u === null) return null;
     const n = norm(u.path);
     if (n === this.rootNorm) return ROOT_URI + u.fragment;
-    if (n.startsWith(this.rootNorm + '/')) return ROOT_URI + u.path.slice(this.rootNorm.length).replace(/\\/g, '/') + u.fragment;
+    if (n.startsWith(this.rootNorm + '/')) return ROOT_URI + encodePath(u.path.slice(this.rootNorm.length).replace(/\\/g, '/')) + u.fragment;
     const def = DEF_BY_PATH.get(n);
     return def ? def.uri + u.fragment : null;
   }
@@ -1208,11 +1311,15 @@ module.exports = {
       definitions: (DEFS || []).map((d) => d.name),
       signIn: true,
       settings: true, // $/nt/settings is understood
+      libs: true,     // and $/nt/libs, $/nt/lib
       limits: {
         messageBytes: MAX_MESSAGE,
         files: PROJECT.maxFiles,
         fileBytes: PROJECT.maxFileBytes,
         projectBytes: PROJECT.maxBytes,
+        libs: core.LIBS.max,
+        libChars: core.LIBS.maxChars,
+        allLibChars: core.LIBS.maxTotal,
         sessionsPerUser: PER_USER,
         idleSeconds: IDLE_MS / 1000,
       },

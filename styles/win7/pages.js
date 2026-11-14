@@ -90,6 +90,59 @@
   }
   const sameScript = (a, b) => a.script_id === b.script_id;
 
+  // Libraries are found by reading each published script (libs.js): the count says so
+  // while it is going on.
+  const libCount = (n, looking) => (looking && !n ? 'Looking for libraries…' : `${n} librar${n === 1 ? 'y' : 'ies'}${looking ? ' so far' : ''}`);
+
+  // Whether a script is a library, and how a script that uses it names it (libs.js).
+  async function libOf(s) {
+    if (!NT.libs.available() || !s.published_at || !(await NT.libs.is(s))) return null;
+    const spec = await NT.libs.spec(s);
+    const found = (await NT.libs.resolve([spec])).libs[spec];
+    const local = (s.name.replace(/[^A-Za-z0-9_]+(.)?/g, (all, c) => (c ? c.toUpperCase() : '')).replace(/^[^A-Za-z_]+/, '') || 'lib').replace(/^./, (c) => c.toLowerCase());
+    return { spec, local, macros: !!(found && found.macros.trim()) };
+  }
+
+  // A line to copy: in a read-only field, where it can be selected, with Copy beside it.
+  const copyLine = (text) => h('div.w-copy',
+    W.input({ value: text, readOnly: true, 'aria-label': text, class: 'w-mono' }),
+    W.button('Copy', () => A.copy(text)));
+
+  // A script's parameters as its page shows them: a group box for each group, and in it a
+  // check box, or a trackbar with its value and Default, for each one. values: { [id]:
+  // value } of those not at their default, changed in place; onChange after each change.
+  function paramRow(p, values, onChange) {
+    const valueOf = (x) => (x.id in values ? values[x.id] : x.default_value);
+    const name = API.paramLabel(p);
+    if (p.type === 'bool') {
+      return W.check(name, valueOf(p) === 1, (on) => {
+        values[p.id] = on ? 1 : 0;
+        if (values[p.id] === p.default_value) delete values[p.id];
+        onChange();
+      }).el;
+    }
+    const valueEl = h('span.w-param-value', String(valueOf(p)));
+    const reset = W.button('Default', () => { bar.set(p.default_value); apply(p.default_value); });
+    reset.disabled = valueOf(p) === p.default_value;
+    const apply = (v) => {
+      if (v === p.default_value) delete values[p.id];
+      else values[p.id] = v;
+      valueEl.textContent = String(v);
+      reset.disabled = v === p.default_value;
+      onChange();
+    };
+    const bar = W.trackbar({ min: p.min_value == null ? 0 : p.min_value, max: p.max_value == null ? 100 : p.max_value, value: valueOf(p), label: name, onInput: apply });
+    return h('div.w-param', h('span.w-param-name', name), bar.el, valueEl, reset);
+  }
+  function paramGroups(params, values, onChange) {
+    const groups = new Map();
+    for (const p of params) {
+      if (!groups.has(p.group_id)) groups.set(p.group_id, []);
+      groups.get(p.group_id).push(p);
+    }
+    return [...groups].map(([gid, list]) => W.group(API.groupLabel(gid), list.map((p) => paramRow(p, values, onChange))));
+  }
+
   // A picture of a size, in the sunken frame a bitmap sits in.
   function picture(el, w, ht) {
     el.style.width = w + 'px';
@@ -125,7 +178,9 @@
     return W.tree([
       { id: '/', label: 'NT Scripting', icon: 'app', onSelect: to('/'), open: true, kids: [
         { id: '/scripts', label: 'Scripts', icon: 'scripts', onSelect: to('/scripts'), open: !!filters,
-          kids: [list('mine', 'Mine', 'mine'), list('favorites', 'Favorites', 'star'), list('all', 'All', 'folder')] },
+          kids: [list('mine', 'Mine', 'mine'), list('favorites', 'Favorites', 'star'), list('all', 'All', 'folder'),
+            // Found by reading each published script (libs.js), so only signed in.
+            API.session && NT.libs.available() ? list('libs', 'Libraries', 'libs') : null].filter(Boolean) },
         { id: '/maps', label: 'Maps', icon: 'map', onSelect: to('/maps') },
       ] },
       { id: '/profile', label: 'Profile', icon: 'user', onSelect: () => go('/profile'), gap: true },
@@ -279,12 +334,15 @@
     const win = W.window({ title: 'Scripts', icon: 'scripts', width: 780, height: 500, status: false });
     const pickFile = filePicker(win);
     // Your own scripts come first. The window reopens on whichever list was used last.
-    const FILTERS = ['mine', 'favorites', 'all'], SORTS = { name: [0, 1], author: [1, 1], recent: [2, -1] };
+    // Libraries are found by reading each published script (libs.js), so only signed in.
+    const withLibs = !!API.session && NT.libs.available();
+    const FILTERS = ['mine', 'favorites', 'all'].concat(withLibs ? ['libs'] : []), SORTS = { name: [0, 1], author: [1, 1], recent: [2, -1] };
     const kept = API.session ? store.get('nt.scripts.filter') : null;
     let chosen = FILTERS.includes(kept) ? kept : API.session ? 'mine' : 'all';
     let query = '';
     let filter = chosen;
     let data = null, signedOut = false, stamp = '';
+    let libs = null; // { of: the list looked through, list, looking }
     const sortKey = SORTS[store.get('nt.scripts.sort')] ? store.get('nt.scripts.sort') : 'recent';
 
     const ctx = {
@@ -320,6 +378,7 @@
       openBtn.disabled = !s;
       editBtn.disabled = delBtn.disabled = !s || !API.isOwner(s);
       if (s) detail.set('doc', nameOf(s), s.published_at ? 'Script' : 'Draft', `Author: ${s.author_name}`, `Modified: ${rel(s.updated_at)}`);
+      else if (filter === 'libs') detail.set('libs', 'Libraries', data ? libCount(libs ? libs.list.length : 0, !libs || libs.looking) : null);
       else detail.set('scripts', 'Scripts', data ? plural((filter === 'mine' ? data.mine : filter === 'favorites' ? data.favs : data.all).length, 'script') : null);
     }
     sync();
@@ -347,6 +406,7 @@
           { label: 'Mine', checked: filter === 'mine', onSelect: () => { choose('mine'); render(); } },
           { label: 'Favorites', checked: filter === 'favorites', onSelect: () => { choose('favorites'); render(); } },
           { label: 'All', checked: filter === 'all', onSelect: () => { choose('all'); render(); } },
+          withLibs && { label: 'Libraries', checked: filter === 'libs', onSelect: () => { choose('libs'); render(); } },
           '-',
           { label: 'Refresh', onSelect: () => load() },
         ],
@@ -364,23 +424,42 @@
       else nav.mark('scripts:' + filter);
     });
 
+    // Each published script is read once, and the list fills as libraries are found.
+    function scan() {
+      if (!data || (libs && libs.of === data.all)) return;
+      const mine = libs = { of: data.all, list: [], looking: true };
+      const again = () => { if (libs === mine && filter === 'libs') render(); };
+      NT.libs.list(data.all, (s) => { mine.list.push(s); again(); })
+        .catch(() => {})
+        .then(() => { mine.looking = false; again(); });
+    }
+
     function render() {
       nav.mark('scripts:' + filter);
+      win.el.classList.remove('is-looking');
+      win.loading(false);
       if (signedOut) {
         list.say(blank('Sign In to Browse', { label: 'Sign In', onClick: signIn }));
         win.setStatus('');
         return sync();
       }
-      let rows = filter === 'mine' ? data.mine : filter === 'favorites' ? data.favs : data.all;
+      if (filter === 'libs') scan();
+      // While they are looked for, the address bar fills with green as Explorer's does
+      // while it searches, and the pointer is the arrow with the busy circle.
+      const looking = filter === 'libs' && libs.looking;
+      win.el.classList.toggle('is-looking', looking);
+      win.loading(looking);
+      let rows = filter === 'mine' ? data.mine : filter === 'favorites' ? data.favs : filter === 'libs' ? libs.list : data.all;
       if (query) rows = rows.filter((s) => (`${s.name} ${s.description || ''} ${s.author_name}`).toLowerCase().includes(query));
-      if (rows.length) list.set(rows, sameScript);
+      if (rows.length || looking) list.set(rows, sameScript);
       else {
         list.say(query ? blank(`Nothing matches “${query}”.`)
           : filter === 'mine' ? blank('No Scripts Yet', API.session ? { label: 'New Script', onClick: A.create } : { label: 'Sign In', onClick: signIn })
             : filter === 'favorites' ? blank('No Favorites')
-              : blank('No Scripts'));
+              : filter === 'libs' ? blank('No Libraries')
+                : blank('No Scripts'));
       }
-      win.setStatus(query ? plural(rows.length, 'result') : plural(rows.length, 'script'));
+      win.setStatus(query ? plural(rows.length, 'result') : filter === 'libs' ? libCount(rows.length, looking) : plural(rows.length, 'script'));
       sync();
     }
 
@@ -439,7 +518,7 @@
     win.body.append(body);
     const changed = h('span.w-note');
 
-    let script = null, params = [], releases = [], tab = 'general', since = null;
+    let script = null, params = [], releases = [], tab = 'general', since = null, lib = null;
     const values = {};
     const valueOf = (p) => (p.id in values ? values[p.id] : p.default_value);
     const ctx = { refresh: () => load(), removed: () => win.destroy(), here: true, art: true };
@@ -477,35 +556,13 @@
       }
     }
 
-    function paramRow(p, onChange) {
-      const name = API.paramLabel(p);
-      if (p.type === 'bool') {
-        return W.check(name, valueOf(p) === 1, (on) => {
-          values[p.id] = on ? 1 : 0;
-          if (values[p.id] === p.default_value) delete values[p.id];
-          onChange();
-        }).el;
-      }
-      const valueEl = h('span.w-param-value', String(valueOf(p)));
-      const reset = W.button('Default', () => { bar.set(p.default_value); apply(p.default_value); });
-      reset.disabled = valueOf(p) === p.default_value;
-      const apply = (v) => {
-        if (v === p.default_value) delete values[p.id];
-        else values[p.id] = v;
-        valueEl.textContent = String(v);
-        reset.disabled = v === p.default_value;
-        onChange();
-      };
-      const bar = W.trackbar({ min: p.min_value == null ? 0 : p.min_value, max: p.max_value == null ? 100 : p.max_value, value: valueOf(p), label: name, onInput: apply });
-      return h('div.w-param', h('span.w-param-name', name), bar.el, valueEl, reset);
-    }
-
     function general(s) {
       const owner = API.isOwner(s);
       const flags = [];
       if (!s.published_at) flags.push('Draft');
       if (since != null) flags.push('Updated');
       if (API.isOutdated(s)) flags.push('Outdated');
+      if (lib) flags.push('Library');
       // The box says what is so: it goes back if the change does not go through.
       const fav = W.check('Favorite', !!s.is_favorite, (on) => favorite(s, on, {}).then(() => fav.set(!!s.is_favorite)));
       const [thumb] = owner ? NT.media.items('thumbs', s.script_id) : [];
@@ -520,6 +577,8 @@
             flags.length ? h('span', flags.join(', ')) : null)),
         h('i.w-rule'),
         s.description ? h('p.w-desc', s.description) : null,
+        // How a script uses it: the lines to write, to copy.
+        lib ? W.group('Library', copyLine(`local ${lib.local} = require("${lib.spec}")`), lib.macros ? copyLine(`#include "${lib.spec}"`) : null) : null,
         API.isOutdated(s) ? h('div.w-callout', W.icon('warning', 16), h('span', 'Released before the latest scripting API change. It may not work as expected.')) : null,
         API.session ? fav.el : null,
         h('div.w-buttons.left',
@@ -534,17 +593,12 @@
     const avatarLine = (s) => ['by ', link(`/users/${s.author_uuid}`, s.author_name)];
 
     function parameters() {
-      const groups = new Map();
-      for (const p of params) {
-        if (!groups.has(p.group_id)) groups.set(p.group_id, []);
-        groups.get(p.group_id).push(p);
-      }
       const count = () => {
         const n = params.filter((p) => valueOf(p) !== p.default_value).length;
         changed.textContent = n ? `${n} changed` : '';
       };
       count();
-      return h('div.w-scroll', [...groups].map(([gid, list]) => W.group(API.groupLabel(gid), list.map((p) => paramRow(p, count)))));
+      return h('div.w-scroll', paramGroups(params, values, count));
     }
 
     function history() {
@@ -597,18 +651,19 @@
           : blank('Sign In to View', { label: 'Sign In', onClick: signIn }));
         return;
       }
-      let ps, rs;
+      let ps, rs, lb;
       try {
-        [ps, rs] = await Promise.all([API.parameters(id), API.releases(id)]);
+        [ps, rs, lb] = await Promise.all([API.parameters(id), API.releases(id), libOf(s).catch(() => null)]);
       } catch (e) {
         if (!script) body.replaceChildren(failed(load, e));
         else A.failed('refresh', e);
         return;
       }
-      const fresh = JSON.stringify([s, ps, rs]);
+      const fresh = JSON.stringify([s, ps, rs, lb]);
       // Read again on return (after editing or publishing); parameter choices stay as they were set.
       if (script && fresh === load.stamp) return;
       load.stamp = fresh;
+      lib = lb;
       script = s;
       params = ps || [];
       releases = rs || [];
@@ -1185,5 +1240,5 @@
     return win;
   };
 
-  W.kit = { blank, failed, closeItem, goMenu, nameOf, plural, sep, gap, signIn, avatar };
+  W.kit = { blank, failed, closeItem, goMenu, nameOf, plural, sep, gap, signIn, paramGroups, avatar };
 })();

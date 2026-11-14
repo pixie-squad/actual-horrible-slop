@@ -5,8 +5,8 @@
   the session's (js/session.js). This is the page around it: the code, the files
   (js/explorer.js) in a pane beside it on a wide window and in a bottom sheet on a
   narrow one, a test run (js/tests.js, tests.js) in a side sheet on its other side or
-  in a bottom sheet, and the app bar's actions. The language server (js/lsp.js)
-  reads along where there is one.
+  in a bottom sheet, and the app bar's actions, History (js/history.js) and Test
+  Settings among them. The language server (js/lsp.js) reads along where there is one.
 */
 (function () {
   'use strict';
@@ -104,7 +104,7 @@
     // from the trailing edge while the code narrows to make room, on the standard curve;
     // the panel keeps its width throughout.
     let tests = null, testsOpen = false, testsAnim = null, testsSheet = null;
-    const testsView = () => tests || (tests = M.tests({ onRun: runTest, onClose: () => showTests(false, true) }));
+    const testsView = () => tests || (tests = M.tests({ onRun: runTest, onClose: () => showTests(false, true), onSettings: () => M.testSettings(script) }));
 
     function showTests(open, animate) {
       if (!wide.matches) {
@@ -194,10 +194,15 @@
           ...maps.map((m) => ({ label: m.name, checked: m.user_map_id === mapId, onSelect: () => { mapId = m.user_map_id; syncMap(); } })),
         ]);
       });
+      // A library is used by others as @user/name (libs.js). It takes effect with Save,
+      // so it is a checkbox (a switch is for what holds at once).
+      let library = S.library;
+      const libCheck = NT.project.multi() && NT.libs.available() ? M.check('Library', library, (on) => { library = on; }) : null;
       const error = h('p.m-error', { role: 'alert' });
       const submit = M.button('Save', null, { submit: true });
       const form = h('form.m-form', { novalidate: true }, name.row, desc.row,
         h('div.m-item.plain', h('span.m-item-text', h('span.m-item-headline', 'Map')), mapPick),
+        libCheck && libCheck.el,
         error,
         h('div.m-dialog-actions', M.button('Cancel', () => d.close(), { variant: 'text' }), submit));
       const d = M.dialog({ title: 'Details', body: form, wide: true });
@@ -207,12 +212,14 @@
         const n = name.input.value.trim(), t = desc.input.value.trim();
         if (n.length < 3 || n.length > 32) return void (error.textContent = 'Name needs 3 to 32 characters.');
         if (t && (t.length < 32 || t.length > 1024)) return void (error.textContent = 'Description needs 32 to 1024 characters, or leave it empty.');
+        if (library && NT.libs.problem(n)) return void (error.textContent = `A library’s name: ${NT.libs.problem(n).toLowerCase()}.`);
         error.textContent = '';
         submit.disabled = true;
         try {
           if (n !== (script.name || '')) { await API.saveName(id, n); script.name = n; page.setTitle(n); }
           if (t !== (script.description || '')) { await API.saveDescription(id, t); script.description = t || null; }
           if (mapId !== (script.user_map_id || '')) { await API.setMap(id, mapId || null); script.user_map_id = mapId || null; }
+          if (library !== S.library) await S.setLibrary(library);
           d.close();
           UI.toast('Saved');
         } catch (err) {
@@ -220,6 +227,73 @@
           submit.disabled = false;
         }
       });
+    }
+
+    /* ----- History ----- */
+
+    const stamp = (at) => new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    // Each save of a file (NT.history), newest first, in a dialog: the file on screen,
+    // or another where there is more than one. A save opens on what it changes against
+    // the file as it is now, with Restore.
+    async function history() {
+      let path = ed.path || ENTRY;
+      const list = h('div');
+      const fileValue = h('span', path);
+      const pick = h('button.m-pick.m-press', { type: 'button', 'aria-label': 'File' }, fileValue, M.icon('expand_more', { size: 20 }));
+      pick.addEventListener('click', () => UI.menu(pick, ed.paths().slice().sort().map((p) => ({
+        label: p, checked: p === path, onSelect: () => { path = p; fileValue.textContent = p; fill(); },
+      }))));
+      let turn = 0;
+      async function fill() {
+        const t = ++turn;
+        const saves = await NT.history.list(id, path);
+        if (t !== turn) return;
+        list.replaceChildren(saves.length
+          ? M.list(...saves.map((e) => M.item({
+            icon: 'history',
+            headline: NT.util.rel(e.at),
+            supporting: `${stamp(e.at)} · ${e.lines} line${e.lines === 1 ? '' : 's'}`,
+            chevron: true,
+            onClick: () => save(e, d),
+          })))
+          : empty('history', 'No Saves Yet'));
+      }
+      await fill();
+      const d = M.dialog({
+        title: 'History',
+        body: h('div.m-settings', ed.paths().length > 1 ? M.list(h('div.m-item', h('span.m-item-text', h('span.m-item-headline', 'File')), pick)) : null, list),
+        scroll: true,
+        wide: true,
+        actions: [M.button('Close', () => d.close(), { variant: 'text' })],
+      });
+    }
+
+    async function save(entry, under) {
+      const before = await NT.history.text(entry.id);
+      if (before == null || !ed.has(entry.path)) return void UI.toast('Couldn’t open', { warn: true });
+      const host = h('div.m-code.m-history-diff');
+      const restore = M.button('Restore', null, { variant: 'text', disabled: before === ed.text(entry.path) });
+      let view = null, closed = false;
+      const d = M.dialog({
+        title: stamp(entry.at),
+        body: host,
+        full: true,
+        safe: true,
+        actions: [M.button('Cancel', () => d.close(), { variant: 'text' }), restore],
+        onClose: () => { closed = true; if (view) view.dispose(); },
+      });
+      restore.addEventListener('click', () => {
+        const was = ed.text(entry.path);
+        ed.open(entry.path);
+        ed.replace(entry.path, before);
+        d.close();
+        under.close();
+        UI.toast('Restored', { action: { label: 'Undo', onSelect: () => ed.replace(entry.path, was) } });
+      });
+      const made = await NT.code.diff(host, { before, after: ed.text(entry.path), onStats: (s) => { restore.disabled = !s.changes; } });
+      if (closed) made.dispose();
+      else view = made;
     }
 
     /* ----- Opening ----- */
@@ -277,8 +351,6 @@
         // With the script's page right underneath, "Script Page" would only be Back.
         const paths = NT.nav.paths();
         const under = paths[paths.length - 2] === `/scripts/${id}`;
-        // Across files, where there is more than one.
-        const many = !!ed.goToFile && ed.paths().length > 1;
         UI.menu(more, [
           !under && { label: 'Script Page', icon: 'doc', onSelect: () => NT.nav.go(`/scripts/${id}`) },
           !script.published_at && { label: 'Publish', icon: 'send', onSelect: async () => { if (await S.commit(false)) A.publish(script, () => { script.published_at = new Date().toISOString(); }); } },
@@ -288,11 +360,10 @@
             const latest = NT.compare.before(await API.releases(id).catch(() => []), null);
             if (latest != null) NT.nav.go(NT.compare.path(id, null, latest));
           } },
-          { label: 'Details', icon: 'info', onSelect: details },
+          { label: 'History', icon: 'clock', onSelect: history },
           '-',
-          many && { label: 'Go to File', icon: 'doc', onSelect: () => ed.goToFile() },
-          many && { label: 'Find in Files', icon: 'search', onSelect: () => ed.findInFiles() },
-          ed.format && NT.format.available() && { label: 'Format Document', icon: 'wand', onSelect: () => S.format() },
+          { label: 'Details', icon: 'info', onSelect: details },
+          testBtn && { label: 'Test Settings', icon: 'sliders', onSelect: () => M.testSettings(script) },
           { label: 'Editor Settings', icon: 'gear', onSelect: () => NT.nav.go('/settings/editor') },
           '-',
           { label: 'Delete', icon: 'trash', danger: true, onSelect: () => A.remove(script, () => { S.removed(); NT.nav.back(); }) },

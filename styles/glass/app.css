@@ -568,6 +568,8 @@ button.row:active, a.row:active { background: var(--fill); }
 .row-chevron { flex: none; color: var(--label-3); }
 .row.danger { color: var(--red); justify-content: center; font-weight: 500; }
 .row .mono { font-family: var(--mono); font-size: 12px; letter-spacing: 0; }
+/* The line a script writes to use a library. */
+.row .lib-use { font-family: var(--mono); font-size: 14px; letter-spacing: 0; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
 
 .row.field label { flex: none; width: 118px; }
 .row.field input, .row.field textarea { flex: 1; min-width: 0; font-size: 17px; }

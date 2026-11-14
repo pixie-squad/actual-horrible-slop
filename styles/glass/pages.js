@@ -545,7 +545,9 @@
     const page = makePage({ title: 'Scripts' });
     // Your own scripts come first. The tab reopens on whichever list was used last.
     const store = NT.util.store;
-    const FILTERS = ['mine', 'favorites', 'all'], SORTS = ['recent', 'name', 'author'];
+    // Libraries are found by reading each published script (libs.js), so only signed in.
+    const withLibs = !!API.session && NT.libs.available();
+    const FILTERS = ['mine', 'favorites', 'all'].concat(withLibs ? ['libs'] : []), SORTS = ['recent', 'name', 'author'];
     const kept = API.session ? store.get('nt.scripts.filter') : null;
     let chosen = FILTERS.includes(kept) ? kept : API.session ? 'mine' : 'all';
     let sort = SORTS.includes(store.get('nt.scripts.sort')) ? store.get('nt.scripts.sort') : 'recent';
@@ -553,6 +555,7 @@
     // A search looks through everything; `chosen` is the list to return to after it.
     let filter = query ? 'all' : chosen;
     let data = null, signedOut = false, stamp = '';
+    let libs = null; // { of: the list looked through, list, looking }
     const choose = (v) => {
       filter = chosen = v;
       store.set('nt.scripts.filter', v);
@@ -567,7 +570,7 @@
       { value: 'mine', label: 'Mine' },
       { value: 'favorites', label: 'Favorites' },
       { value: 'all', label: 'All' },
-    ], filter, (v) => { choose(v); render(true); });
+    ].concat(withLibs ? [{ value: 'libs', label: 'Libraries' }] : []), filter, (v) => { choose(v); render(true); });
     const count = h('p.footnote.count-line');
     const grid = h('div.grid');
     page.inner.append(h('div.filter-bar', seg.el), count, grid);
@@ -601,6 +604,16 @@
       },
     };
 
+    // Each published script is read once, and the list fills as libraries are found.
+    function scan() {
+      if (!data || (libs && libs.of === data.all)) return;
+      const mine = libs = { of: data.all, list: [], looking: true };
+      const again = () => { if (libs === mine && filter === 'libs') render(false, true); };
+      NT.libs.list(data.all, (s) => { mine.list.push(s); again(); })
+        .catch(() => {})
+        .then(() => { mine.looking = false; again(); });
+    }
+
     const clearStates = () => grid.parentNode.querySelectorAll('.empty').forEach((n) => n.remove());
     const emptyGrid = () => {
       if (grid._watch) grid._watch.disconnect();
@@ -616,7 +629,9 @@
         grid.after(emptyState('code', 'Sign In to Browse', null, { label: 'Sign In', onClick: signIn }));
         return;
       }
-      let list = filter === 'mine' ? data.mine : filter === 'favorites' ? data.favs : data.all;
+      if (filter === 'libs') scan();
+      const looking = filter === 'libs' && libs.looking;
+      let list = filter === 'mine' ? data.mine : filter === 'favorites' ? data.favs : filter === 'libs' ? libs.list : data.all;
       if (query) list = list.filter((s) => (`${s.name} ${s.description || ''} ${s.author_name}`).toLowerCase().includes(query));
       list = list.slice();
       if (sort === 'name') list.sort((a, b) => String(a.name).localeCompare(String(b.name)));
@@ -625,17 +640,23 @@
 
       count.textContent = query
         ? `${list.length} result${list.length === 1 ? '' : 's'}`
-        : `${list.length} script${list.length === 1 ? '' : 's'}`;
+        : filter === 'libs'
+          ? (looking && !list.length ? 'Looking for libraries…' : `${list.length} librar${list.length === 1 ? 'y' : 'ies'}${looking ? ' so far' : ''}`)
+          : `${list.length} script${list.length === 1 ? '' : 's'}`;
       lazyGrid(grid, page.scroll, list, (s, i) => scriptCard(s, ctx, animate && i < 24 ? Math.min(i, 12) : null), keep ? grid._shown || 0 : 0);
       if (!keep) page.scroll.scrollTop = 0; // a different list starts from its top
-      if (!list.length) {
+      // Still reading: the cards that will come, without their words.
+      if (looking && !list.length) grid.append(...ph.cards(3));
+      else if (!list.length) {
         grid.after(query
           ? emptyState('search', 'No Results', `Nothing matches “${query}”.`)
           : filter === 'mine'
             ? emptyState('doc', 'No Scripts Yet', null, API.session ? { label: 'New Script', onClick: newScript } : { label: 'Sign In', onClick: signIn })
             : filter === 'favorites'
               ? emptyState('heart', 'No Favorites', 'Tap the heart on a script to keep it here.')
-              : emptyState('code', 'No Scripts'));
+              : filter === 'libs'
+                ? emptyState('books', 'No Libraries')
+                : emptyState('code', 'No Scripts'));
       }
     }
 
@@ -682,6 +703,58 @@
 
   /* ---------- Script detail ---------- */
 
+  function paramRow(p, values, onChange) {
+    const valueOf = (x) => (x.id in values ? values[x.id] : x.default_value);
+    const label = API.paramLabel(p);
+    if (p.type === 'bool') {
+      const t = UI.toggle(valueOf(p) === 1, (on) => { values[p.id] = on ? 1 : 0; if (values[p.id] === p.default_value) delete values[p.id]; onChange(); }, label);
+      return h('div.row.param', h('span.row-title', label), t.el);
+    }
+    const valueEl = h('span.param-value', String(valueOf(p)));
+    const resetBtn = h('button.param-reset', { type: 'button', hidden: valueOf(p) === p.default_value }, 'Reset');
+    const apply = (v) => {
+      if (v === p.default_value) delete values[p.id];
+      else values[p.id] = v;
+      valueEl.textContent = String(v);
+      resetBtn.hidden = v === p.default_value;
+      onChange();
+    };
+    const s = UI.slider({ min: p.min_value == null ? 0 : p.min_value, max: p.max_value == null ? 100 : p.max_value, value: valueOf(p), label, onInput: apply });
+    resetBtn.addEventListener('click', () => { s.set(p.default_value); apply(p.default_value); });
+    return h('div.row.param.col', h('div.param-head', h('span.row-title', label), resetBtn, valueEl), s.el);
+  }
+
+  function paramGroup(groupId, list, values, onChange) {
+    const valueOf = (x) => (x.id in values ? values[x.id] : x.default_value);
+    const badge = h('span.badge.accent.param-count', { hidden: true });
+    const sync = () => {
+      const n = list.filter((p) => valueOf(p) !== p.default_value).length;
+      badge.hidden = n === 0;
+      badge.textContent = `${n} changed`;
+    };
+    const head = h('button.row.disclosure', { type: 'button', 'aria-expanded': 'false' },
+      h('span.row-title.headline', API.groupLabel(groupId)), badge, icon('chevron-down', 18));
+    const wrap = h('div.collapsible', h('div.collapsible-inner', list.map((p) => paramRow(p, values, () => { sync(); if (onChange) onChange(); }))));
+    head.addEventListener('click', () => {
+      const next = head.getAttribute('aria-expanded') !== 'true';
+      head.setAttribute('aria-expanded', String(next));
+      wrap.classList.toggle('is-open', next);
+    });
+    sync();
+    return h('div.list', head, wrap);
+  }
+
+  // A script's parameters as its page shows them: a list per group, closed.
+  // values: { [id]: value } of those not at their default, changed in place.
+  function paramGroups(params, values, onChange) {
+    const groups = new Map();
+    for (const p of params) {
+      if (!groups.has(p.group_id)) groups.set(p.group_id, []);
+      groups.get(p.group_id).push(p);
+    }
+    return h('div.param-groups', [...groups].map(([gid, list]) => paramGroup(gid, list, values, onChange)));
+  }
+
   P.script = function (id) {
     const page = makePage({ title: 'Script', back: true, large: false, titleAt: 150, narrow: true });
     page.el.classList.add('has-acc');
@@ -689,7 +762,7 @@
     page.inner.append(body);
     hold(body, ph.detail(!!API.session));
 
-    let script = null, params = [], releases = [], since = null;
+    let script = null, params = [], releases = [], since = null, lib = null;
     const values = {};
     const valueOf = (p) => (p.id in values ? values[p.id] : p.default_value);
 
@@ -731,45 +804,6 @@
       }
     }
 
-    function paramRow(p, onChange) {
-      const label = API.paramLabel(p);
-      if (p.type === 'bool') {
-        const t = UI.toggle(valueOf(p) === 1, (on) => { values[p.id] = on ? 1 : 0; if (values[p.id] === p.default_value) delete values[p.id]; onChange(); }, label);
-        return h('div.row.param', h('span.row-title', label), t.el);
-      }
-      const valueEl = h('span.param-value', String(valueOf(p)));
-      const resetBtn = h('button.param-reset', { type: 'button', hidden: valueOf(p) === p.default_value }, 'Reset');
-      const apply = (v) => {
-        if (v === p.default_value) delete values[p.id];
-        else values[p.id] = v;
-        valueEl.textContent = String(v);
-        resetBtn.hidden = v === p.default_value;
-        onChange();
-      };
-      const s = UI.slider({ min: p.min_value == null ? 0 : p.min_value, max: p.max_value == null ? 100 : p.max_value, value: valueOf(p), label, onInput: apply });
-      resetBtn.addEventListener('click', () => { s.set(p.default_value); apply(p.default_value); });
-      return h('div.row.param.col', h('div.param-head', h('span.row-title', label), resetBtn, valueEl), s.el);
-    }
-
-    function paramGroup(groupId, list) {
-      const badge = h('span.badge.accent.param-count', { hidden: true });
-      const sync = () => {
-        const n = list.filter((p) => valueOf(p) !== p.default_value).length;
-        badge.hidden = n === 0;
-        badge.textContent = `${n} changed`;
-      };
-      const head = h('button.row.disclosure', { type: 'button', 'aria-expanded': 'false' },
-        h('span.row-title.headline', API.groupLabel(groupId)), badge, icon('chevron-down', 18));
-      const wrap = h('div.collapsible', h('div.collapsible-inner', list.map((p) => paramRow(p, sync))));
-      head.addEventListener('click', () => {
-        const next = head.getAttribute('aria-expanded') !== 'true';
-        head.setAttribute('aria-expanded', String(next));
-        wrap.classList.toggle('is-open', next);
-      });
-      sync();
-      return h('div.list', head, wrap);
-    }
-
     function render() {
       const s = script;
       const owner = API.isOwner(s);
@@ -782,6 +816,7 @@
       if (!s.published_at) badges.push(h('span.badge.on-art', 'Draft'));
       if (since != null) badges.push(h('span.badge.on-art', 'Updated'));
       if (API.isOutdated(s)) badges.push(h('span.badge.on-art', 'Outdated'));
+      if (lib) badges.push(h('span.badge.on-art', 'Library'));
       if (badges.length) heroEl.append(h('div.badges', badges));
       heroEl.append(
         h('h1', s.name || s.script_id),
@@ -800,18 +835,24 @@
       if (owner && !s.published_at) actions.push(glassButton('Publish', 'send', () => publishScript(s, load), '.tinted'));
       if (actions.length) kids.push(h('div.detail-actions', actions));
 
+      // How a script uses it: the line to write, to copy.
+      if (lib) {
+        const line = (code) => {
+          const copy = h('button.row-pick', { type: 'button', 'aria-label': 'Copy', title: 'Copy' }, icon('copy', 17));
+          copy.addEventListener('click', () => navigator.clipboard.writeText(code).then(() => UI.toast('Copied'), () => UI.toast('Couldn’t copy', { warn: true })));
+          return h('div.row', h('code.row-title.lib-use', code), copy);
+        };
+        kids.push(sectionHeader('Library'));
+        kids.push(h('div.list', line(`local ${lib.local} = require("${lib.spec}")`), lib.macros ? line(`#include "${lib.spec}"`) : null));
+      }
+
       if (API.isOutdated(s)) {
         kids.push(h('div.callout', icon('warning', 22), h('span', 'Released before the latest scripting API change. It may not work as expected.')));
       }
 
       if (params && params.length) {
-        const groups = new Map();
-        for (const p of params) {
-          if (!groups.has(p.group_id)) groups.set(p.group_id, []);
-          groups.get(p.group_id).push(p);
-        }
         kids.push(sectionHeader('Parameters'));
-        kids.push(h('div.param-groups', [...groups].map(([gid, list]) => paramGroup(gid, list))));
+        kids.push(paramGroups(params, values));
       }
 
       if (releases && releases.length) {
@@ -845,7 +886,16 @@
         NT.nav.updateChrome();
         return;
       }
-      const [ps, rs] = await Promise.all([API.parameters(id), API.releases(id)]);
+      // Whether it is a library, and how it is named then (libs.js).
+      const asLib = async () => {
+        if (!NT.libs.available() || !s.published_at || !(await NT.libs.is(s))) return null;
+        const spec = await NT.libs.spec(s);
+        const found = (await NT.libs.resolve([spec])).libs[spec];
+        const local = (s.name.replace(/[^A-Za-z0-9_]+(.)?/g, (all, c) => (c ? c.toUpperCase() : '')).replace(/^[^A-Za-z_]+/, '') || 'lib').replace(/^./, (c) => c.toLowerCase());
+        return { spec, local, macros: !!(found && found.macros.trim()) };
+      };
+      const [ps, rs, lb] = await Promise.all([API.parameters(id), API.releases(id), asLib().catch(() => null)]);
+      lib = lb;
       script = s;
       params = ps || [];
       releases = rs || [];
@@ -956,7 +1006,7 @@
   /* ---------- Editor ---------- */
 
   // The editor page is a module of its own (editor.js), built from these pieces.
-  NT.kit = { makePage, navButton, navGroup, groupButton, emptyState, errorState, publishScript, deleteScript };
+  NT.kit = { makePage, navButton, navGroup, groupButton, emptyState, errorState, publishScript, deleteScript, paramGroups };
 
   /* ---------- Maps ---------- */
 

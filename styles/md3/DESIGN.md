@@ -35,9 +35,19 @@ top of them.
   Test, an icon button in the app bar. From 840 wide it is a pane on the trailing side
   of the code, 360 wide and 412 from 1200 (`PaneScaffoldDirective.DefaultPreferredWidth`,
   `DefaultPreferredWidthXL`); below that it is a bottom sheet. The pane is 12 from the
-  code, the editor's own gap, not the scaffold's spacer of 24. Under its heading,
-  Output or State is a connected button group; State is the battle's objects as filter
-  chips, a search bar and a data table.
+  code, the editor's own gap, not the scaffold's spacer of 24. Its heading is the run's
+  title with the pane's icon buttons (Test Settings, Close), and under it the detail
+  with the tonal button that acts on the run. Under the heading, Output or State is a
+  connected button group; State is the battle's objects as filter chips, a search bar
+  and a data table.
+- Test Settings (from the pane's heading and the More menu) and History are bottom
+  sheets of segmented lists, with a heading between lists in label-large and primary
+  (`tests.js`, `editor.js`, `.m-settings`). A change in Test Settings holds at once.
+  A save in History opens on what it changes in a basic dialog 560 wide (Compose's
+  `DialogMaxWidth`) with Cancel and Restore, and on a compact window in a
+  **full-screen dialog**: a 64 bar on the surface with Close, the headline in
+  title-large and Restore as a text button (`M.dialog`, `full`).
+- What waits for Save is a checkbox, so Library in Details is one (`M.check`).
 
 ## 2. Colour
 
@@ -106,6 +116,7 @@ top of them.
   | The FAB becoming the close button | fast spatial | the same |
   | The navigation indicator | spatial | `NavigationItem.kt` |
   | The supporting pane: it slides in from the trailing edge, and out again, while the code narrows and widens | spatial | `PaneMotion.kt` (`PaneMotionDefaults`, `EnterFromRight`) |
+  | A full-screen dialog: it comes up from the bottom edge as a sheet does (running 48 past it, so the overshoot shows more of it), and goes back down | spatial; effects leaving | the sheet's, here (`M.dialog`) |
 
 - Going deeper moves forward along the horizontal axis and Back moves back along it;
   changing place fades through (`app.js`, `apply`).

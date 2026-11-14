@@ -126,6 +126,8 @@
       ],
       tokenizer: {
         root: [
+          // A directive of macro.js, at the start of its line.
+          [/^\s*#\s*(?:define|undef|ifdef|ifndef|if|elif|else|endif|include|error|warning)\b/, 'keyword'],
           [/--\[(=*)\[/, { token: 'comment', next: '@blockComment.$1' }],
           [/--.*$/, 'comment'],
           [/\[(=*)\[/, { token: 'string', next: '@longString.$1' }],
@@ -853,6 +855,14 @@
       model: (path) => models.get(path),
       pathOf: (model) => paths.get(model) || null,
       open(path, at) { show(models.get(path), at); },
+      // The whole of a file, as one edit Undo takes back.
+      replace(path, text) {
+        const model = models.get(path);
+        if (!model || read(model) === text) return;
+        model.pushStackElement();
+        model.pushEditOperations([], [{ range: model.getFullModelRange(), text }], () => null);
+        model.pushStackElement();
+      },
       add(path, text) {
         make(path, text);
         bus.emit('add', path);
@@ -989,6 +999,13 @@
       text: (path) => files.get(path),
       stamp: (path) => files.get(path),
       open(path) { if (path !== shown) show(path); },
+      replace(path, text) {
+        if (!files.has(path) || files.get(path) === text) return;
+        files.set(path, text);
+        if (shown === path) ed.value = text;
+        bus.emit('change', path);
+        if (opts.onChange) opts.onChange(path);
+      },
       add(path, text) {
         files.set(path, text);
         bus.emit('add', path);
@@ -1122,6 +1139,13 @@
         spinner.remove();
         if (!host.isConnected) return { kind: 'none', value: opts.value || '', focus() {}, dispose() {} };
         api = mountMonaco(monaco, host, opts);
+        // What macros make of each file (macro-view.js), which the language server is shown.
+        if (!opts.readOnly && NT.macroView) {
+          const view = NT.macroView.attach(api);
+          const dispose = api.dispose;
+          api.macros = view;
+          api.dispose = () => { view.dispose(); dispose(); };
+        }
       } catch (e) {
         spinner.remove();
         host.classList.add('is-basic');

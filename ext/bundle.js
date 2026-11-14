@@ -1,10 +1,11 @@
 /*
   Bundling: a project's files become the one script the game runs.
 
-    POST /x/bundle   { files, entry?: "main.luau", minify?: true }
+    POST /x/bundle   { files, entry?: "main.luau", minify?: true,
+                       libs?: { "@user/name": "<code>" }, external?: false }
       200 { code, hash, bytes, chars, fits, minified }
       422 { error: "bundle-failed", message, diagnostics: [{ path, line, column, message }] }
-      400 bad-json | bad-files | bad-request, 413 too-large, 429 slow-down,
+      400 bad-json | bad-files | bad-libs | bad-request, 413 too-large, 429 slow-down,
       503 busy (queue full) | unavailable (no darklua)
 
   The game and the upstream service take one script of at most 1,000,000 characters,
@@ -20,17 +21,25 @@
   folder. The path as written is tried, then with .luau, then .lua, then its
   init.luau or init.lua. Case counts. JSON files (strict JSON) are required as data.
   darklua would follow a require to any file on this machine, so requires are checked
-  here first: inside the project, naming one of its files, and no cycles.
+  here first: inside the project, naming one of its files or libraries, and no cycles.
+
+  require("@user/name") is a public library: one Luau module, sent in libs by the
+  browser with every library those require in turn (rules and limits: ext/core.js).
+  It has to be there, and is inlined like a project file. A library requires only
+  other libraries, never by relative path. With external, the script is a library
+  itself: its "@user/name" requires stay as written (minified: require'@user/name')
+  and libs is not needed.
 
   hash is the sha256 of the code's UTF-8; fits is true when both its UTF-8 bytes and
-  its UTF-16 length are within the limit. Diagnostics name project paths; line and
-  column count from 1 and are null when darklua does not say.
+  its UTF-16 length are within the limit. Diagnostics name project paths, or a
+  library's "@user/name"; line and column count from 1 and are null when darklua
+  does not say.
 
   Anyone may call it (there is no account in demo mode), so: 60 requests a minute per
   client, 2 darklua runs at a time with 4 more waiting, 10 seconds per run.
 
-  bundle(files, entry, minify) does the same for other extensions and throws the same
-  HttpErrors; rate(req) applies this endpoint's per-client limit.
+  bundle(files, entry, minify, { libs, external }) does the same for other extensions
+  and throws the same HttpErrors; rate(req) applies this endpoint's per-client limit.
 */
 'use strict';
 
@@ -47,23 +56,31 @@ const LIMIT = 1000000;
 const RUNNING = 2;   // darklua processes at once
 const WAITING = 4;   // requests queued behind them; past that the answer is "busy"
 const TIMEOUT = 10000;
-const BODY_LIMIT = 2 * core.PROJECT.maxBytes + 65536; // JSON escapes can double the text
+// JSON escapes can double the text.
+const BODY_LIMIT = 2 * (core.PROJECT.maxBytes + core.LIBS.maxTotal) + 65536;
 const MAX_DIAGNOSTICS = 50;
 const STDERR_CAP = 256 * 1024;
 const BASE = path.join(os.tmpdir(), 'nt-bundle');
 // darklua runs on a copy of the entry at the project root, so no name from the request
-// reaches its command line. No project path starts with a dot.
+// reaches its command line. No project path starts with a dot, so neither this nor the
+// libraries' folder (.libs/<user>/<name>.luau) can be one.
 const ENTRY_COPY = '.nt-entry.luau';
+const LIB_DIR = '.libs';
 
 // A renamed local must never take the name of a global the game provides.
 const GAME_GLOBALS = ['server', 'lookup', 'createObject', 'createCallback', 'log', 'event', 'json'];
-// .luaurc aliases are looked up in every folder above the file, which is outside the project.
-const REQUIRES = { require_mode: { name: 'luau', use_luau_configuration: false } };
+// .luaurc aliases are looked up in every folder above the file, which is outside the
+// project. Libraries are found through sources: "@user" → its folder, from the config's.
+const REQUIRES = { name: 'luau', use_luau_configuration: false };
+// With external, every "@user/…" require stays as written. darklua has no "all but", and
+// may match these in any letter case (it did on Windows, though "@Self" is no "@self"),
+// so they spell out every user but self, in either case.
+const EXCLUDES = ['@[!sS]*/**', '@[sS]/**', '@[sS][!eE]*/**', '@[sS][eE]/**', '@[sS][eE][!lL]*/**', '@[sS][eE][lL]/**', '@[sS][eE][lL][!fF]*/**', '@[sS][eE][lL][fF]?*/**'];
 
 const CONFIG = {
   // The files' own text, comments and all; only darklua's glue is compact.
   // A project of one file comes out as it went in.
-  readable: { generator: 'retain_lines', bundle: REQUIRES, rules: [] },
+  readable: { generator: 'retain_lines', rules: [] },
   // dense writes no comments and no spare spaces, so remove_comments and remove_spaces
   // would change nothing. Every rule here keeps behaviour: types do nothing at run time,
   // and without them the game's Luau never meets type syntax newer than itself (casts
@@ -71,7 +88,6 @@ const CONFIG = {
   // renamed, avoiding every global the code uses; t["k"] becomes t.k and f("x") f"x".
   minified: {
     generator: 'dense',
-    bundle: REQUIRES,
     rules: [
       'remove_types',
       { rule: 'rename_variables', include_functions: true, globals: ['$default', ...GAME_GLOBALS] },
@@ -226,17 +242,24 @@ function requires(src) {
 
 const has = (files, p) => Object.prototype.hasOwnProperty.call(files, p);
 
-// The project file a require names → { target } or { error }, as darklua's luau mode
-// finds it. Paths are exact (case too), so every platform finds the same file.
-function resolve(files, from, literal) {
+// What a require names → { target } or { error }, as darklua's luau mode finds it: a
+// project path, or a library's "@user/name" (target null with external: it stays).
+// Paths are exact (case too), so every platform finds the same file.
+function resolve(files, libs, from, literal, external) {
   const shown = literal.body.slice(0, 100);
   if (literal.escaped) return { error: 'a require path cannot contain escape sequences' };
   const parts = literal.body.split('/');
+  if (parts[0][0] === '@' && parts[0] !== '@self') {
+    if (!core.libSpec(literal.body)) return { error: `"${shown}" is not a library name ("@user/name")` };
+    if (external) return { target: null };
+    return has(libs, literal.body) ? { target: literal.body } : { error: `cannot find library "${shown}"` };
+  }
+  if (from[0] === '@') return { error: `a library requires only other libraries, by "@user/name" (got "${shown}")` };
   const dir = from.split('/').slice(0, -1);
   if (parts[0] === '@self') {
     parts.shift();
   } else if (parts[0] !== '.' && parts[0] !== '..') {
-    return { error: `require paths start with "./", "../" or "@self/" (got "${shown}")` };
+    return { error: `require paths start with "./", "../", "@self/" or "@user/" (got "${shown}")` };
   } else if (path.posix.basename(from, path.posix.extname(from)) === 'init') {
     if (!dir.length) return { error: `"${shown}" is outside the project (in an init file, "./" is the folder's parent)` };
     dir.pop();
@@ -287,18 +310,20 @@ function rootCopy(src, links) {
   return out + src.slice(last);
 }
 
-// Walks the requires from the entry → { problems, copy }: everything darklua must not be
-// asked to do, and the text of the entry's copy.
-function check(files, entry) {
+// Walks the requires from the entry, through libraries too → { problems, copy, used }:
+// everything darklua must not be asked to do, the text of the entry's copy, and the
+// libraries it inlines.
+function check(files, entry, libs, external) {
   const out = [];
   const links = [];
-  const state = new Map(); // path → 'open' while its requires are being walked, then 'done'
+  const state = new Map(); // path or "@user/name" → 'open' while its requires are walked, then 'done'
   const stack = [];
   const visit = (file) => {
     state.set(file, 'open');
     stack.push(file);
-    const src = files[file];
-    if (file.endsWith('.json')) {
+    const lib = file[0] === '@';
+    const src = lib ? libs[file] : files[file];
+    if (!lib && file.endsWith('.json')) {
       try { JSON.parse(src); } catch (e) {
         const at = /position (\d+)/.exec(e.message);
         out.push(diag(file, src, at ? Number(at[1]) : 0, 'not valid JSON: ' + e.message.slice(0, 200)));
@@ -311,12 +336,14 @@ function check(files, entry) {
       }
       for (const literal of found) {
         if (out.length >= MAX_DIAGNOSTICS) break;
-        const r = resolve(files, file, literal);
+        const r = resolve(files, libs, file, literal, external);
         if (r.error) {
           out.push(diag(file, src, literal.at, r.error));
           continue;
         }
-        if (file === entry && literal.exact) links.push({ at: literal.at, end: literal.end, target: r.target });
+        if (!r.target) continue;
+        // darklua finds a library from anywhere; only project paths are rewritten.
+        if (file === entry && literal.exact && r.target[0] !== '@') links.push({ at: literal.at, end: literal.end, target: r.target });
         if (state.get(r.target) === 'open') {
           const cycle = stack.slice(stack.indexOf(r.target)).concat(r.target);
           out.push(diag(file, src, literal.at, 'require cycle: ' + cycle.join(' → ')));
@@ -328,18 +355,22 @@ function check(files, entry) {
   };
   visit(entry);
   const copy = entry.includes('/') ? rootCopy(files[entry], links) : files[entry];
-  return { problems: out.slice(0, MAX_DIAGNOSTICS), copy };
+  const used = {};
+  for (const key of state.keys()) if (key[0] === '@') used[key] = libs[key];
+  return { problems: out.slice(0, MAX_DIAGNOSTICS), copy, used };
 }
 
 /* ---------- darklua's errors ---------- */
 
-// darklua names files relative to its working directory, the project root.
+// darklua names files relative to its working directory, the project root; a library's
+// file becomes its "@user/name".
 function projectPath(job, raw) {
   const abs = path.resolve(job.src, raw.replace(/^\\\\\?\\/, ''));
   if (abs === path.join(job.src, ENTRY_COPY)) return job.entry;
   const rel = path.relative(job.src, abs);
   if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
-  return rel.split(path.sep).join('/');
+  const p = rel.split(path.sep).join('/');
+  return p.startsWith(LIB_DIR + '/') ? job.libs.get(p) || null : p;
 }
 
 // Nothing about this machine leaves in a message: file names become project paths.
@@ -470,21 +501,33 @@ function exec(bin, args, cwd) {
 }
 
 // darklua works from the project root: it keys modules by their path from its working
-// directory, so the same file is one module however it is reached.
-async function run(bin, files, entry, copy, minify) {
+// directory, so the same file is one module however it is reached. The libraries it
+// inlines go in .libs below it.
+async function run(bin, files, entry, copy, minify, libs, external) {
   await ready();
   const dir = await fs.promises.mkdtemp(path.join(BASE, 'b-'));
-  const job = { dir, src: path.join(dir, 'src'), entry };
+  const job = { dir, src: path.join(dir, 'src'), entry, libs: new Map() }; // .libs/<user>/<name>.luau → "@user/name"
   try {
-    for (const name of Object.keys(files)) {
-      const file = path.join(job.src, ...name.split('/'));
+    const write = async (rel, text) => {
+      const file = path.join(job.src, ...rel.split('/'));
       await fs.promises.mkdir(path.dirname(file), { recursive: true });
-      await fs.promises.writeFile(file, files[name], { flag: 'wx' });
+      await fs.promises.writeFile(file, text, { flag: 'wx' });
+    };
+    for (const name of Object.keys(files)) await write(name, files[name]);
+    const sources = {};
+    for (const spec of Object.keys(libs)) {
+      const { user, name } = core.libSpec(spec);
+      const rel = `${LIB_DIR}/${user}/${name}.luau`;
+      await write(rel, libs[spec]);
+      job.libs.set(rel, spec);
+      sources['@' + user] = `./src/${LIB_DIR}/${user}`;
     }
     await fs.promises.writeFile(path.join(job.src, ENTRY_COPY), copy, { flag: 'wx' });
     const config = path.join(dir, 'darklua.json');
     const out = path.join(dir, 'out.luau');
-    await fs.promises.writeFile(config, JSON.stringify(minify ? CONFIG.minified : CONFIG.readable), { flag: 'wx' });
+    const bundle = { require_mode: Object.assign({ sources }, REQUIRES) };
+    if (external) bundle.excludes = EXCLUDES;
+    await fs.promises.writeFile(config, JSON.stringify(Object.assign({ bundle }, minify ? CONFIG.minified : CONFIG.readable)), { flag: 'wx' });
     const r = await exec(bin, ['process', ENTRY_COPY, out, '--config', config], job.src);
     if (r.timedOut) throw failed([{ path: entry, line: null, column: null, message: `bundling took longer than ${TIMEOUT / 1000} seconds` }]);
     if (r.code === -1) throw new HttpError(503, 'unavailable');
@@ -525,18 +568,21 @@ function directives(src) {
   return out;
 }
 
-// minify defaults to true.
-async function bundle(files, entry, minify) {
+// minify defaults to true; options: { libs: { "@user/name": code }, external: false }.
+async function bundle(files, entry, minify, options) {
   const bin = tools.bin('darklua');
   if (!bin) throw new HttpError(503, 'unavailable');
   const minified = minify !== false;
+  const opts = options || {};
   const clean = core.checkFiles(files);
   const main = core.checkEntry(clean, entry);
-  const { problems, copy } = check(clean, main);
+  const libs = opts.libs === undefined || opts.libs === null ? {} : core.checkLibs(opts.libs);
+  const external = opts.external === true;
+  const { problems, copy, used } = check(clean, main, libs, external);
   if (problems.length) throw failed(problems);
   await acquire();
   let code;
-  try { code = await run(bin, clean, main, copy, minified); } finally { release(); }
+  try { code = await run(bin, clean, main, copy, minified, used, external); } finally { release(); }
   const head = directives(clean[main]);
   if (head.join('\n') !== directives(code).join('\n')) code = head.join('\n') + '\n' + code;
   const bytes = Buffer.byteLength(code);
@@ -570,12 +616,14 @@ module.exports = {
     if (req.method !== 'POST') throw new HttpError(405, 'method-not-allowed');
     rate(req);
     const body = await core.readJson(req, BODY_LIMIT);
-    if (body.minify !== undefined && typeof body.minify !== 'boolean') throw new HttpError(400, 'bad-request', { field: 'minify' });
-    core.send(res, 200, await bundle(body.files, body.entry, body.minify));
+    for (const field of ['minify', 'external']) {
+      if (body[field] !== undefined && typeof body[field] !== 'boolean') throw new HttpError(400, 'bad-request', { field });
+    }
+    core.send(res, 200, await bundle(body.files, body.entry, body.minify, { libs: body.libs, external: body.external }));
   },
   async info() {
     const bin = tools.bin('darklua');
-    return { available: !!bin, version: bin ? await version(bin) : null, limit: LIMIT };
+    return { available: !!bin, version: bin ? await version(bin) : null, limit: LIMIT, libs: true };
   },
   bundle,
   rate,

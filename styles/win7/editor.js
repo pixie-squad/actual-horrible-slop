@@ -93,7 +93,7 @@
 
     function testsPane() {
       if (!tests) {
-        tests = W.testsPane({ onRun: runTest, onClose: () => showTests(false) });
+        tests = W.testsPane({ onRun: runTest, onClose: () => showTests(false), onSettings: testSettings });
         win.body.append(tests.el);
       }
       return tests;
@@ -123,6 +123,8 @@
       const run = NT.tests.of(id);
       return !!run && !run.done;
     };
+    // What the next run is given (tests.js): a property sheet.
+    const testSettings = () => W.testSettings(script, win);
 
     /* ----- Details ----- */
 
@@ -138,6 +140,9 @@
         const combo = W.combo([['', 'None'], ...maps.map((m) => [m.user_map_id, m.name])], mapId, (v) => { mapId = v; }, 'Map');
         mapHost.replaceChildren(combo.el);
       });
+      // A library is used by others as @user/name (libs.js); the bundler needs a building server.
+      let library = S.library;
+      const libBox = NT.project.multi() && NT.libs.available() ? W.check('Library', library, (on) => { library = on; }) : null;
       const error = h('p.w-error', { role: 'alert' });
       const submit = W.button('OK', null, { primary: true, submit: true });
       const dialog = W.dialog({ title: 'Details', icon: 'doc', width: 340 });
@@ -146,6 +151,7 @@
           name.row,
           h('div.w-field.top', h('label', 'Description:'), h('div.w-field-box', desc, counter)),
           h('div.w-field', h('label', 'Map:'), mapHost),
+          libBox && libBox.el,
           error),
         h('div.w-buttons', h('span.w-gap'), submit, W.button('Cancel', () => dialog.close())));
       dialog.body.append(form);
@@ -155,12 +161,14 @@
         const n = name.input.value.trim(), d = desc.value.trim();
         if (n.length < 3 || n.length > 32) return void (error.textContent = 'Name needs 3 to 32 characters.');
         if (d && (d.length < 32 || d.length > 1024)) return void (error.textContent = 'Description needs 32 to 1024 characters, or leave it empty.');
+        if (library && NT.libs.problem(n)) return void (error.textContent = `A library’s name: ${NT.libs.problem(n).toLowerCase()}.`);
         error.textContent = '';
         submit.disabled = true;
         try {
           if (n !== (script.name || '')) { await API.saveName(id, n); script.name = n; }
           if (d !== (script.description || '')) { await API.saveDescription(id, d); script.description = d || null; }
           if (mapId !== (script.user_map_id || '')) { await API.setMap(id, mapId || null); script.user_map_id = mapId || null; }
+          if (library !== S.library) await S.setLibrary(library);
           dialog.close();
           S.paint();
           UI.toast('Saved');
@@ -170,6 +178,63 @@
         }
       });
       dialog.open();
+    }
+
+    /* ----- History ----- */
+
+    const stamp = (at) => new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    // Each save of a file (NT.history), newest first, in a list view; with more than one
+    // file, a drop-down list says whose. A save opens on what it changes against the file
+    // as it is now, with Restore.
+    function historyDialog() {
+      const paths = ed.paths().slice().sort();
+      let path = paths.includes(ed.path) ? ed.path : ENTRY;
+      const dialog = W.dialog({ title: 'History', width: 420, height: 340 });
+      const open = W.button('Open', () => { if (list.picked) openSave(list.picked, dialog); }, { primary: true, disabled: true });
+      const list = W.list([
+        { label: 'Saved', width: 'minmax(110px, 1.5fr)', cell: (e) => stamp(e.at) },
+        { label: 'When', width: 'minmax(80px, 1fr)', cell: (e) => NT.util.rel(e.at) },
+        { label: 'Lines', width: '56px', align: 'right', cell: (e) => e.lines },
+      ], { label: 'Saves', onOpen: (e) => openSave(e, dialog), onPick: (e) => { open.disabled = !e; } });
+      list.el.classList.add('fill');
+      let turn = 0;
+      async function fill() {
+        const t = ++turn;
+        const saves = await NT.history.list(id, path);
+        if (t !== turn) return;
+        if (saves.length) list.set(saves);
+        else list.say(blank('No Saves Yet'));
+        open.disabled = !list.picked;
+      }
+      const file = paths.length > 1 ? W.combo(paths.map((p) => [p, p]), path, (p) => { path = p; fill(); }, 'File') : null;
+      if (file) dialog.body.append(h('div.w-field', h('label', 'File:'), h('span.w-combo-host', file.el)));
+      dialog.body.append(list.el, h('div.w-buttons', open, W.button('Close', () => dialog.close())));
+      dialog.open();
+      list.focus();
+      fill();
+    }
+
+    async function openSave(entry, under) {
+      const before = await NT.history.text(entry.id);
+      if (before == null || !ed.has(entry.path)) return void UI.toast('Couldn’t open', { warn: true });
+      const code = W.code();
+      const restore = W.button('Restore', () => {
+        const was = ed.text(entry.path);
+        ed.open(entry.path);
+        ed.replace(entry.path, before);
+        dialog.close();
+        under.close();
+        UI.toast('Restored', { action: { label: 'Undo', onSelect: () => ed.replace(entry.path, was) } });
+      }, { primary: true, disabled: before === ed.text(entry.path) });
+      let view = null;
+      const dialog = W.dialog({ title: stamp(entry.at), width: 820, height: 520, onClose: () => { if (view) view.dispose(); view = null; } });
+      dialog.body.append(code.el, h('div.w-buttons', restore, W.button('Cancel', () => dialog.close())));
+      dialog.open();
+      const made = await NT.code.diff(code.host, { before, after: ed.text(entry.path), onStats: (s) => { restore.disabled = !s.changes; } });
+      // Closed while it was being made.
+      if (!dialog.mounted) return void made.dispose();
+      view = made;
     }
 
     /* ----- Menus ----- */
@@ -194,8 +259,10 @@
             '-',
             testBtn && { label: 'Test', onSelect: runTest },
             testBtn && { label: 'Stop', disabled: !running(), onSelect: () => NT.tests.of(id).stop() },
+            testBtn && { label: 'Test Settings…', onSelect: testSettings },
             testBtn && '-',
             { label: 'Details…', onSelect: details },
+            { label: 'History…', onSelect: historyDialog },
             { label: 'Script Page', onSelect: () => NT.nav.go(`/scripts/${id}`) },
             '-',
             { label: 'Delete', onSelect: remove },

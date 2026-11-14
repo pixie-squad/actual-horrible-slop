@@ -238,6 +238,8 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-bar .m-iconbtn, .m-bar .m-btn.tonal, .m-bar .m-btn.text { color: inherit; background: none; box-shadow: none; }
 .m-bar .m-iconbtn.filled { background: none; }
 .m-bar .m-iconbtn:disabled { color: inherit; opacity: 0.4; background: none; }
+/* A toggle in the bar (Files) stays in the bar's colour, and is washed with it when on. */
+.m-bar .m-iconbtn.standard[aria-pressed="true"]:not(.m-fav) { color: inherit; background: color-mix(in srgb, currentColor 16%, transparent); }
 /* A place's title is in its bar, where every title is. */
 .m-large { display: none; }
 .m-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
@@ -323,6 +325,15 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-filter .m-group { flex: 1; border-radius: 0; box-shadow: inset 0 -1px 0 var(--divider); }
 .m-filter .m-group-btn { flex: 0 1 160px; height: 48px; line-height: 48px; box-shadow: none; }
 .m-filter .m-group-btn[aria-checked="true"] { background: none; box-shadow: inset 0 -2px 0 var(--primary); }
+/* On a phone they are Material Components' tabs (mdc-tab, mdc-tab-scroller): each its
+   label with 24 either side and at least 90, sharing the row where they fit, and the
+   row moving sideways where they do not. */
+@media (max-width: 599px) {
+  .m-filter .m-group { flex: 1 1 auto; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
+  .m-filter .m-group::-webkit-scrollbar { display: none; }
+  .m-filter .m-group + .m-gap { display: none; }
+  .m-filter .m-group-btn { flex: 1 0 auto; min-width: 90px; padding: 0 24px; }
+}
 
 /* ---------- Switch and slider ---------- */
 
@@ -394,6 +405,8 @@ html[data-theme="dark"] .m-switch-handle { background: #bdbdbd; }
 .m-list > .m-item + .m-item, .m-list > .m-fold .m-item { box-shadow: inset 0 1px 0 var(--divider); }
 .m-item.plain { padding: 0; }
 .m-item.col { flex-direction: column; align-items: stretch; gap: 0; }
+/* (Down a column a slider keeps its height; grown from nothing it would have none.) */
+.m-item.col > .m-slider { flex: none; }
 .m-item-icon { flex: none; display: grid; place-items: center; width: 24px; height: 24px; margin-right: 16px; color: var(--on-surface-2); }
 .m-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .m-item-headline { font: 400 16px/24px var(--font); letter-spacing: 0.009em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -403,6 +416,9 @@ html[data-theme="dark"] .m-switch-handle { background: #bdbdbd; }
 .m-item > .msr:last-child { color: var(--on-surface-3); }
 .m-item.danger, .m-item.danger .m-item-icon { color: var(--error); }
 .m-pick { flex: none; display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 0 4px 0 8px; border-radius: var(--r); color: var(--on-surface-2); font: 400 14px/20px var(--font); }
+/* The line a script writes to use a library, in Roboto Mono; a long one wraps. */
+.m-lib-use { flex: 1; min-width: 0; font: 400 14px/20px var(--mono); letter-spacing: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.m-item > .m-lib-use + .m-iconbtn { margin-right: -12px; }
 .m-inline { flex: 1; min-width: 0; height: 32px; box-shadow: inset 0 -2px 0 var(--primary); font: 400 16px/24px var(--font); }
 .m-param-head { display: flex; align-items: center; gap: 8px; min-height: 36px; }
 .m-param-head .m-item-headline { flex: 1; }
@@ -517,10 +533,40 @@ html[data-theme="dark"] .m-switch-handle { background: #bdbdbd; }
 .m-dialog { position: relative; display: flex; flex-direction: column; gap: 12px; width: min(360px, 100%); max-height: 100%; padding: 20px 24px 8px; border-radius: var(--r); background: var(--surface-2); box-shadow: var(--dp24); overflow-y: auto; }
 .m-dialog.wide { width: min(440px, 100%); }
 .m-dialog-icon { display: none; }
-.m-dialog h2 { font: 500 20px/32px var(--font); letter-spacing: 0.0075em; overflow-wrap: anywhere; }
-.m-dialog p { font: 400 16px/24px var(--font); letter-spacing: 0.03em; color: var(--on-surface-2); }
+.m-dialog > h2 { font: 500 20px/32px var(--font); letter-spacing: 0.0075em; overflow-wrap: anywhere; }
+.m-dialog > p { font: 400 16px/24px var(--font); letter-spacing: 0.03em; color: var(--on-surface-2); }
 .m-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin: 8px -16px 0; }
 .m-dialog-actions .m-btn.filled { background: none; color: var(--primary); box-shadow: none; padding: 0 8px; }
+/* Content with more than it shows scrolls between the title and the actions, a divider
+   at either edge while it does (mdc-dialog--scrollable). */
+.m-dialog-scroll { flex: 0 1 auto; min-height: 0; margin: 0 -24px; padding: 0 24px; overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid transparent; border-bottom: 1px solid transparent; }
+.m-dialog.is-scrolling > .m-dialog-scroll { border-color: var(--divider); }
+/* A list in a dialog is part of the dialog's paper, its rows 24 from the edges as the
+   title is, with a line between them. */
+.m-dialog .m-list { margin: 0 -24px; border-radius: 0; background: none; box-shadow: none; }
+.m-dialog .m-list .m-item:not(.plain) { padding-left: 24px; padding-right: 24px; }
+.m-dialog .m-list + .m-list { box-shadow: inset 0 1px 0 var(--divider); }
+.m-dialog .m-stack.tight { gap: 0; }
+.m-dialog .m-empty { padding: 32px 0; }
+.m-settings { flex: none; display: flex; flex-direction: column; }
+.m-settings > .m-section { margin-top: 16px; }
+/* As wide as a dialog gets (full), and under 600 a full-screen dialog: its title in a bar
+   as the top app bar is, Close before it and the dialog's action after it, and what it
+   shows in the rest. */
+.m-dialog.full { width: min(560px, 100%); }
+@media (max-width: 599px) {
+  .m-layer.full { padding: 0; }
+  .m-dialog.full { display: grid; grid-template: "x title act" calc(56px + env(safe-area-inset-top, 0px)) "body body body" minmax(0, 1fr) / auto minmax(0, 1fr) auto; width: 100%; height: 100%; max-height: none; padding: 0 0 env(safe-area-inset-bottom, 0px); gap: 0; border-radius: 0; box-shadow: none; overflow: hidden; background: var(--surface); }
+  .m-dialog.full::before { content: ""; grid-area: 1 / 1 / 2 / -1; z-index: 1; background: var(--bar); box-shadow: var(--dp4); }
+  .m-dialog.full > .m-dialog-x { grid-area: x; z-index: 2; align-self: end; margin: 0 0 4px 4px; color: var(--on-bar); }
+  .m-dialog.full > h2 { grid-area: title; z-index: 2; align-self: end; min-width: 0; margin: 0 0 16px 20px; color: var(--on-bar); font: 500 20px/24px var(--font); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .m-dialog.full > .m-dialog-actions { display: contents; }
+  .m-dialog.full > .m-dialog-actions > :not(:last-child) { display: none; }
+  .m-dialog.full > .m-dialog-actions > :last-child { grid-area: act; z-index: 2; align-self: end; margin: 0 8px 10px 0; color: var(--on-bar); }
+  .m-dialog.full > .m-dialog-actions > :last-child:disabled { background: none; color: var(--on-bar); opacity: 0.5; }
+  .m-dialog.full > :not(.m-dialog-x):not(h2):not(.m-dialog-actions) { grid-area: body; min-height: 0; }
+}
+@media (min-width: 600px) { .m-dialog-x { display: none; } }
 .m-sheet { position: relative; display: flex; flex-direction: column; width: min(640px, 100%); max-height: 88%; padding: 0 0 env(safe-area-inset-bottom, 0px); border-radius: var(--r) var(--r) 0 0; background: var(--surface-2); box-shadow: var(--dp24); }
 .m-sheet-handle { display: none; }
 .m-sheet h2 { flex: none; padding: 16px 16px 8px; font: 500 14px/24px var(--font); letter-spacing: 0.007em; color: var(--on-surface-2); touch-action: none; }
@@ -545,6 +591,9 @@ html[data-theme="dark"] .m-snack-action.m-btn.text { color: var(--p); }
 .m-codepage > .m-scroll > .m-inner > .m-code { flex: 1; }
 .m-code.is-basic { display: flex; }
 .m-code-return { position: absolute; z-index: 5; right: 16px; bottom: 16px; background: var(--surface-2); box-shadow: var(--dp6); }
+/* A save from History against the file as it is now, edge to edge in its dialog. */
+.m-history-diff { flex: none; height: min(56vh, 520px); margin: 0 -24px; border-top: 1px solid var(--divider); border-bottom: 1px solid var(--divider); }
+@media (max-width: 599px) { .m-dialog.full > .m-history-diff { height: auto; margin: 0; border: 0; } }
 
 .code-card { flex: 1; display: flex; min-height: 0; overflow: hidden; background: var(--code-bg); }
 .code-area { flex: 1; display: flex; min-width: 0; overflow: auto; font: 400 13px/20px var(--mono); letter-spacing: 0; tab-size: 4; -moz-tab-size: 4; }
@@ -592,6 +641,8 @@ html .quick-input-widget { --vscode-list-highlightForeground: var(--primary); --
 .quick-input-widget .monaco-highlighted-label .highlight { font-weight: 500 !important; }
 .quick-input-widget .label-description, .quick-input-widget .quick-input-list-separator { color: var(--on-surface-2) !important; opacity: 1 !important; }
 .quick-input-widget .quick-input-list-separator-border { border-top-color: var(--divider) !important; }
+/* Lines an #if leaves out (js/macro-view.js) are disabled text: 38 % where text is 87 %. */
+.monaco-editor .nt-inactive { opacity: 0.44; }
 
 /* ---------- The file tree (js/explorer.js) ---------- */
 
@@ -670,19 +721,20 @@ html .quick-input-widget { --vscode-list-highlightForeground: var(--primary); --
   color: var(--on-surface);
 }
 
-/* The heading: the run's title as a headline 6, with its verdict once there is one, an
-   outlined button and the sheet's close button on its line; the detail under it as
-   body 2. The detail's line is there while it is empty. */
-.m-tests-head { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "title act close" "detail detail detail"; align-items: center; padding: 8px 4px 0 16px; }
+/* The heading: the run's title as a headline 6, with its verdict once there is one, and
+   the sheet's icon buttons on its line, Test Settings and Close; under it the detail as
+   body 2, with the outlined button that acts on the run at its end, lined up with the
+   icons. The detail's line is there while it is empty. */
+.m-tests-head { flex: none; display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "title tools" "detail act"; align-items: center; column-gap: 8px; padding: 8px 4px 0 16px; }
+.m-tests-tools { grid-area: tools; justify-self: end; display: flex; }
 .m-tests-title { grid-area: title; display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 48px; font: 500 20px/32px var(--font); letter-spacing: 0.0075em; }
 .m-tests-title > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .m-tests-verdict { flex: none; display: grid; place-items: center; }
 .m-tests-verdict:empty { display: none; }
 .m-tests[data-tone="good"] .m-tests-verdict { color: var(--primary); }
 .m-tests[data-tone="bad"] .m-tests-verdict { color: var(--error); }
-.m-tests-act { grid-area: act; margin-left: 8px; }
-.m-tests-close { grid-area: close; }
-.m-tests-detail { grid-area: detail; min-height: 20px; padding-right: 12px; font: 400 14px/20px var(--font); letter-spacing: 0.018em; color: var(--on-surface-2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-tests-act { grid-area: act; margin-right: 12px; }
+.m-tests-detail { grid-area: detail; min-height: 20px; font: 400 14px/20px var(--font); letter-spacing: 0.018em; color: var(--on-surface-2); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* The linear progress indicator as Material Components draws it (mdc-linear-progress):
    4 high and edge to edge, a bar of primary on its track. Determinate, the bar grows

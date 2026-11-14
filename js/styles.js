@@ -33,12 +33,17 @@
     NT.bus 'scripts' heard by the pages that list scripts: a delete was taken back
     Remember Me on its way in, off until chosen, where NT.api.canKeep (api.login and
     api.register take it last)
+    in the editor: Test Settings where tests run (NT.tests.setup / configure), History
+    (NT.history, ed.replace) with Restore and Undo, Library in Details (session.library,
+    setLibrary), and .nt-inactive drawn on the lines an #if leaves out (macro-view.js)
+    on Scripts, a Libraries list when signed in where NT.libs.available() (NT.libs.list);
+    on a library's page, the line that uses it, to copy (NT.libs.spec)
 */
 (function () {
   'use strict';
   var NT = (window.NT = window.NT || {});
 
-  var CORE = ['util', 'icons', 'data', 'pack', 'api', 'ext', 'luau', 'editor-prefs', 'format', 'project', 'monaco', 'lsp', 'media', 'explorer', 'routes', 'session', 'actions', 'tests', 'compare', 'seen'];
+  var CORE = ['util', 'icons', 'data', 'pack', 'api', 'ext', 'luau', 'editor-prefs', 'format', 'macro', 'libs', 'project', 'monaco', 'macro-view', 'lsp', 'media', 'explorer', 'routes', 'session', 'actions', 'tests', 'compare', 'seen', 'history'];
 
   var STYLES = [
     {

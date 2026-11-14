@@ -17,7 +17,15 @@
     NT.tests.start(script, { values, seconds })
                                 → the run, at once; what goes wrong shows on it.
                                   values(parameter) → its value, as on the script's
-                                  page; left out, every parameter is at its default
+                                  page; left out, what setup() says
+    NT.tests.setup(scriptId)    what this browser runs a script's tests with (nt.test.<id>):
+                                { seconds, map, values }. seconds: null is the usual.
+                                map: undefined is the script's own, null none, else
+                                { id, internal } of one of the author's maps. values:
+                                { [parameter id]: value } for those not at their default
+    NT.tests.configure(scriptId, patch)
+                                change some of it; null puts all of it back
+    NT.tests.changed(scriptId)  how many settings are not at their default
     NT.tests.of(scriptId)       the run for a script in this tab: going, or the last
     NT.tests.kinds              [{ id, label }]: what the objects of a battle can be
                                 shown by, 'all' first
@@ -233,7 +241,31 @@
 
   /* ---------- A run on the runner ---------- */
 
-  async function begin(run, script, values) {
+  /* ---------- What a script is tested with ---------- */
+
+  const setupKey = (id) => 'nt.test.' + id;
+  function setup(id) {
+    const raw = NT.util.store.get(setupKey(id), null) || {};
+    const values = {};
+    for (const [k, v] of Object.entries(raw.values && typeof raw.values === 'object' ? raw.values : {})) {
+      if (typeof v === 'number' && Number.isFinite(v)) values[k] = v;
+    }
+    const map = raw.map === null ? null
+      : raw.map && typeof raw.map.id === 'string' && raw.map.internal != null ? { id: raw.map.id, internal: raw.map.internal } : undefined;
+    return { seconds: typeof raw.seconds === 'number' && Number.isFinite(raw.seconds) ? raw.seconds : null, map, values };
+  }
+  function configure(id, patch) {
+    if (patch === null) return NT.util.store.remove(setupKey(id));
+    const next = Object.assign(setup(id), patch);
+    const out = {};
+    if (next.seconds != null) out.seconds = next.seconds;
+    if (next.map !== undefined) out.map = next.map;
+    if (Object.keys(next.values).length) out.values = next.values;
+    if (Object.keys(out).length) NT.util.store.set(setupKey(id), out);
+    else NT.util.store.remove(setupKey(id));
+  }
+
+  async function begin(run, script, values, map) {
     const fail = (reason) => run.finish('error', reason);
     if (!API.session) return fail('unauthorized');
 
@@ -264,7 +296,7 @@
           script_id: script.script_id,
           token: share.token,
           bp,
-          map: script.user_map_internal_id == null ? null : script.user_map_internal_id,
+          map: map === undefined ? (script.user_map_internal_id == null ? null : script.user_map_internal_id) : map,
           seconds: run.seconds,
         }),
       });
@@ -418,16 +450,25 @@ ${r.team}`.toLowerCase().includes(query)))
       const was = runs.get(script.script_id);
       if (was && !was.done) return was;
       const limit = (API.mode === 'live' && NT.ext.info('tests').seconds) || SECONDS;
-      const seconds = Math.max(limit.least, Math.min(limit.most, Math.round(opts.seconds || limit.usual)));
+      const set = setup(script.script_id);
+      const seconds = Math.max(limit.least, Math.min(limit.most, Math.round(opts.seconds || set.seconds || limit.usual)));
       const run = new Run(script, seconds);
       runs.set(script.script_id, run);
       // (Not called valueOf: every object has one of those, asked for or not.)
-      const go = API.mode === 'live' ? begin(run, script, typeof opts.values === 'function' ? opts.values : null) : act(run, script);
+      const values = typeof opts.values === 'function' ? opts.values : (p) => (p.id in set.values ? set.values[p.id] : p.default_value);
+      const map = set.map === undefined ? undefined : set.map && set.map.internal;
+      const go = API.mode === 'live' ? begin(run, script, values, map) : act(run, script);
       go.catch((e) => {
         console.error(e);
         run.finish('error', 'internal');
       });
       return run;
+    },
+    setup,
+    configure,
+    changed(id) {
+      const s = setup(id);
+      return (s.seconds != null ? 1 : 0) + (s.map !== undefined ? 1 : 0) + Object.keys(s.values).length;
     },
     kinds: KINDS,
     state,

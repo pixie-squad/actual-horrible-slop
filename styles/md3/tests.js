@@ -4,9 +4,11 @@
   panel in a supporting pane beside the code on a wide window and in a bottom sheet on
   a narrow one (editor.js).
 
-    NT.md.tests({ onRun, onClose })  → { el, show(run), dispose() }
+    NT.md.tests({ onRun, onClose, onSettings })  → { el, show(run), dispose() }
       onRun(source)   the button in the heading, once the run is over
       onClose         the pane's own close button (a sheet closes itself; it is hidden there)
+      onSettings      Test Settings, an icon button beside it
+    NT.md.testSettings(script)    the bottom sheet of what its tests run with
 
   From the top: the run's own words, the linear progress indicator, Output or State,
   and under that either what the script printed or the battle as a table: its kinds as
@@ -17,7 +19,71 @@
   const NT = window.NT;
   const { h, clamp, debounce } = NT.util;
   const M = NT.md;
+  const UI = NT.ui;
   const still = () => NT.util.reducedMotion();
+
+  /* ---------- Test Settings ----------
+     What a script's tests run with (NT.tests.setup): how long, on which map, and its
+     parameters as its page shows them, in a bottom sheet (something to pick through).
+     Each change holds at once, from the next run on; the sheet is dragged or tapped
+     away when it is done with. */
+
+  const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  let settingsOpen = false;
+
+  M.testSettings = async function (script) {
+    if (settingsOpen) return;
+    settingsOpen = true;
+    const API = NT.api;
+    const id = script.script_id;
+    const set = NT.tests.setup(id);
+    const values = Object.assign({}, set.values);
+    let seconds = set.seconds, map = set.map;
+    const limit = (API.mode === 'live' && NT.ext.info('tests').seconds) || NT.tests.seconds;
+    const keep = () => NT.tests.configure(id, { seconds, map, values });
+    const [params, maps] = await Promise.all([
+      API.parameters(id).catch(() => []),
+      API.maps(script.author_uuid).catch(() => []),
+    ]);
+
+    // How long, as m:ss, with the way back to the usual where it is not that.
+    // (Reset goes once it has done its work; the keyboard moves on to the slider.)
+    const shown = () => (seconds == null ? limit.usual : seconds);
+    const time = h('span.m-param-value', clock(shown()));
+    const reset = M.button('Reset', () => { slider.set(limit.usual); setTime(limit.usual); slider.el.querySelector('input').focus({ preventScroll: true }); }, { variant: 'text' });
+    reset.hidden = seconds == null;
+    const setTime = (v) => {
+      seconds = v === limit.usual ? null : v;
+      time.textContent = clock(v);
+      reset.hidden = seconds == null;
+      keep();
+    };
+    const slider = M.slider({ min: limit.least, max: limit.most, step: 5, value: shown(), label: 'Duration', onInput: setTime });
+
+    // Which map: the script's own, none, or one of its author's.
+    const mapValue = h('span');
+    const mapPick = h('button.m-pick.m-press', { type: 'button', 'aria-label': 'Map' }, mapValue, M.icon('expand_more', { size: 20 }));
+    const syncMap = () => {
+      const m = map && maps.find((x) => x.user_map_id === map.id);
+      mapValue.textContent = map === undefined ? 'Default' : m ? m.name : 'None';
+    };
+    const pickMap = (next) => () => { map = next; syncMap(); keep(); };
+    mapPick.addEventListener('click', () => UI.menu(mapPick, [
+      { label: 'Default', checked: map === undefined, onSelect: pickMap(undefined) },
+      { label: 'None', checked: map === null, onSelect: pickMap(null) },
+      maps.length ? '-' : null,
+      ...maps.map((m) => ({ label: m.name, checked: !!map && map.id === m.user_map_id, onSelect: pickMap({ id: m.user_map_id, internal: m.internal_id }) })),
+    ]));
+    syncMap();
+
+    const body = h('div.m-settings',
+      M.list(
+        h('div.m-item.col', h('div.m-param-head', h('span.m-item-headline', 'Duration'), reset, time), slider.el),
+        h('div.m-item', h('span.m-item-text', h('span.m-item-headline', 'Map')), mapPick)),
+      params.length ? M.header('Parameters') : null,
+      params.length ? M.kit.paramGroups(params, values, keep) : null);
+    return M.sheet({ title: 'Test Settings', body, onClose: () => { settingsOpen = false; } });
+  };
 
   /* ---------- The linear progress indicator ----------
      Drawn as ProgressIndicator.kt draws it (the numbers are LinearProgressIndicatorTokens
@@ -199,7 +265,7 @@
 
   /* ---------- The panel ---------- */
 
-  M.tests = function ({ onRun, onClose }) {
+  M.tests = function ({ onRun, onClose, onSettings }) {
     let run = null, off = null, drawn = 0, tone = '';
     let view = 'output', kind = 'all', query = '';
 
@@ -212,6 +278,7 @@
     }, { variant: 'tonal', cls: '.m-tests-act' });
     const actLabel = act.querySelector('span');
     const close = M.iconButton('close', 'Close', onClose, { cls: '.m-tests-close' });
+    const settings = onSettings ? M.iconButton('tune', 'Test Settings', () => onSettings(), { cls: '.m-tests-settings' }) : null;
     const bar = progress();
 
     // What is shown under it: a connected button group, as every choice of view here.
@@ -241,7 +308,7 @@
       kinds.el, h('label.m-search.m-tests-search', M.icon('search'), search), summary, grid);
 
     const el = h('section.m-tests', { 'aria-label': 'Test' },
-      h('header.m-tests-head', h('h3.m-tests-title', verdict, title), act, close, detail),
+      h('header.m-tests-head', h('h3.m-tests-title', verdict, title), h('div.m-tests-tools', settings, close), detail, act),
       bar.el, views.el, h('div.m-tests-body', lines, state));
 
     function heading(jump) {

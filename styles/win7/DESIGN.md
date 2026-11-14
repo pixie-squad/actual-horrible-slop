@@ -42,7 +42,7 @@ Top to bottom (`ui.js`, `W.window`):
 | Caption | Glass. The icon and the name; the caption buttons hang from its top edge as one piece, and Close is the wide red one. It moves the window; twice on it maximises. |
 | Address row | In a window that shows a place, on the glass: Back and Forward, where the window is as a trail from Home, Refresh at the trail's end, and the search box. Such a window has no name in its caption; the trail says it. |
 | Command bar | **Everything** that can be done: the menus (Organize in a place, File elsewhere) as buttons that drop down, then what is done most, as words. There is no menu bar. |
-| Navigation pane | In a place: the places as a tree, the one shown marked (`W.tree`; `pages.js`, `places`). Mine, Favorites and All are under Scripts. A triangle opens and shuts what is under a place; the triangles show while the pointer or the keyboard is in the pane. |
+| Navigation pane | In a place: the places as a tree, the one shown marked (`W.tree`; `pages.js`, `places`). Mine, Favorites and All are under Scripts, and Libraries, with Explorer's own Libraries icon, where they can be looked for. A triangle opens and shuts what is under a place; the triangles show while the pointer or the keyboard is in the pane. |
 | Client area | The content. |
 | Details pane | In a place, instead of a status bar: what is chosen, its picture large, and facts about it with their labels greyed (`W.details`). |
 | Status bar | In every other window: what it has to say, and what just happened. |
@@ -56,6 +56,10 @@ Top to bottom (`ui.js`, `W.window`):
 - Windows that are about one thing (a script, a profile, settings) are tabbed like a
   property sheet and have a name in their caption, with no address row, no panes and
   no status bar: under the tabs are its buttons, and nothing under them.
+- A place that fills as it is read (Libraries) shows its list with the headings and
+  nothing under them while its address bar fills with pale green from its start, as
+  Explorer's does while it searches (`win.loading`); the pointer is the arrow with the
+  busy circle, and the details pane has the count.
 - Any edge or corner of the glass frame sizes a window (`ui.js`, `size`; `.w-size`).
   The grip is the status bar's; a window without one has none.
 - What a toast says elsewhere is said in the **status bar** of the window in front.
@@ -74,6 +78,13 @@ Top to bottom (`ui.js`, `W.window`):
   colour, with the icon beside it. Anything more is plain text under it.
 - The buttons are on the grey strip along the bottom, right-aligned, the one that goes
   on first and Cancel last. The default button has the blue glow, which breathes.
+- A property sheet (Test Settings: `tests.js`, `W.testSettings`) is on the face, its
+  tabs and under them OK, Cancel and Apply, with no strip (`.w-sheet`). OK and Apply
+  keep what was changed, Cancel leaves it; Apply is grey until there is something to
+  apply.
+- A dialog that lists things to pick from (History: `editor.js`) has a list view and
+  Open, the default button, grey until something is chosen; one opened from it lies
+  over it.
 
 ## 4. Controls
 
@@ -87,6 +98,7 @@ see the sources):
 | One of a few | Option buttons (`W.radios`); a drop-down list (`W.combo`) when there are many |
 | A number in a range | Trackbar with the pointed thumb (`W.trackbar`) |
 | Typing | Edit field with the edge that is darker along its top (`W.input`); a search box with the magnifying glass (`W.search`) |
+| A line to copy | A read-only field, on the face as Windows 7 colours one, and Copy beside it (`pages.js`, `copyLine`) |
 | Views of one thing | Tabs (`W.tabs`) |
 | Related controls | Group box (`W.group`) |
 | Many things with facts about them | List view in columns (`W.list`): a heading sorts by its column, and the mark of which way sits over the heading's middle |
@@ -119,7 +131,8 @@ see the sources):
   larger, not bold; a heading over a group in a place is navy with a line running out
   to its right (`.w-label`).
 - Segoe UI at 9 pt throughout (`--font`, `--fs`); the caption's text is dark with the
-  white glow behind it. Code is in Consolas.
+  white glow behind it. Code is in Consolas; what an `#if` leaves out of it is in the
+  grey of text that cannot be used (`.nt-inactive`).
 - **Icons are Windows 7's own** (`icons.js`, `icons/`), kept at each size they are
   shown at and at one and a half and twice that, so they are sharp at 100 %, 150 % and
   200 % scaling. So are the Start orb, Back and Forward. The table in `icons.js` is
@@ -138,6 +151,7 @@ see the sources):
 - A caption button's glow fades in and out; the default button's glow breathes.
 - A progress bar moves as Windows 7's does: its green eases forward, the light runs
   along it, and while there is no telling how long the marquee goes along the well.
+  So does the green in the address bar of a place still being read.
 - Nothing else moves, and the core's own parts do not (`NT.look.still`).
 - Glass costs a render pass a surface. Dragging a window, opening the Start menu and
   switching windows are measured for dropped frames whenever the glass changes.
@@ -159,7 +173,9 @@ Windows 7 had few touch screens. Where the pointer is a finger, sizes grow
 - The icons, the Start orb and the Back and Forward buttons are Microsoft's, from
   Windows 7, as PNG files in the
   [B00merang-Artwork/Windows-7](https://github.com/B00merang-Artwork/Windows-7) icon
-  set, scaled to the sizes used here. They are not this app's own work.
+  set, scaled to the sizes used here. They are not this app's own work. Libraries
+  (`icons/libs-*`) is that set's `filesystems/gnome-fs-directory-docs.png`, Windows 7's
+  Libraries icon at 128 pixels, scaled down.
 - The wallpapers (`wallpapers/`) are Microsoft's, from the Windows 7 DVD at 1920 by
   1200: `img0` (Harmony) and one from each theme (Nature `img3`, Landscapes `img8`,
   Architecture `img17`, Characters `img19`, Scenes `img28`), saved again as smaller

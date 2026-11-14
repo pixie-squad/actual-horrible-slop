@@ -94,13 +94,16 @@
 .tests-grid > .tests-none { margin: 6px 0 0; }
 
 /* ---------- In a sheet ----------
-   The sheet's own button closes it; the heading's parts take two rows, and the kinds
+   The sheet's own button closes it; the heading's parts take two rows (what it says and
+   the button; the switch and Test Settings), and the kinds
    run the width with the search under them. */
 
-.sheet-body > .tests .tests-close { display: none; }
+.sheet-body > .tests .tests-close:not(.tests-settings) { display: none; }
 .sheet-body > .tests .tests-head { flex-wrap: wrap; height: auto; padding: 12px 12px 10px 16px; row-gap: 10px; }
 .sheet-body > .tests .tests-title { flex-basis: calc(100% - 150px); }
-.sheet-body > .tests .seg.tests-views { order: 3; flex: 1 1 100%; width: auto; max-width: none; margin: 0; }
+.sheet-body > .tests .seg.tests-views { order: 3; flex: 1 1 calc(100% - 64px); width: auto; max-width: none; margin: 0; }
+/* Test Settings goes down with the switch, beside it. */
+.sheet-body > .tests .tests-settings { order: 4; }
 .sheet-body > .tests .tests-body { padding: 10px 12px 12px; }
 .sheet-body > .tests .tests-lines, .sheet-body > .tests .tests-grid { min-height: 180px; max-height: 44vh; }
 .sheet-body > .tests .tests-lines { padding: 0 4px; }

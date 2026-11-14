@@ -3,8 +3,8 @@
 
   Every extension lives in its own file next to this one and is mounted under
   /x/<name> by ext/index.js. What they share is here: how to ask the upstream
-  service who a request belongs to, the rules for project files, and small HTTP
-  helpers. Nothing here writes to disk.
+  service who a request belongs to, the rules for project files and libraries, and
+  small HTTP helpers. Nothing here writes to disk.
 
     NT_UPSTREAM   upstream origin            (default https://scripting.nulls.gg)
     NT_TOOLS      where fetched tools live   (default ./.tools)
@@ -297,6 +297,62 @@ function checkEntry(files, entry) {
   return e;
 }
 
+/* ---------- Libraries ---------- */
+
+// A public library is one Luau module, required as "@user/name" and sent along by the
+// browser. Wherever it is used it is kept as .libs/<user>/<name>.luau, so the rules
+// are those of a file name too. Sizes count characters, as the upstream's do.
+const LIBS = { max: 64, maxChars: 1000000, maxTotal: 8000000 };
+const LIB_SPEC = /^@([A-Za-z0-9_.-]{1,64})\/([A-Za-z0-9 _.-]{1,64})$/;
+
+// Windows reads "con .x" as con too.
+const device = (part) => RESERVED.test(part.split('.')[0].trimEnd());
+
+// "@user/name" → { user, name }, or null when it is not a library. "@self" is Luau's
+// own, and Luau's aliases ignore letter case, so no user is self in any case. Windows
+// drops a dot that ends a folder name.
+function libSpec(spec) {
+  const m = typeof spec === 'string' ? LIB_SPEC.exec(spec) : null;
+  if (!m) return null;
+  const [, user, name] = m;
+  if (user === '.' || user.endsWith('.') || /^self$/i.test(user) || device(user)) return null;
+  if (/^[ .]|[ .]$/.test(name) || device(name)) return null;
+  return { user, name };
+}
+
+// Validates { "@user/name": text } and returns a clean copy (LF line endings), or throws
+// HttpError(400, 'bad-libs', { reason, spec }) / (413, 'too-large', { reason: 'libs' |
+// 'lib' | 'all-libs' }). Two libraries may not differ only in letter case, nor one
+// user's spelling: file systems here may ignore case, and so do Luau's aliases. A
+// require tries the name as written before adding .luau, so "@u/x" and "@u/x.luau"
+// are one too.
+function checkLibs(libs) {
+  if (!libs || typeof libs !== 'object' || Array.isArray(libs)) throw new HttpError(400, 'bad-libs', { reason: 'shape' });
+  const specs = Object.keys(libs);
+  if (specs.length > LIBS.max) throw new HttpError(413, 'too-large', { reason: 'libs', limit: LIBS.max });
+  const out = {};
+  const seen = new Set();
+  const users = new Map(); // lower case → as spelled
+  let total = 0;
+  for (const spec of specs) {
+    const id = libSpec(spec);
+    if (!id) throw new HttpError(400, 'bad-libs', { reason: 'name', spec: spec.slice(0, 200) });
+    if (typeof libs[spec] !== 'string') throw new HttpError(400, 'bad-libs', { reason: 'text', spec });
+    const text = libs[spec].replace(/\r\n?/g, '\n');
+    if (text.length > LIBS.maxChars) throw new HttpError(413, 'too-large', { reason: 'lib', spec, limit: LIBS.maxChars });
+    total += text.length;
+    if (total > LIBS.maxTotal) throw new HttpError(413, 'too-large', { reason: 'all-libs', limit: LIBS.maxTotal });
+    const key = spec.toLowerCase();
+    const user = id.user.toLowerCase();
+    const twin = [key, key + '.luau', key.replace(/\.luau$/, '')].some((k) => seen.has(k));
+    if (twin || (users.has(user) && users.get(user) !== id.user)) throw new HttpError(400, 'bad-libs', { reason: 'duplicate', spec });
+    seen.add(key);
+    users.set(user, id.user);
+    out[spec] = text;
+  }
+  return out;
+}
+
 module.exports = {
   ROOT, UPSTREAM, TOOLS_DIR,
   HttpError, send, readBody, readJson,
@@ -304,4 +360,5 @@ module.exports = {
   sameOrigin, requireSameOrigin, clientKey, rateLimit, requireRate,
   sha256,
   PROJECT, badPath, checkFiles, checkEntry,
+  LIBS, libSpec, checkLibs,
 };

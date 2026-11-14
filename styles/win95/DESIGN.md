@@ -46,6 +46,9 @@ Top to bottom (`ui.js`, `W.window`):
   message box with the error icon, Retry and Cancel; one the app cannot start without
   (the service out of reach) has Retry alone.
 - Waiting is the hourglass over the window (`win.busy`), and the list stays as it was.
+  A list that fills as it is read (Libraries, `pages.js`) is the list view with its
+  headings and nothing under them, the arrow with the hourglass over the window, and
+  the count in the status bar.
 
 ## 3. Dialog boxes
 
@@ -55,6 +58,12 @@ Top to bottom (`ui.js`, `W.window`):
   Enter presses the default button (the one with the dark border); Escape cancels.
 - A message box has the icon for what it is: a question, a warning, an error, a note.
 - Settings that go together are pages of one tabbed dialog, not a stack of windows.
+- A property sheet (Test Settings: `tests.js`, `W.testSettings`) has OK, Cancel and
+  Apply under its tabs. OK and Apply keep what was changed, Cancel leaves it; Apply is
+  grey until there is something to apply.
+- A dialog that lists things to pick from (History: `editor.js`) has a list view and
+  Open, the default button, grey until something is chosen; one opened from it lies
+  over it.
 
 ## 4. Controls
 
@@ -70,6 +79,7 @@ Use the control the system has for the job (`ui.js`):
 | Related controls | Group box (`W.group`) |
 | Many things with facts about them | List view in columns (`W.list`); a column header sorts by it |
 | Files in folders | Tree view (`js/explorer.js`, drawn here) |
+| A line to copy | A read-only field, on the face as the system draws one, and Copy beside it (`pages.js`, `copyLine`) |
 | How far along | Progress bar: whole blocks of the highlight colour in a thin sunken well (`tests.js`). It cannot say it does not know: then the well stays empty and the pointer over it is the arrow with the hourglass |
 
 - In a list, one click chooses; a double click or Enter opens; the toolbar and the File
@@ -93,7 +103,8 @@ Use the control the system has for the job (`ui.js`):
   11 pixels, plain and bold. A browser cannot be given Windows' own, which is a font of
   pixels, so it is here as a font drawn from those pixels (`fonts/`); nothing is set in
   another face or made bold by smearing. Bold is for title bars and the name of the
-  thing a window is about. Code is in Courier New.
+  thing a window is about. Code is in Courier New; what an `#if` leaves out of it is in
+  the grey of text that cannot be used (`.nt-inactive`).
 - Focus is a dotted rectangle inside the control.
 - Icons are **Windows 95's own**, 16 × 16 and 32 × 32 in its sixteen colours
   (`icons/`, named in `icons.js` by what each is for here). Nothing is drawn to stand

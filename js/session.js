@@ -33,6 +33,7 @@
     s.ctx               what the explorer is given (explorer.js); s.views, the explorers
                         showing it, are drawn again with every paint
     s.removed()         the script was deleted
+    s.library           is it a library (libs.js)? s.setLibrary(on) changes that and saves
     s.close()           the page is going: keeps a draft, sends what it can
     s.multi  s.gone
 
@@ -79,6 +80,7 @@
     let note = '';       // why: 'Bundle failed' | 'Too large'
     let clash = false;   // saved somewhere else in between
     let failed = false;  // the last save did not get through
+    let library = false; // the script carries an nt:lib block (libs.js)
     let saving = 0, deleted = false, leaving = false;
     let chain = Promise.resolve(); // saves run one after another, in the order asked for
     let lastShot = null;
@@ -161,9 +163,12 @@
       saving++;
       paint();
       try {
-        if (Object.keys(shot.files).length === 1) {
-          await API.saveContent(id, shot.files[ENTRY], { project: null });
+        if (Project.plain(shot.files)) {
+          await API.saveContent(id, shot.files[ENTRY], { project: null, lib: library ? NT.libs.block('') : null });
+          // A library of one file without macros is used for what it returns: say so if nothing.
+          if (library && !NT.libs.returns(shot.files[ENTRY])) problems[ENTRY] = [{ line: shot.files[ENTRY].split('\n').length, column: 1, message: 'a library returns its module (end with return …) or defines macros' }];
           stored(shot);
+          NT.history.record(id, shot.files);
           stale = false;
           note = '';
           done = true;
@@ -176,7 +181,8 @@
             } catch (e) { /* asked again with the next save */ }
           }
         } else {
-          const res = await Project.store(id, shot.files, shot.minify, base);
+          // A save that was asked for looks for new releases of the libraries it uses.
+          const res = await Project.store(id, shot.files, shot.minify, base, { library, fresh: !!cheer });
           if (res.conflict) {
             clash = true;
             base = res.base;
@@ -189,6 +195,7 @@
           base = res.base;
           stale = true;
           stored(shot);
+          NT.history.record(id, shot.files);
           const b = res.bundle;
           if (b.code != null && Project.fits(id, b)) {
             await Project.report(id, b, base);
@@ -310,6 +317,16 @@
       views,
       get script() { return script; },
       get gone() { return gone; },
+      get library() { return library; },
+      // Built again either way: a library is built readable, with its macros beside it.
+      setLibrary(on) {
+        library = !!on;
+        stale = true;
+        return save(false, true).then((done) => {
+          NT.libs.forget(id);
+          return done;
+        });
+      },
       files: null,
       status,
       paint,
@@ -327,6 +344,7 @@
         let content, project = null;
         try {
           content = ((await API.scriptContent(id)) || {}).content || '';
+          library = !!API.extra(id, 'lib');
           if (multi) project = await Project.load(id, content);
           // The script is no longer the bundle of its project: it was edited somewhere
           // that knows nothing of projects. Which one stays is not ours to guess.

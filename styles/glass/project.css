@@ -268,3 +268,9 @@ html .quick-input-widget { --vscode-list-highlightForeground: var(--accent); --v
 .quick-input-widget .quick-input-list .monaco-list-row.focused .monaco-highlighted-label .highlight,
 .quick-input-widget .quick-input-list .monaco-list-row.focused .quick-input-list-separator { color: #fff !important; opacity: 1; }
 .quick-input-widget .quick-input-list-separator { color: var(--label-2) !important; }
+
+/* Lines an #if leaves out (js/macro-view.js). */
+.monaco-editor .nt-inactive { opacity: 0.45; }
+
+/* A save from History against the file as it is now. */
+.history-diff { flex: none; height: min(56vh, 520px); }

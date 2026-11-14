@@ -314,18 +314,29 @@
     const page = makePage({ title: 'Scripts', large: true });
     const pick = filePicker(page);
     // Your own scripts come first. The page reopens on whichever list was used last.
-    const FILTERS = ['mine', 'favorites', 'all'], SORTS = ['recent', 'name', 'author'];
+    // Libraries are found by reading each published script (libs.js), so only signed in.
+    const withLibs = !!API.session && NT.libs.available();
+    const FILTERS = ['mine', 'favorites', 'all'].concat(withLibs ? ['libs'] : []), SORTS = ['recent', 'name', 'author'];
     const kept = API.session ? store.get('nt.scripts.filter') : null;
     let chosen = FILTERS.includes(kept) ? kept : API.session ? 'mine' : 'all';
     let sort = SORTS.includes(store.get('nt.scripts.sort')) ? store.get('nt.scripts.sort') : 'recent';
     let query = '', filter = chosen;
     let data = null, signedOut = false, stamp = '';
+    let libs = null; // { of: the list looked through, list, looking }
     const choose = (v) => { filter = chosen = v; store.set('nt.scripts.filter', v); };
     const sortBy = (v) => { sort = v; store.set('nt.scripts.sort', v); render(); };
 
     const find = h('input', { type: 'search', placeholder: 'Search scripts', 'aria-label': 'Search scripts', enterKeyHint: 'search' });
     const search = h('label.m-search', M.icon('search'), find);
-    const group = M.group([{ value: 'mine', label: 'Mine' }, { value: 'favorites', label: 'Favorites' }, { value: 'all', label: 'All' }], filter, (v) => { choose(v); render(); });
+    const group = M.group([{ value: 'mine', label: 'Mine' }, { value: 'favorites', label: 'Favorites' }, { value: 'all', label: 'All' }]
+      .concat(withLibs ? [{ value: 'libs', label: 'Libraries' }] : []), filter, (v) => { choose(v); render(); reveal(); });
+    // Where the tabs scroll (style.css), the chosen one is brought to the middle.
+    const reveal = () => {
+      const row = group.el, tab = row.querySelector('[aria-checked="true"]');
+      if (!tab || row.scrollWidth <= row.clientWidth) return;
+      const r = tab.getBoundingClientRect(), o = row.getBoundingClientRect();
+      row.scrollTo({ left: row.scrollLeft + r.left - o.left - (o.width - r.width) / 2, behavior: NT.util.reducedMotion() ? 'auto' : 'smooth' });
+    };
     const sortBtn = M.iconButton('sort', 'Sort', () => UI.menu(sortBtn, [
       { label: 'Recently Updated', checked: sort === 'recent', onSelect: () => sortBy('recent') },
       { label: 'Name', checked: sort === 'name', onSelect: () => sortBy('name') },
@@ -342,7 +353,7 @@
       const next = find.value.trim().toLowerCase();
       const to = next && !query ? 'all' : !next && query ? chosen : filter;
       query = next;
-      if (to !== filter) { filter = to; group.set(to); }
+      if (to !== filter) { filter = to; group.set(to); reveal(); }
       if (data) render();
     });
 
@@ -361,6 +372,16 @@
       grid.replaceChildren();
     };
 
+    // Each published script is read once, and the list fills as libraries are found.
+    function scan() {
+      if (!data || (libs && libs.of === data.all)) return;
+      const mine = libs = { of: data.all, list: [], looking: true };
+      const again = () => { if (libs === mine && filter === 'libs') render(true); };
+      NT.libs.list(data.all, (s) => { mine.list.push(s); again(); })
+        .catch(() => {})
+        .then(() => { mine.looking = false; again(); });
+    }
+
     // keep: the same list is being drawn again, so build as far as it was built.
     function render(keep) {
       note.replaceChildren();
@@ -370,20 +391,27 @@
         note.append(empty('code', 'Sign In to Browse', null, { label: 'Sign In', onClick: signIn }));
         return;
       }
-      let list = filter === 'mine' ? data.mine : filter === 'favorites' ? data.favs : data.all;
+      if (filter === 'libs') scan();
+      const looking = filter === 'libs' && libs.looking;
+      let list = filter === 'mine' ? data.mine : filter === 'favorites' ? data.favs : filter === 'libs' ? libs.list : data.all;
       if (query) list = list.filter((s) => (`${s.name} ${s.description || ''} ${s.author_name}`).toLowerCase().includes(query));
       list = list.slice();
       if (sort === 'name') list.sort((a, b) => String(a.name).localeCompare(String(b.name)));
       else if (sort === 'author') list.sort((a, b) => String(a.author_name).localeCompare(String(b.author_name)));
       else list.sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at));
-      count.textContent = query ? `${list.length} result${list.length === 1 ? '' : 's'}` : `${list.length} script${list.length === 1 ? '' : 's'}`;
+      count.textContent = query ? `${list.length} result${list.length === 1 ? '' : 's'}`
+        : filter === 'libs' ? (looking && !list.length ? 'Looking for libraries…' : `${list.length} librar${list.length === 1 ? 'y' : 'ies'}${looking ? ' so far' : ''}`)
+          : `${list.length} script${list.length === 1 ? '' : 's'}`;
       lazyGrid(grid, page.scroll, list, (s) => scriptCard(s, ctx), keep ? grid._shown || 0 : 0);
       if (!keep) page.scroll.scrollTop = 0;
-      if (!list.length) {
+      // Still reading, with nothing found yet: what waiting looks like here.
+      if (looking && !list.length) note.append(M.loading('.block'));
+      else if (!list.length) {
         note.append(query ? empty('search', 'No Results', `Nothing matches “${query}”.`)
           : filter === 'mine' ? empty('draft', 'No Scripts Yet', null, API.session ? { label: 'New Script', onClick: A.create } : { label: 'Sign In', onClick: signIn })
             : filter === 'favorites' ? empty('favorite', 'No Favorites', 'Tap the heart on a script to keep it here.')
-              : empty('code', 'No Scripts'));
+              : filter === 'libs' ? empty('library_books', 'No Libraries')
+                : empty('code', 'No Scripts'));
       }
     }
 
@@ -421,6 +449,7 @@
         delete state.scriptsFilter;
         if (data) render();
       }
+      requestAnimationFrame(reveal);
       load();
     };
     return page;
@@ -428,13 +457,72 @@
 
   /* ---------- Script ---------- */
 
+  // values: { [id]: value } of the parameters not at their default, changed in place.
+  function paramRow(p, values, onChange) {
+    const valueOf = (x) => (x.id in values ? values[x.id] : x.default_value);
+    const label = API.paramLabel(p);
+    if (p.type === 'bool') {
+      const t = M.switch(valueOf(p) === 1, (on) => { values[p.id] = on ? 1 : 0; if (values[p.id] === p.default_value) delete values[p.id]; onChange(); }, label);
+      return h('div.m-item', h('span.m-item-text', h('span.m-item-headline', label)), t.el);
+    }
+    const valueEl = h('span.m-param-value', String(valueOf(p)));
+    // Reset goes once it has done its work; the keyboard moves on to the slider it reset.
+    const reset = M.button('Reset', () => { s.set(p.default_value); apply(p.default_value); s.el.querySelector('input').focus({ preventScroll: true }); }, { variant: 'text' });
+    reset.hidden = valueOf(p) === p.default_value;
+    const apply = (v) => {
+      if (v === p.default_value) delete values[p.id];
+      else values[p.id] = v;
+      valueEl.textContent = String(v);
+      reset.hidden = v === p.default_value;
+      onChange();
+    };
+    const s = M.slider({ min: p.min_value == null ? 0 : p.min_value, max: p.max_value == null ? 100 : p.max_value, value: valueOf(p), label, onInput: apply });
+    return h('div.m-item.col', h('div.m-param-head', h('span.m-item-headline', label), reset, valueEl), s.el);
+  }
+
+  // A group of parameters opens and closes; closed is how it starts.
+  function paramGroup(groupId, list, values, onChange) {
+    const valueOf = (x) => (x.id in values ? values[x.id] : x.default_value);
+    const badge = h('span.m-badge.tonal', { hidden: true });
+    const sync = () => {
+      const n = list.filter((p) => valueOf(p) !== p.default_value).length;
+      badge.hidden = n === 0;
+      badge.textContent = `${n} changed`;
+    };
+    const head = h('button.m-item.m-press.m-disclosure', { type: 'button', 'aria-expanded': 'false' },
+      h('span.m-item-text', h('span.m-item-headline', API.groupLabel(groupId))), badge, M.icon('expand_more'));
+    const inner = h('div.m-fold-in', list.map((p) => paramRow(p, values, () => { sync(); if (onChange) onChange(); })));
+    const wrap = h('div.m-fold', inner);
+    head.addEventListener('click', () => {
+      const next = head.getAttribute('aria-expanded') !== 'true';
+      head.setAttribute('aria-expanded', String(next));
+      wrap.classList.toggle('is-open', next);
+    });
+    sync();
+    return h('div.m-list', head, wrap);
+  }
+
+  // A script's parameters as its page shows them, a list for each group (Test Settings
+  // shows them so too).
+  function paramGroups(params, values, onChange) {
+    const groups = new Map();
+    for (const p of params) {
+      if (!groups.has(p.group_id)) groups.set(p.group_id, []);
+      groups.get(p.group_id).push(p);
+    }
+    return h('div.m-stack.tight', [...groups].map(([gid, list]) => paramGroup(gid, list, values, onChange)));
+  }
+
+  // A library's name as a local, as the line that uses it writes it: "Vector Math" → vectorMath.
+  const localName = (name) => (String(name || '').replace(/[^A-Za-z0-9_]+(.)?/g, (all, c) => (c ? c.toUpperCase() : '')).replace(/^[^A-Za-z_]+/, '') || 'lib').replace(/^./, (c) => c.toLowerCase());
+
   P.script = function (id) {
     const page = makePage({ title: 'Script', back: true, narrow: true });
     const body = h('div.m-stack');
     page.inner.append(body);
     wait(body);
 
-    let script = null, params = [], releases = [], since = null;
+    let script = null, params = [], releases = [], since = null, lib = null;
     const values = {};
     const valueOf = (p) => (p.id in values ? values[p.id] : p.default_value);
 
@@ -471,47 +559,6 @@
       }
     }
 
-    function paramRow(p, onChange) {
-      const label = API.paramLabel(p);
-      if (p.type === 'bool') {
-        const t = M.switch(valueOf(p) === 1, (on) => { values[p.id] = on ? 1 : 0; if (values[p.id] === p.default_value) delete values[p.id]; onChange(); }, label);
-        return h('div.m-item', h('span.m-item-text', h('span.m-item-headline', label)), t.el);
-      }
-      const valueEl = h('span.m-param-value', String(valueOf(p)));
-      const reset = M.button('Reset', () => { s.set(p.default_value); apply(p.default_value); }, { variant: 'text' });
-      reset.hidden = valueOf(p) === p.default_value;
-      const apply = (v) => {
-        if (v === p.default_value) delete values[p.id];
-        else values[p.id] = v;
-        valueEl.textContent = String(v);
-        reset.hidden = v === p.default_value;
-        onChange();
-      };
-      const s = M.slider({ min: p.min_value == null ? 0 : p.min_value, max: p.max_value == null ? 100 : p.max_value, value: valueOf(p), label, onInput: apply });
-      return h('div.m-item.col', h('div.m-param-head', h('span.m-item-headline', label), reset, valueEl), s.el);
-    }
-
-    // A group of parameters opens and closes; closed is how it starts.
-    function paramGroup(groupId, list) {
-      const badge = h('span.m-badge.tonal', { hidden: true });
-      const sync = () => {
-        const n = list.filter((p) => valueOf(p) !== p.default_value).length;
-        badge.hidden = n === 0;
-        badge.textContent = `${n} changed`;
-      };
-      const head = h('button.m-item.m-press.m-disclosure', { type: 'button', 'aria-expanded': 'false' },
-        h('span.m-item-text', h('span.m-item-headline', API.groupLabel(groupId))), badge, M.icon('expand_more'));
-      const inner = h('div.m-fold-in', list.map((p) => paramRow(p, sync)));
-      const wrap = h('div.m-fold', inner);
-      head.addEventListener('click', () => {
-        const next = head.getAttribute('aria-expanded') !== 'true';
-        head.setAttribute('aria-expanded', String(next));
-        wrap.classList.toggle('is-open', next);
-      });
-      sync();
-      return h('div.m-list', head, wrap);
-    }
-
     function render() {
       const s = script;
       const owner = API.isOwner(s);
@@ -523,6 +570,7 @@
       if (!s.published_at) flags.push(h('span.m-badge', 'Draft'));
       if (since != null) flags.push(h('span.m-badge', 'Updated'));
       if (API.isOutdated(s)) flags.push(h('span.m-badge', 'Outdated'));
+      if (lib) flags.push(h('span.m-badge', 'Library'));
       if (flags.length) art.append(h('div.m-badges', flags));
       const kids = [art,
         h('h1.m-headline', nameOf(s)),
@@ -536,16 +584,21 @@
       if (owner) actions.push(M.button('Edit', go(`/scripts/${s.script_id}/edit`), { icon: 'edit', variant: 'tonal' }));
       if (owner && !s.published_at) actions.push(M.button('Publish', () => A.publish(s, load), { icon: 'send' }));
       if (actions.length) kids.push(h('div.m-actions', actions));
+
+      // How a script uses it: the line to write, to copy.
+      if (lib) {
+        const line = (code) => h('div.m-item',
+          h('code.m-lib-use', code),
+          M.iconButton('content_copy', 'Copy', () => navigator.clipboard.writeText(code).then(() => UI.toast('Copied'), () => UI.toast('Couldn’t copy', { warn: true }))));
+        kids.push(M.header('Library'));
+        kids.push(M.list(line(`local ${lib.local} = require("${lib.spec}")`), lib.macros ? line(`#include "${lib.spec}"`) : null));
+      }
+
       if (API.isOutdated(s)) kids.push(h('div.m-banner', M.icon('warning'), h('span', 'Released before the latest scripting API change. It may not work as expected.')));
 
       if (params && params.length) {
-        const groups = new Map();
-        for (const p of params) {
-          if (!groups.has(p.group_id)) groups.set(p.group_id, []);
-          groups.get(p.group_id).push(p);
-        }
         kids.push(M.header('Parameters'));
-        kids.push(h('div.m-stack.tight', [...groups].map(([gid, list]) => paramGroup(gid, list))));
+        kids.push(paramGroups(params, values));
       }
       if (releases && releases.length) {
         const sorted = releases.slice().sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
@@ -576,11 +629,19 @@
           : empty('draft', 'Sign In to View', null, { label: 'Sign In', onClick: signIn }));
         return;
       }
-      const [ps, rs] = await Promise.all([API.parameters(id), API.releases(id)]);
-      const fresh = JSON.stringify([s, ps, rs]);
+      // Whether it is a library, and how it is named then (libs.js).
+      const asLib = async () => {
+        if (!NT.libs.available() || !s.published_at || !(await NT.libs.is(s))) return null;
+        const spec = await NT.libs.spec(s);
+        const found = (await NT.libs.resolve([spec])).libs[spec];
+        return { spec, local: localName(s.name), macros: !!(found && found.macros.trim()) };
+      };
+      const [ps, rs, lb] = await Promise.all([API.parameters(id), API.releases(id), asLib().catch(() => null)]);
+      const fresh = JSON.stringify([s, ps, rs, lb]);
       // Read again on return (after editing or publishing); parameter choices stay as they were set.
       if (script && fresh === load.stamp) return;
       load.stamp = fresh;
+      lib = lb;
       script = s;
       params = ps || [];
       releases = rs || [];
@@ -682,7 +743,7 @@
   /* ---------- Editor ---------- */
 
   // The editor page is a module of its own (editor.js), built from these pieces.
-  M.kit = { makePage, empty, failed };
+  M.kit = { makePage, empty, failed, paramGroups };
 
   /* ---------- Maps ---------- */
 

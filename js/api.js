@@ -1017,7 +1017,7 @@
         const { code, blocks } = Pack.split(res.content);
         if (!q) remember(id, blocks);
         if (!q && blocks.thumb && this.session) moveThumb(id, blocks.thumb);
-        return Object.assign({}, res, { content: code });
+        return Object.assign({}, res, { content: code, blocks });
       }
       await lag();
       if (!demoMe()) throw new StatusError(401, 'unauthorized');
@@ -1027,6 +1027,20 @@
       const r = revision != null && revision !== '' && (db.releases[id] || []).find((x) => String(x.revision) === String(revision));
       if (r && typeof r.content === 'string') return { content: r.content, revision: r.revision };
       return { content: s.content, revision: s.revision };
+    },
+    // A script's text as anyone who may read it gets it now, without keeping anything of
+    // it for a later save (as scriptContent does for one's own): { content (the code),
+    // blocks }. What libs.js reads a library by.
+    async peek(id) {
+      if (this.mode === 'live') {
+        const res = await live(`${at(id)}/content`);
+        if (!res || typeof res.content !== 'string') return null;
+        const { code, blocks } = Pack.split(res.content);
+        return { content: code, blocks };
+      }
+      await lag();
+      const s = db.scripts[id];
+      return s ? { content: s.content, blocks: {} } : null;
     },
     async createScript(name, content) {
       if (this.mode === 'live') return (await live('/scripts', { method: 'POST', body: { name, content } })).script_id;

@@ -29,6 +29,7 @@
     log: ['#5a7fc0', [16, 32]],           // the event log
     key: ['#e8b040', [16, 32]],
     star: ['#f4b820', [16]],              // Favorites
+    libs: ['#3a9a8e', [16, 48]],          // Libraries: Explorer's own, the folders in their rack
     warning: ['#f0c020', [16, 32]],
     error: ['#d83a2a', [32]],
     info: ['#2a62c8', [16, 32]],

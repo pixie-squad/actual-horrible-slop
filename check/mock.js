@@ -393,8 +393,10 @@ function start(opts = {}) {
       switch (p[2]) {
         case 'content': {
           if (M === 'GET') {
+            // A release's own text where it was kept (releases made here keep theirs).
             const rev = url.searchParams.get('revision');
-            return send(200, { content: s.content, revision: rev ? Number(rev) : s.revision });
+            const r = rev && (db.releases[id] || []).find((x) => String(x.revision) === rev);
+            return send(200, { content: r && typeof r.content === 'string' ? r.content : s.content, revision: rev ? Number(rev) : s.revision });
           }
           if (M !== 'PUT' || !owned()) return M === 'PUT' ? undefined : err(405);
           const text = String((data && data.content) || '');
@@ -427,13 +429,13 @@ function start(opts = {}) {
           if (!owned()) return;
           if (s.published_at) s.revision += 1;
           s.published_at = s.updated_at = new Date().toISOString();
-          (db.releases[id] = db.releases[id] || []).unshift({ revision: s.revision, created_at: s.published_at, description: null });
+          (db.releases[id] = db.releases[id] || []).unshift({ revision: s.revision, created_at: s.published_at, description: null, content: s.content });
           return send(200, { uuid: id });
         }
         case 'parameters':
           return send(200, { parameters: PARAMETERS.map((x) => Object.assign({}, x)) });
         case 'releases':
-          return send(200, { releases: (db.releases[id] || []).slice() });
+          return send(200, { releases: (db.releases[id] || []).map(({ content, ...r }) => r) });
         case 'share': {
           if (M !== 'POST') return err(405);
           const author = db.users[s.author_uuid];

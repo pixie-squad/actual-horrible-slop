@@ -143,7 +143,7 @@
     let tests = null, testsOpen = false, testsAnim = null, testsSheet = null;
 
     function testsView() {
-      if (!tests) tests = NT.kit.testsView({ onRun: runTest, onClose: () => showTests(false, true) });
+      if (!tests) tests = NT.kit.testsView({ onRun: runTest, onClose: () => showTests(false, true), onSettings: () => NT.kit.testSettings(script) });
       return tests;
     }
 
@@ -231,10 +231,15 @@
           ...maps.map((m) => ({ label: m.name, checked: m.user_map_id === mapId, onSelect: () => { mapId = m.user_map_id; syncMap(); } })),
         ]);
       });
+      // A library is used by others as @user/name (libs.js); the bundler needs a building server.
+      let library = S.library;
+      const libRow = NT.project.multi() && NT.libs.available()
+        ? h('div.row', h('span.row-title', 'Library'), UI.toggle(library, (on) => { library = on; }, 'Library').el)
+        : null;
       const error = h('p.form-error', { role: 'alert' });
       const submit = h('button.btn.filled.block', { type: 'submit' }, 'Save');
       const form = h('form.form-stack', { novalidate: true },
-        h('div.list', name.row, h('div.row.field.col', h('label', { for: descId }, 'Description', counter), desc), h('div.row', h('span.row-title', 'Map'), mapPick)),
+        h('div.list', name.row, h('div.row.field.col', h('label', { for: descId }, 'Description', counter), desc), h('div.row', h('span.row-title', 'Map'), mapPick), libRow),
         error, submit);
       const details = UI.sheet({ title: 'Details', body: form });
 
@@ -243,18 +248,66 @@
         const n = name.input.value.trim(), d = desc.value.trim();
         if (n.length < 3 || n.length > 32) return void (error.textContent = 'Name needs 3 to 32 characters.');
         if (d && (d.length < 32 || d.length > 1024)) return void (error.textContent = 'Description needs 32 to 1024 characters, or leave it empty.');
+        if (library && NT.libs.problem(n)) return void (error.textContent = `A library’s name: ${NT.libs.problem(n).toLowerCase()}.`);
         error.textContent = '';
         submit.disabled = true;
         try {
           if (n !== (script.name || '')) { await API.saveName(id, n); script.name = n; page.setTitle(n); }
           if (d !== (script.description || '')) { await API.saveDescription(id, d); script.description = d || null; }
           if (mapId !== (script.user_map_id || '')) { await API.setMap(id, mapId || null); script.user_map_id = mapId || null; }
+          if (library !== S.library) await S.setLibrary(library);
           details.close();
           UI.toast('Saved');
         } catch (err) {
           error.textContent = 'Couldn’t save. Try again.';
           submit.disabled = false;
         }
+      });
+    }
+
+    /* ----- History ----- */
+
+    const stamp = (at) => new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+    // Each save of a file (NT.history), newest first. One opens on what it changes
+    // against the file as it is now, with Restore.
+    async function historySheet() {
+      let path = ed.path || ENTRY;
+      const list = h('div');
+      const pick = h('button.row-pick', { type: 'button', 'aria-label': 'File' }, h('span', path), icon('sort', 15));
+      pick.addEventListener('click', () => UI.menu(pick, ed.paths().slice().sort().map((p) => ({
+        label: p, checked: p === path, onSelect: () => { path = p; pick.firstChild.textContent = p; fill(); },
+      }))));
+      let turn = 0;
+      async function fill() {
+        const t = ++turn;
+        const saves = await NT.history.list(id, path);
+        if (t !== turn) return;
+        list.replaceChildren(saves.length
+          ? h('div.list', saves.map((e) => h('button.row', { type: 'button', onclick: () => historyEntry(e, sheet) },
+            h('span.row-main', h('span.row-title', NT.util.rel(e.at)), h('span.row-sub', `${stamp(e.at)} · ${e.lines} line${e.lines === 1 ? '' : 's'}`)),
+            h('span.row-chevron', icon('chevron-right', 16)))))
+          : emptyState('clock', 'No Saves Yet', null, null, true));
+      }
+      await fill();
+      const sheet = UI.sheet({ title: 'History', body: h('div.form-stack', ed.paths().length > 1 ? h('div.list', h('div.row', h('span.row-title', 'File'), pick)) : null, list) });
+    }
+
+    async function historyEntry(entry, under) {
+      const before = await NT.history.text(entry.id);
+      if (before == null || !ed.has(entry.path)) return void UI.toast('Couldn’t open', { warn: true });
+      const host = h('div.code-host.history-diff');
+      const restore = h('button.btn.filled.block', { type: 'button', disabled: before === ed.text(entry.path) }, 'Restore');
+      let view = null;
+      const sheet = UI.sheet({ title: stamp(entry.at), body: h('div.form-stack', host, restore), onClose: () => { if (view) view.dispose(); } });
+      view = await NT.code.diff(host, { before, after: ed.text(entry.path), onStats: (s) => { restore.disabled = !s.changes; } });
+      restore.addEventListener('click', () => {
+        const was = ed.text(entry.path);
+        ed.open(entry.path);
+        ed.replace(entry.path, before);
+        sheet.close();
+        under.close();
+        UI.toast('Restored', { action: { label: 'Undo', onSelect: () => ed.replace(entry.path, was) } });
       });
     }
 
@@ -315,10 +368,9 @@
         // With the script's page right underneath, "Script Page" would only be Back.
         const paths = NT.nav.paths();
         const under = paths[paths.length - 2] === `/scripts/${id}`;
-        // Across files, where there is more than one.
-        const many = !!ed.goToFile && ed.paths().length > 1;
         UI.menu(more, [
           testBtn && { label: 'Details', icon: 'info', onSelect: infoSheet },
+          testBtn && { label: 'Test Settings', icon: 'sliders', onSelect: () => NT.kit.testSettings(script) },
           !under && { label: 'Script Page', icon: 'doc', onSelect: () => NT.nav.go(`/scripts/${id}`) },
           !script.published_at && { label: 'Publish', icon: 'send', onSelect: async () => { if (await commit(false, more)) publishScript(script, () => { script.published_at = new Date().toISOString(); }); } },
           // What this text changes since the last release, once it is saved (compare.js).
@@ -327,10 +379,8 @@
             const latest = NT.compare.before(await API.releases(id).catch(() => []), null);
             if (latest != null) NT.nav.go(NT.compare.path(id, null, latest));
           } },
-          (testBtn || !under || !script.published_at) && '-',
-          many && { label: 'Go to File', icon: 'doc', onSelect: () => ed.goToFile() },
-          many && { label: 'Find in Files', icon: 'search', onSelect: () => ed.findInFiles() },
-          ed.format && NT.format.available() && { label: 'Format Document', icon: 'wand', onSelect: () => S.format() },
+          { label: 'History', icon: 'clock', onSelect: historySheet },
+          '-',
           { label: 'Editor Settings', icon: 'gear', onSelect: () => NT.nav.go('/settings/editor') },
           '-',
           { label: 'Delete', icon: 'trash', danger: true, onSelect: () => deleteScript(script, () => { S.removed(); NT.nav.back(); }, more) },

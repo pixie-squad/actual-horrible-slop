@@ -22,7 +22,8 @@ it takes after, and its own rules, with their sources, are in
 - What is the same everywhere is the core: the service (`js/api.js`), addresses
   (`js/routes.js`), the editing session (`js/session.js`), the editor engine
   (`js/monaco.js`), the explorer (`js/explorer.js`), images (`js/media.js`), test runs
-  (`js/tests.js`). What the app *does* changes there, once. How it *looks* changes in one style.
+  (`js/tests.js`), Local History (`js/history.js`), macros (`js/macro.js`,
+  `js/macro-view.js`) and libraries (`js/libs.js`). What the app *does* changes there, once. How it *looks* changes in one style.
 - No file in `js/` knows which style is on. It asks the style through what the style
   provides (`NT.ui`, `NT.nav`, `NT.look`; the list is in `js/styles.js`).
 - Every style has a page for every address (`NT.routes`), and the control that

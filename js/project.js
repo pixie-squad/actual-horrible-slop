@@ -34,7 +34,14 @@
                                         (dirs: folders to show that have no file in them)
     NT.project.resolve(paths, from, s)  the file require(s) in `from` means, or null
     NT.project.load(id, content)        → { files, minify, base, built, inSync } or null
-    NT.project.store(id, files, minify, base)
+    NT.project.plain(files)             can these files be saved as the script, as typed? One
+                                        file, no directive (macro.js), no library (libs.js)
+    NT.project.build(files, o)          → what POST /x/bundle answers: the files with their
+                                        macros expanded and the libraries they use, bundled.
+                                        o: { minify, library, fresh }. library: built as one
+                                        (readable, its @ requires left in), and the answer
+                                        carries lib, the nt:lib block with its entry's macros
+    NT.project.store(id, files, minify, base, o)
                                         → { base, bundle } or { conflict: true, base }
     NT.project.fits(id, bundle)         is there room for this bundle in the script?
     NT.project.report(id, bundle, base) saves the bundle as the script's content
@@ -123,6 +130,91 @@
   function stamp(last) {
     const t = last ? Date.parse(last) : NaN;
     return new Date(Number.isFinite(t) ? Math.max(Date.now(), t + 1) : Date.now()).toISOString();
+  }
+
+  /* ---------- Building ---------- */
+
+  const isLuau = (path) => /\.luau?$/i.test(path);
+  const byLine = (a, b) => (a.line || 0) - (b.line || 0);
+
+  // Where a library is first named in the files, for a problem with it to be marked at.
+  function namedAt(files, spec) {
+    for (const [path, text] of Object.entries(files)) {
+      if (!isLuau(path)) continue;
+      const i = text.indexOf(spec);
+      if (i < 0) continue;
+      const before = text.slice(0, i);
+      const line = before.split('\n').length;
+      return { path, line, column: i - before.lastIndexOf('\n') };
+    }
+    return { path: ENTRY, line: null, column: null };
+  }
+
+  async function build(files, o = {}) {
+    const found = NT.libs.available() ? await NT.libs.resolve(NT.libs.specs(files), { fresh: o.fresh }) : { libs: {}, problems: {} };
+    const { libs, problems } = found;
+    const paths = Object.keys(files);
+    const theirs = new Map(); // spec → its macros
+    const done = new Map();   // path → what macro.js made of it
+    const open = [];
+    const run = (path) => {
+      if (done.has(path)) return done.get(path);
+      open.push(path);
+      const r = NT.macro.process(files[path], {
+        path,
+        include(spec, from) {
+          if (spec[0] === '@') {
+            if (!libs[spec]) return { error: problems[spec] || `cannot find library "${spec}"` };
+            if (!theirs.has(spec)) theirs.set(spec, NT.macro.process(libs[spec].macros, { path: spec }).macros);
+            return { macros: theirs.get(spec) };
+          }
+          const target = NT.project.resolve(paths, from || path, spec);
+          if (!target || !isLuau(target)) return { error: `cannot find "${spec}"` };
+          if (open.includes(target)) return { error: 'include cycle: ' + open.slice(open.indexOf(target)).concat(target).join(' → ') };
+          return { macros: run(target).macros };
+        },
+      });
+      open.pop();
+      done.set(path, r);
+      return r;
+    };
+    const out = {}, diagnostics = [];
+    for (const path of paths) {
+      if (!isLuau(path)) { out[path] = files[path]; continue; }
+      const r = run(path);
+      out[path] = r.text;
+      for (const d of r.diagnostics) if (d.severity === 'error') diagnostics.push({ path, line: d.line, column: d.column, message: d.message });
+    }
+    // Libraries asked for by require alone have not been through an include.
+    for (const [spec, words] of Object.entries(problems)) {
+      if (!diagnostics.some((d) => d.message.includes(spec))) diagnostics.push(Object.assign(namedAt(files, spec), { message: `${spec}: ${words}` }));
+    }
+    // A library required for its code has to hand some back.
+    const wanted = new Set(NT.libs.required(files));
+    for (const spec of Object.keys(libs)) for (const next of NT.libs.required({ 'lib.luau': libs[spec].code })) wanted.add(next);
+    for (const spec of wanted) {
+      const lib = libs[spec];
+      if (!lib || NT.libs.returns(lib.code)) continue;
+      const how = lib.macros.trim() ? `; #include "${spec}" for its macros` : '';
+      diagnostics.push(Object.assign(namedAt(files, spec), { message: `${spec} returns nothing to require${how}` }));
+    }
+    // A library itself: it is used for what it returns, or for its macros.
+    if (o.library && isLuau(ENTRY) && files[ENTRY] != null && !NT.libs.returns(out[ENTRY]) && !run(ENTRY).macros.size) {
+      const lines = files[ENTRY].split('\n').length;
+      diagnostics.push({ path: ENTRY, line: lines, column: 1, message: 'a library returns its module (end with return …) or defines macros' });
+    }
+    if (diagnostics.length) return { error: 'bundle-failed', diagnostics: diagnostics.sort(byLine).slice(0, 50) };
+    const code = {};
+    if (!o.library) for (const spec of Object.keys(libs)) code[spec] = libs[spec].code;
+    const r = await call('POST', '/bundle', { files: out, entry: ENTRY, minify: o.library ? false : o.minify !== false, libs: code, external: !!o.library });
+    const answer = r.status === 200 ? r.data : Object.assign({ error: 'internal' }, r.data);
+    // What went wrong inside a library is marked where the project names it.
+    if (Array.isArray(answer.diagnostics)) {
+      answer.diagnostics = answer.diagnostics.map((d) => (d.path && d.path[0] === '@' ? Object.assign({}, d, namedAt(files, d.path), { message: `${d.path}: ${d.message}` }) : d));
+    }
+    if (o.library && answer.code != null) answer.lib = NT.libs.block(NT.macro.serialize(run(ENTRY).macros));
+    answer.libs = Object.keys(libs).map((spec) => ({ spec, id: libs[spec].id }));
+    return answer;
   }
 
   NT.project = {
@@ -241,13 +333,17 @@
       };
     },
 
+    plain(files) {
+      const paths = Object.keys(files);
+      if (paths.length !== 1) return false;
+      if (!this.multi()) return true;
+      return !NT.macro.uses(files[paths[0]]) && !NT.libs.specs(files).length;
+    },
+    build,
     // The sources are kept first and bundled second, so a bundle that fails loses nothing.
     // bundle: what POST /x/bundle answers ({ code, hash, fits, … }), or { error, … }.
-    async store(id, files, minify, base) {
-      const bundled = async () => {
-        const r = await call('POST', '/bundle', { files, entry: ENTRY, minify });
-        return r.status === 200 ? r.data : Object.assign({ error: 'internal' }, r.data);
-      };
+    async store(id, files, minify, base, o = {}) {
+      const bundled = () => build(files, { minify, library: o.library, fresh: o.fresh });
       if (API.mode !== 'live') {
         await API.setDemoProject(id, { files, minify, built: false });
         return { base: null, bundle: await bundled() };
@@ -282,8 +378,9 @@
         await API.saveContent(id, bundle.code);
         return API.setDemoProject(id, { built: true, sum: sum(bundle.code) });
       }
-      // One write: the script is never the bundle without saying which sources it is of.
-      await API.saveContent(id, bundle.code, { project: { head: { rev: base, sum: sum(bundle.code) }, body: '' } });
+      // One write: the script is never the bundle without saying which sources it is of,
+      // nor a library's code without its macros.
+      await API.saveContent(id, bundle.code, { project: { head: { rev: base, sum: sum(bundle.code) }, body: '' }, lib: bundle.lib || null });
     },
 
     async remove(id) {

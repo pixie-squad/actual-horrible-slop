@@ -339,7 +339,7 @@ img.pix { -webkit-user-drag: none; }
 /* ---------- Desktop ---------- */
 
 #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
-#app.is-busy, .w-window.is-busy { cursor: progress; }
+#app.is-busy, .w-window.is-busy, .w-window.is-looking { cursor: progress; }
 .w-desk { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .w-desk-icons { position: absolute; inset: 0; display: flex; flex-flow: column wrap; align-content: flex-start; gap: 0; padding: 2px; }
 .w-desk-icon { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 75px; height: 75px; padding: 5px 1px 0; color: #ffffff; text-align: center; line-height: 13px; }
@@ -612,7 +612,8 @@ img.pix { -webkit-user-drag: none; }
 /* ---------- Dialog boxes ---------- */
 
 .w-modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 8px; }
-.w-dialog { position: relative; grid-area: 1 / 1; max-width: 100%; max-height: 100%; }
+/* Each dialog is drawn whole over the one under it (a list's header must not show through). */
+.w-dialog { position: relative; grid-area: 1 / 1; max-width: 100%; max-height: 100%; isolation: isolate; }
 .w-dialog > .w-body { overflow: auto; padding: 11px; }
 .w-form, .w-dialog > .w-body { display: flex; flex-direction: column; gap: 11px; }
 .w-msg { display: flex; align-items: flex-start; gap: 14px; padding: 3px 3px 0; }
@@ -684,6 +685,12 @@ img.pix { -webkit-user-drag: none; }
 .w-edit { height: var(--edit); min-width: 0; padding: 2px 4px; background: var(--window); border: 1px solid var(--field-edge); -webkit-user-select: text; user-select: text; cursor: text; }
 textarea.w-edit { height: auto; resize: none; line-height: 1.35; }
 .w-edit::placeholder { color: var(--gray-text); }
+/* A read-only field is on the face, as the system draws one (it is coloured as static text is). */
+.w-edit[readonly] { background: var(--face); }
+.w-edit.w-mono { font: 400 11px var(--mono); }
+/* A line to copy, and Copy beside it. */
+.w-copy { display: flex; align-items: center; gap: 6px; }
+.w-copy > .w-edit { flex: 1; }
 .w-edit[type="search"]::-webkit-search-cancel-button { display: none; }
 .w-field { display: flex; align-items: center; gap: 6px; }
 .w-field.top { align-items: flex-start; }
@@ -750,7 +757,7 @@ textarea.w-edit { height: auto; resize: none; line-height: 1.35; }
 .w-cell { display: flex; align-items: center; gap: 4px; min-width: 0; padding: 0 6px; white-space: nowrap; }
 .w-cell:first-child { padding-left: 3px; }
 .w-cell > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.w-cell.right { justify-content: flex-end; }
+.w-cell.right, .w-col.right { justify-content: flex-end; }
 .w-row[aria-selected="true"] .w-cell:first-child > span { background: var(--face); padding: 1px 2px 2px; margin: 0 -2px; }
 .w-row[aria-selected="true"] .w-cell:first-child > .pix { filter: none; }
 .w-list-body:focus .w-row[aria-selected="true"] .w-cell:first-child > span, .w-list.has-menu .w-row[aria-selected="true"] .w-cell:first-child > span { background: var(--hilight); color: var(--hilight-text); }
@@ -794,6 +801,10 @@ button.w-link:hover { text-decoration: underline; }
 .w-param { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(80px, 1.2fr) 34px auto; align-items: center; gap: 6px; }
 .w-param-value { text-align: right; font-variant-numeric: tabular-nums; }
 .w-param .w-btn { min-width: 0; }
+/* A property page's rows: the labels in a column as wide as a dialog's, the controls
+   starting where the fields of a dialog do; a row's one control takes the rest. */
+.w-props > .w-param { grid-template-columns: 76px minmax(80px, 1fr) 34px auto; }
+.w-param.wide > :last-child { grid-column: 2 / -1; }
 .w-checklist { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 1px; padding: 4px 6px; overflow: auto; background: var(--window); border: 1px solid var(--field-edge); }
 .w-swatches { display: flex; flex-wrap: wrap; gap: 6px; }
 .w-swatch { width: 28px; height: 23px; padding: 3px; background: var(--window); border: 1px solid var(--field-edge); }
@@ -834,6 +845,9 @@ button.w-link:hover { text-decoration: underline; }
 .tk-f { color: var(--tk-f); }
 .tk-b { color: var(--tk-b); }
 .tk-p { color: var(--tk-p); }
+
+/* The lines an #if leaves out (js/macro-view.js), in the grey of text that cannot be used. */
+.monaco-editor .nt-inactive { color: var(--gray-text) !important; }
 
 .monaco-editor, .monaco-editor .inputarea { -webkit-user-select: text; user-select: text; }
 .monaco-editor .suggest-widget, .monaco-editor .suggest-details, .monaco-editor .parameter-hints-widget, .monaco-editor .rename-box,
@@ -1063,7 +1077,8 @@ html[data-theme="dark"] {
   .w-tray { margin-left: 4px; padding: 0 8px; }
   .w-tool.has-text:not(.keep-text) > span { display: none; }
   .w-param { grid-template-columns: 1fr 44px auto; }
-  .w-param-name { grid-column: 1 / -1; }
+  .w-props > .w-param { grid-template-columns: 1fr 44px auto; }
+  .w-param-name, .w-param.wide > :last-child { grid-column: 1 / -1; }
   .w-field > label { width: 74px; }
   .w-field + .w-check { margin-left: 80px; }
 }

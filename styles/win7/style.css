@@ -192,6 +192,7 @@ html[data-theme="light"] {
   --addr: #ffffff;
   --addr-edge: rgb(40 62 96 / 0.62);
   --addr-rim: rgb(255 255 255 / 0.45);
+  --addr-busy: linear-gradient(#dcf6cc, #b8e7a0);
   --details: linear-gradient(#f6f9fd, #edf2fa);
   --details-label: #5a6779;
   --menu: #f0f0f0;
@@ -328,6 +329,7 @@ html[data-theme="dark"] {
   --addr: #1c1e23;
   --addr-edge: rgb(0 0 0 / 0.8);
   --addr-rim: rgb(255 255 255 / 0.2);
+  --addr-busy: linear-gradient(#2f4f27, #24401e);
   --details: linear-gradient(#2c3038, #262a31);
   --details-label: #96a2b4;
   --menu: #2d3036;
@@ -469,7 +471,7 @@ html[data-theme="dark"] {
 /* ---------- The desktop ---------- */
 
 #app { position: fixed; inset: 0; display: flex; flex-direction: column; }
-#app.is-busy, .w-window.is-busy { cursor: progress; }
+#app.is-busy, .w-window.is-busy, .w-window.is-looking { cursor: progress; }
 .w-desk { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .w-desk-icons { position: absolute; inset: 0; display: flex; flex-flow: column wrap; align-content: flex-start; gap: 2px 2px; padding: 4px 2px; }
 .w-desk-icon { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 76px; min-height: 74px; padding: 4px 2px 5px; border: 1px solid transparent; border-radius: 3px; color: var(--bar-text); text-align: center; text-shadow: 0 1px 1px #000, 0 1px 3px #000, 0 0 4px var(--black-70); }
@@ -644,6 +646,12 @@ html[data-theme="dark"] {
 .w-travel button:focus-visible { outline: 1px dotted var(--title-text); outline-offset: 1px; }
 .w-crumbs { flex: 1; min-width: 0; display: flex; align-items: center; height: calc(var(--ctl) - 1px); padding: 0 0 0 4px; background: var(--addr); box-shadow: inset 0 0 0 1px var(--addr-edge), 0 0 0 1px var(--addr-rim); overflow: hidden; white-space: nowrap; }
 .w-crumbs > .pix { margin-right: 2px; }
+/* While the place is read, the address bar fills with Explorer's pale green from its start. */
+.w-crumbs { position: relative; }
+.w-crumbs > * { position: relative; }
+.w-addr.is-loading .w-crumbs::before { content: ""; position: absolute; top: 1px; bottom: 1px; left: 1px; width: 0; background: var(--addr-busy); animation: w-addr-fill 8s cubic-bezier(0.1, 0.6, 0.3, 1) forwards; }
+@keyframes w-addr-fill { to { width: 90%; } }
+@media (prefers-reduced-motion: reduce) { .w-addr.is-loading .w-crumbs::before { animation: none; width: 50%; } }
 .w-crumb-sep { display: grid; place-items: center; width: 13px; color: var(--text); }
 .w-crumb { display: flex; align-items: center; height: calc(100% - 2px); padding: 0 4px; border: 1px solid transparent; }
 button.w-crumb:hover { background: var(--btn-hot); border-color: var(--btn-hot-edge); }
@@ -742,7 +750,8 @@ button.w-crumb:active { background: var(--btn-down); border-color: var(--btn-dow
 /* ---------- Dialog boxes ---------- */
 
 .w-modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 8px; }
-.w-dialog { position: relative; grid-area: 1 / 1; max-width: 100%; max-height: 100%; }
+/* Each dialog is drawn whole over the one under it (a list's header must not show through). */
+.w-dialog { position: relative; grid-area: 1 / 1; max-width: 100%; max-height: 100%; isolation: isolate; }
 .w-dialog .w-body { overflow: auto; padding: var(--pad); background: var(--window); }
 .w-form, .w-dialog .w-body { display: flex; flex-direction: column; gap: var(--pad); }
 .w-msg { display: flex; align-items: flex-start; gap: 10px; padding: 2px 0 4px; }
@@ -763,6 +772,9 @@ button.w-crumb:active { background: var(--btn-down); border-color: var(--btn-dow
 .w-note { color: var(--text-2); }
 /* A dialog's buttons are on the grey strip along its bottom. */
 .w-dialog .w-body > .w-buttons, .w-dialog .w-body > .w-form > .w-buttons { margin: 2px calc(-1 * var(--pad)) calc(-1 * var(--pad)); padding: 10px var(--pad) 11px; background: var(--face); border-top: 1px solid var(--edge); }
+/* A property sheet is on the face: its tabs, and its buttons under them with no strip. */
+.w-dialog.w-sheet .w-body { background: var(--face); }
+.w-dialog.w-sheet .w-body > .w-buttons { margin: 0; padding: 0; background: none; border-top: 0; }
 
 /* ---------- Menus ---------- */
 
@@ -822,6 +834,12 @@ button.w-crumb:active { background: var(--btn-down); border-color: var(--btn-dow
 .w-edit:focus { border-color: var(--field-focus); }
 textarea.w-edit { height: auto; resize: none; line-height: 1.4; }
 .w-edit::placeholder { color: var(--gray-text); font-style: italic; }
+/* A read-only field is on the face, as the system draws one (it is coloured as static text is). */
+.w-edit[readonly] { background: var(--face); }
+.w-edit.w-mono { font: 400 12px var(--mono); }
+/* A line to copy, and Copy beside it. */
+.w-copy { display: flex; align-items: center; gap: 6px; }
+.w-copy > .w-edit { flex: 1; }
 .w-edit[type="search"]::-webkit-search-cancel-button { display: none; }
 .w-field { display: flex; align-items: center; gap: 8px; }
 .w-field.top { align-items: flex-start; }
@@ -887,7 +905,7 @@ textarea.w-edit { height: auto; resize: none; line-height: 1.4; }
 .w-cell:first-child { padding-left: 3px; }
 .w-cell:not(:first-child) { color: var(--text-2); }
 .w-cell > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.w-cell.right { justify-content: flex-end; }
+.w-cell.right, .w-col.right { justify-content: flex-end; }
 .w-row[aria-selected="true"] { background: var(--pick-off); border-color: var(--pick-off-edge); box-shadow: inset 0 0 0 1px var(--item-rim); }
 .w-list-body:focus .w-row[aria-selected="true"] { background: var(--pick); border-color: var(--pick-edge); }
 .w-list-empty { padding: 14px 8px; }
@@ -931,6 +949,10 @@ textarea.w-edit { height: auto; resize: none; line-height: 1.4; }
 .w-param { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(80px, 1.2fr) 34px auto; align-items: center; gap: 8px; }
 .w-param-value { text-align: right; font-variant-numeric: tabular-nums; }
 .w-param .w-btn { min-width: 0; }
+/* A property page's rows: the labels in a column as wide as a dialog's, the controls
+   starting where the fields of a dialog do; a row's one control takes the rest. */
+.w-props > .w-param { grid-template-columns: 82px minmax(80px, 1fr) 34px auto; }
+.w-param.wide > :last-child { grid-column: 2 / -1; }
 .w-checklist { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 1px; padding: 5px 7px; overflow: auto; border: 1px solid var(--list-edge); background: var(--window); }
 .w-swatches { display: flex; flex-wrap: wrap; gap: 5px; }
 /* A colour of glass, as the window colours are chosen. */
@@ -985,6 +1007,9 @@ textarea.w-edit { height: auto; resize: none; line-height: 1.4; }
 .tk-f { color: var(--tk-f); }
 .tk-b { color: var(--tk-b); }
 .tk-p { color: var(--tk-p); }
+
+/* The lines an #if leaves out (js/macro-view.js), in the grey of text that cannot be used. */
+.monaco-editor .nt-inactive { color: var(--gray-text) !important; }
 
 .monaco-editor, .monaco-editor .inputarea { -webkit-user-select: text; user-select: text; }
 .monaco-editor .suggest-widget, .monaco-editor .suggest-details, .monaco-editor .parameter-hints-widget, .monaco-editor .rename-box,
@@ -1200,7 +1225,8 @@ html[data-theme="dark"] {
   .w-command { flex-wrap: wrap; }
   .w-desk-icons { flex-flow: row wrap; }
   .w-param { grid-template-columns: 1fr 44px auto; }
-  .w-param-name { grid-column: 1 / -1; }
+  .w-props > .w-param { grid-template-columns: 1fr 44px auto; }
+  .w-param-name, .w-param.wide > :last-child { grid-column: 1 / -1; }
   .w-addr .w-find { flex-basis: 110px; }
   .w-field > label { width: 78px; }
   .w-field + .w-check { margin-left: 86px; }

@@ -64,6 +64,14 @@ Top to bottom (`ui.js`, `W.window`):
   cannot start without (the service out of reach) has Retry alone.
 - A dialog box is modal, has Close alone in its title bar, and its buttons along the
   bottom. A message box has XP's icon for what it is and its buttons centred.
+- A property sheet (Test Settings: `tests.js`, `W.testSettings`) has OK, Cancel and
+  Apply under its tabs. OK and Apply keep what was changed, Cancel leaves it; Apply is
+  grey until there is something to apply. A dialog that lists things to pick from
+  (History: `editor.js`) has a list view and Open, the default button, grey until
+  something is chosen; one opened from it lies over it.
+- A list that fills as it is read (Libraries, `pages.js`) is the list view with its
+  headings and nothing under them, the arrow with the hourglass over the window, and
+  the count in the status bar and in the task pane's Details.
 
 ## 3. The look
 
@@ -83,7 +91,8 @@ Top to bottom (`ui.js`, `W.window`):
   list, a tree or a menu, the open menu's name, selected text. Blue's is Luna's own
   `#316AC5`.
 - The face is beige (`--face`); fields, lists and the content of a place are white
-  with a thin blue-grey edge (`--field-edge`). No bevels.
+  with a thin blue-grey edge (`--field-edge`). No bevels. A read-only field is on the
+  face, as XP colours one; a line to copy is one, with Copy beside it (`copyLine`).
 - Push buttons are 75 by 23 at least, with a dark blue edge and three-pixel corners.
   Under the pointer they **glow orange**; the default one and the one with the
   keyboard glow blue, and the keyboard's has the dotted rectangle inside it. The same
@@ -93,7 +102,8 @@ Top to bottom (`ui.js`, `W.window`):
 - Tahoma 11 px for everything (`--font`, `--fs`); the title bar is Trebuchet MS bold
   13 px; **start** and the name across the top of the Start menu are Franklin Gothic
   Medium, which has an italic and no bold, so it is never asked for bold. Group titles are blue; section headings in a place are bold over a line that
-  fades out. Code is in Lucida Console.
+  fades out. Code is in Lucida Console; what an `#if` leaves out of it is in the grey of
+  text that cannot be used (`.nt-inactive`).
 - **Icons are Windows XP's own** (`icons.js`, `icons/`): `W.icon(name, size)` gives
   the picture drawn for that size (16, 24, 32, 48) and for the screen's scaling, so
   nothing is stretched from a smaller one. None is drawn for this app.

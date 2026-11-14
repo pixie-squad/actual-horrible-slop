@@ -10,9 +10,12 @@
   details view: a drop-down list of the kinds of object and a field to search by, the
   count beside them, and a row for each object under a header whose headings sort it.
 
-    W.testsPane({ onRun, onClose })  → { el, show(run), run, dispose() }
-      onRun     Run Again
-      onClose   the heading's Close; the run goes on
+    W.testsPane({ onRun, onClose, onSettings })  → { el, show(run), run, dispose() }
+      onRun       Run Again
+      onClose     the heading's Close; the run goes on
+      onSettings  Settings…: what the next run is given (W.testSettings, below)
+
+    W.testSettings(script, owner)  the property sheet of what a script's tests run with
 
   Every word is the core's (run.words(), NT.tests.state()). The bar fills with Luna's
   green blocks while the battle is timed; while there is no telling how long, five of
@@ -41,7 +44,77 @@
     return Number.isNaN(n) ? -Infinity : n;
   };
 
-  W.testsPane = function ({ onRun, onClose }) {
+  const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+  // What a script's tests run with (NT.tests.setup), as a property sheet: how long and on
+  // which map on General, and its parameters as its page shows them on Parameters. OK
+  // and Apply keep what was changed; Cancel leaves it. owner: the window that waits
+  // (the hourglass) while what the sheet needs is read.
+  let sheet = null;
+  W.testSettings = async function (script, owner) {
+    if (sheet) return;
+    sheet = true;
+    const API = NT.api;
+    const id = script.script_id;
+    const limit = (API.mode === 'live' && NT.ext.info('tests').seconds) || NT.tests.seconds;
+    if (owner) owner.busy(true);
+    const [params, maps] = await Promise.all([
+      API.parameters(id).catch(() => []),
+      API.maps(script.author_uuid).catch(() => []),
+    ]);
+    if (owner) owner.busy(false);
+    const set = NT.tests.setup(id);
+    let seconds = set.seconds, map = set.map;
+    const values = Object.assign({}, set.values);
+    const now = () => JSON.stringify([seconds, map === undefined ? '' : map, Object.keys(values).sort().map((k) => [k, values[k]])]);
+    let kept = now();
+    const changed = () => { apply.disabled = now() === kept; };
+    const keep = () => {
+      NT.tests.configure(id, { seconds, map, values });
+      kept = now();
+      changed();
+    };
+
+    // How long: a trackbar in steps of five seconds, its value as a clock, and Default.
+    const shown = () => (seconds == null ? limit.usual : seconds);
+    const time = h('span.w-param-value', clock(shown()));
+    const reset = W.button('Default', () => { bar.set(limit.usual); setTime(limit.usual); }, { disabled: seconds == null });
+    const setTime = (v) => {
+      seconds = v === limit.usual ? null : v;
+      time.textContent = clock(v);
+      reset.disabled = seconds == null;
+      changed();
+    };
+    const bar = W.trackbar({ min: limit.least, max: limit.most, step: 5, value: shown(), label: 'Duration', onInput: setTime });
+
+    // Which map: the script's own, none, or one of the author's.
+    const found = map && maps.find((m) => m.user_map_id === map.id);
+    const combo = W.combo([['', 'Default'], ['none', 'None'], ...maps.map((m) => [m.user_map_id, m.name])],
+      map === undefined ? '' : found ? found.user_map_id : 'none', (v) => {
+        const m = maps.find((x) => x.user_map_id === v);
+        map = v === '' ? undefined : m ? { id: m.user_map_id, internal: m.internal_id } : null;
+        changed();
+      }, 'Map');
+
+    const pages = [{ id: 'general', label: 'General', body: h('div.w-scroll.w-props',
+      h('div.w-param', h('span.w-param-name', 'Duration:'), bar.el, time, reset),
+      h('div.w-param.wide', h('span.w-param-name', 'Map:'), combo.el)) }];
+    if (params.length) pages.push({ id: 'parameters', label: 'Parameters', body: h('div.w-scroll', W.kit.paramGroups(params, values, changed)) });
+    const tabs = W.tabs(pages, 'general');
+    tabs.el.classList.add('fill');
+
+    const dialog = W.dialog({ title: 'Test Settings', width: 380, height: params.length ? 400 : 0, onClose: () => { sheet = null; } });
+    dialog.el.classList.add('w-sheet');
+    const apply = W.button('Apply', keep, { disabled: true });
+    dialog.body.append(tabs.el, h('div.w-buttons',
+      W.button('OK', () => { keep(); dialog.close(); }, { primary: true }),
+      W.button('Cancel', () => dialog.close()),
+      apply));
+    dialog.open();
+    return dialog;
+  };
+
+  W.testsPane = function ({ onRun, onClose, onSettings }) {
     let run = null, off = null, drawn = 0;
     let view = 'output', kind = 'all', query = '', table = null;
     const id = 'tests' + ++seq;
@@ -56,6 +129,8 @@
     });
     const close = W.tool('Close', null, () => onClose(), { text: false, cls: '.w-tests-x' });
     close.append(cross());
+
+    const settings = onSettings ? W.button('Settings…', () => onSettings()) : null;
 
     // Output: what the script printed.
     const lines = h('div.w-tests-out', { role: 'log', 'aria-label': 'Output', tabIndex: 0 });
@@ -94,7 +169,7 @@
 
     const el = h('section.w-tests', { 'aria-label': 'Test', hidden: true },
       h('div.w-tests-cap', h('span', 'Test'), close),
-      h('div.w-tests-head', h('div.w-tests-words', { 'aria-live': 'polite' }, title, detail), bar, act),
+      h('div.w-tests-head', h('div.w-tests-words', { 'aria-live': 'polite' }, title, detail), bar, act, settings),
       tabs.el);
 
     // The marquee goes round in whole blocks: as many steps as the well is wide.
