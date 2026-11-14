@@ -24,6 +24,8 @@
                   menu(anchor, items, { align }), signIn(mode)
     NT.look       optional: { pane(el), codeFont, still }   (monaco.js, util.js)
     a page for every route name in NT.routes, and a way to change style in its settings
+    Remember Me on its way in, off until chosen, where NT.api.canKeep (api.login and
+    api.register take it last)
 */
 (function () {
   'use strict';

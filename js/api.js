@@ -109,8 +109,11 @@
 
   /* ---------- Live backend ---------- */
 
-  // opts: { method, body (sent as JSON), timeout, quiet }. A change is written to the
-  // audit log unless it is quiet: the app's own bookkeeping, not something the person did.
+  // opts: { method, body (sent as JSON), timeout, quiet, final }. A change is written to
+  // the audit log unless it is quiet: the app's own bookkeeping, not something the
+  // person did. A call refused for want of a session is made once more after signing
+  // in again, where that can be done (see Staying signed in), unless it is final: one
+  // whose 401 is its answer.
   async function live(path, opts = {}) {
     const init = { method: opts.method || 'GET', credentials: 'include', headers: {} };
     if (opts.body !== undefined) {
@@ -130,11 +133,118 @@
     } finally {
       clearTimeout(timer);
     }
+    if (res.status === 401 && !opts.final && kept() && (await renew())) return live(path, Object.assign({}, opts, { final: true }));
     let data = null;
     try { data = text ? JSON.parse(text) : null; } catch (e) { /* non-JSON body */ }
     if (!res.ok) throw new StatusError(res.status, data && data.error);
     if (init.method !== 'GET' && !opts.quiet) noted(init.method, path, opts.body, data);
     return data;
+  }
+
+  /* ---------- Staying signed in (live) ----------
+     The upstream's session lasts a day and cannot be renewed, only begun again with
+     the password. With Remember Me the server hands this browser its credentials
+     sealed, in a cookie no page can read, and signs in again from it when asked
+     (ext/keep.js). What is here is when to ask: half-way through the session's day,
+     so one in use never runs out, and at once when a call is refused all the same.
+
+     nt.keep in localStorage is { at }: when the session began. It says a sealed copy
+     is there; it is not the copy. */
+
+  const KEEP = '/x/keep';
+  const KEEP_KEY = 'nt.keep';
+  const KEEP_AFTER = 12 * 3600 * 1000;
+  const KEEP_AGAIN = 5 * 60 * 1000; // … when that could not be done
+  const KEEP_FRESH = 15 * 1000;     // a session this new was begun by another tab: use it
+
+  function kept() {
+    const mark = store.get(KEEP_KEY, null);
+    return mark && typeof mark.at === 'number' ? mark : null;
+  }
+
+  // What the server's keep answers to `what`, or null when it cannot be reached.
+  async function keep(what, body) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 20000);
+    try {
+      const init = { method: 'POST', credentials: 'include', signal: ctrl.signal };
+      if (body) {
+        init.headers = { 'Content-Type': 'application/json' };
+        init.body = JSON.stringify(body);
+      }
+      const res = await fetch(KEEP + what, init);
+      let data = null;
+      try { data = await res.json(); } catch (e) { /* no body */ }
+      return { res, data };
+    } catch (e) {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  // Signs in again from the sealed copy. → whether there is a session new enough to
+  // go on with. One at a time, in this tab and across tabs.
+  let renewing = null;
+  function renew() {
+    if (renewing) return renewing;
+    const run = async () => {
+      const mark = kept();
+      if (!mark) return false;
+      if (Date.now() - mark.at < KEEP_FRESH) return true;
+      const out = await keep('/refresh');
+      if (out && out.res.ok) {
+        store.set(KEEP_KEY, { at: Date.now() });
+        return true;
+      }
+      // The copy is no good any more, and the server has dropped it.
+      if (out && out.res.status === 401) store.remove(KEEP_KEY);
+      return false;
+    };
+    const locks = typeof navigator === 'object' && navigator.locks;
+    const done = () => { renewing = null; };
+    renewing = Promise.resolve(locks ? locks.request(KEEP_KEY, run) : run()).catch(() => false);
+    renewing.then(done);
+    return renewing;
+  }
+
+  // Sees to it that the session is renewed when it is half-way through its day.
+  let tending = 0;
+  function tend() {
+    clearTimeout(tending);
+    const mark = kept();
+    if (!mark || api.mode !== 'live' || !api.session) return;
+    const due = mark.at + KEEP_AFTER - Date.now();
+    const again = (ms) => { tending = setTimeout(tend, Math.min(ms, 0x7fffffff)); };
+    if (due > 0) return void again(due);
+    renew().then((ok) => (ok ? tend() : again(KEEP_AGAIN)));
+  }
+  // A timer does not run while the machine sleeps or the tab is put away.
+  if (typeof document === 'object') {
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) tend(); });
+    window.addEventListener('online', tend);
+  }
+
+  // Drops the sealed copy, here and in the cookie.
+  function unkeep() {
+    clearTimeout(tending);
+    store.remove(KEEP_KEY);
+    return keep('/forget');
+  }
+
+  // Signs in (how: 'login' | 'register'). remember: with a sealed copy to stay signed in by.
+  async function enter(how, body, remember) {
+    if (remember && api.canKeep) {
+      const out = await keep('/' + how, body);
+      if (!out) throw new StatusError(0, 'Request failed');
+      if (!out.res.ok) throw new StatusError(out.res.status, out.data && out.data.error);
+      if (out.res.headers.get('x-nt-kept')) store.set(KEEP_KEY, { at: Date.now() });
+      else store.remove(KEEP_KEY);
+      return;
+    }
+    await live('/auth/' + how, { method: 'POST', body, final: true });
+    // Not asked to remember: nothing from before is left to remember by either.
+    if (kept() || api.canKeep) unkeep();
   }
 
   const at = (id) => '/scripts/' + encodeURIComponent(id);
@@ -596,11 +706,15 @@
           clearTimeout(timer);
           if (res.headers.get('x-nt-proxy')) {
             this.liveAvailable = true;
-            if (res.ok) {
-              this.session = await res.json();
+            let me = res.ok ? await res.json() : null;
+            // The session ran out while the app was closed: remembered, it begins again.
+            if (!me && res.status === 401 && kept() && (await renew())) me = await live('/users/me', { final: true, timeout: 8000 }).catch(() => null);
+            if (me) {
+              this.session = me;
               this.mode = 'live';
               look(false);
               db.signedIn = false;
+              tend();
               return;
             }
             // Signed out of the real service. That is what the app shows.
@@ -631,24 +745,31 @@
 
     /* ----- Auth ----- */
 
-    async login(username, password) {
+    // Whether signing in can be remembered here: a style offers Remember Me when it can.
+    get canKeep() {
+      return this.liveAvailable && NT.ext.has('keep');
+    },
+    // remember: stay signed in on this browser (Remember Me; see Staying signed in).
+    async login(username, password, remember) {
       if (!this.liveAvailable) throw new StatusError(0, 'live-unavailable');
-      await live('/auth/login', { method: 'POST', body: { username, password } });
+      await enter('login', { username, password }, remember);
       forget();
       this.session = await live('/users/me');
       this.mode = 'live';
       look(false);
       db.signedIn = false;
+      tend();
       log('UserLogin', this.session.user_id);
     },
-    async register(name, username, password) {
+    async register(name, username, password, remember) {
       if (!this.liveAvailable) throw new StatusError(0, 'live-unavailable');
-      await live('/auth/register', { method: 'POST', body: { name, username, password } });
+      await enter('register', { name, username, password }, remember);
       forget();
       this.session = await live('/users/me');
       this.mode = 'live';
       look(false);
       db.signedIn = false;
+      tend();
       log('UserRegister', this.session.user_id);
     },
     // Look around: the sample data, as its sample user.
@@ -662,8 +783,10 @@
     },
     async logout() {
       if (this.mode === 'live') {
+        // First, so that nothing is left here to sign in by whatever the upstream says.
+        if (kept() || this.canKeep) await unkeep();
         try {
-          await live('/auth/logout', { method: 'POST' });
+          await live('/auth/logout', { method: 'POST', final: true });
           log('UserLogout', this.session && this.session.user_id);
         } catch (e) { /* session may already be gone */ }
         forget();
@@ -678,7 +801,9 @@
       if (this.mode === 'live') {
         const body = { new_password: newPassword };
         if (this.session.has_password && oldPassword) body.password = oldPassword;
-        await live(`/users/${this.session.user_id}/password`, { method: 'PUT', body });
+        await live(`/users/${this.session.user_id}/password`, { method: 'PUT', body, final: true });
+        // The sealed copy holds the old one: sealed again, or dropped where that fails.
+        if (kept()) await enter('login', { username: this.session.username, password: newPassword }, true).then(tend, unkeep);
         this.session = await live('/users/me');
         return;
       }

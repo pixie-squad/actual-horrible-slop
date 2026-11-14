@@ -9,9 +9,9 @@
   - Proxies /api/* to https://scripting.nulls.gg/api/* so the browser can use
     the real service with its session cookie, without cross-origin limits.
   - Mounts the backend extensions in ./ext under /x/* (see ext/index.js): the
-    bundler, the language server, and test runs, which a runner elsewhere carries
-    out (ext/tests.js: NT_RUNNER_URL, NT_RUNNER_TOKEN, NT_RUNNER_CA). NT_EXT=off
-    runs without them.
+    bundler, the language server, test runs, which a runner elsewhere carries
+    out (ext/tests.js: NT_RUNNER_URL, NT_RUNNER_TOKEN, NT_RUNNER_CA), and Remember
+    Me (ext/keep.js: NT_KEEP_KEY). NT_EXT=off runs without them.
   - Keeps nothing. No request or answer is written down, and there is no data
     folder: what the app stores is in the upstream's scripts or in the browser.
 */
@@ -79,14 +79,6 @@ function sendFile(res, file, status = 200, req = null) {
   });
 }
 
-// Cookies are issued for the upstream host over HTTPS; make them usable on localhost.
-function localCookie(cookie) {
-  return cookie
-    .replace(/;\s*Domain=[^;]*/gi, '')
-    .replace(/;\s*Secure/gi, '')
-    .replace(/;\s*SameSite=None/gi, '; SameSite=Lax');
-}
-
 // Requests and answers are piped straight through: nothing of either is read or kept here.
 function proxy(req, res, url) {
   const headers = {
@@ -105,7 +97,7 @@ function proxy(req, res, url) {
     (up) => {
       const out = { 'x-nt-proxy': '1', 'cache-control': 'no-store' };
       if (up.headers['content-type']) out['content-type'] = up.headers['content-type'];
-      if (up.headers['set-cookie']) out['set-cookie'] = up.headers['set-cookie'].map(localCookie);
+      if (up.headers['set-cookie']) out['set-cookie'] = up.headers['set-cookie'].map(core.localCookie);
       res.writeHead(up.statusCode || 502, out);
       up.pipe(res);
     }

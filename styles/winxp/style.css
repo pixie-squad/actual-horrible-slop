@@ -667,6 +667,8 @@ textarea.w-edit { height: auto; resize: none; line-height: 1.35; }
 .w-field > label { flex: none; width: 82px; }
 .w-field > .w-edit, .w-field > .w-combo-host, .w-field-box { flex: 1; min-width: 0; }
 .w-field-box { display: flex; flex-direction: column; gap: 2px; }
+/* A check box under the fields starts where their boxes do. */
+.w-field + .w-check { margin-left: 88px; }
 .w-count { align-self: flex-end; color: var(--gray-text); }
 .w-combo-host .w-combo { width: 100%; }
 
@@ -1022,4 +1024,5 @@ html[data-theme="dark"] {
   .w-param { grid-template-columns: 1fr 44px auto; }
   .w-param-name { grid-column: 1 / -1; }
   .w-field > label { width: 74px; }
+  .w-field + .w-check { margin-left: 80px; }
 }

@@ -62,6 +62,9 @@ Material Design 2 differs.
   and thickens when it has the keyboard (`M.field`).
 - A switch is a round thumb on a narrow track; a slider is a thin line with a round
   thumb (`M.switch`, `M.slider`).
+- A choice that waits for its form to be sent is a **checkbox** (`M.check`): an 18 box
+  with a 2 border at 54 % and a 2 corner in a 40 ripple, its label 4 on in body 2;
+  chosen, it fills with the secondary colour in 90 ms and its mark is drawn on in 180.
 - Waiting is a ring that turns (`M.loading`).
 - How far along is the **linear progress indicator** (`tests.js`): 4 high and edge to
   edge, primary on a #e6e6e6 track (12 % white in the dark, `--track`). Determinate,
@@ -104,6 +107,9 @@ Material Design 2 differs.
 - Material Components for the web, `packages/mdc-data-table/_data-table-theme.scss` and
   `packages/mdc-density/_density.scss` (read 2026-11-13): the data table's rows, heading,
   cell padding, lines, text and hover, and its density (4 a step, down to rows of 36).
+- Material Components for the web, `packages/mdc-checkbox` (`_checkbox.scss`,
+  `_checkbox-theme.scss`; read 2026-11-14): the checkbox's sizes, colours, mark and
+  timing.
 - Material Components for Android, `chip/res/values/styles.xml` and
   `chip/res/color/mtrl_choice_chip_*.xml` (read 2026-11-13): the choice chip's height,
   padding, type and colours.

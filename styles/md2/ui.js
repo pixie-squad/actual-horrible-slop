@@ -162,6 +162,15 @@
     return { el, input, set(v) { input.checked = !!v; } };
   };
 
+  // A choice that waits for its form to be sent (a switch is for what takes effect at once).
+  M.check = function (label, checked, onChange) {
+    const input = h('input', { type: 'checkbox', checked: !!checked });
+    const box = h('span.m-check-box');
+    box.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M1.73,12.91 8.1,19.28 22.79,4.59"/></svg>';
+    input.addEventListener('change', () => { if (onChange) onChange(input.checked); });
+    return { el: h('label.m-check', input, box, h('span', label)), input, get value() { return input.checked; }, set(v) { input.checked = !!v; } };
+  };
+
   // The expressive slider: a thick track with a gap either side of an upright handle.
   M.slider = function ({ min = 0, max = 100, step = 1, value = 0, onInput, label }) {
     const input = h('input', { type: 'range', min, max, step, value, 'aria-label': label || null });
@@ -490,10 +499,12 @@
     const password = M.field('Password', { type: 'password', autocomplete: 'current-password', enterKeyHint: 'done' });
     const error = h('p.m-error', { role: 'alert' });
     const submit = M.button('Log In', null, { submit: true });
+    // Off until asked for, and only where the server can keep someone signed in.
+    const remember = api.canKeep ? M.check('Remember me', false) : null;
     const which = M.group([{ value: 'login', label: 'Log In' }, { value: 'register', label: 'Create Account' }], mode, (v) => { mode = v; sync(); });
     // The sample data is a quiet way past the form, not a second way to sign in.
     const looking = api.mode === 'demo' && !!api.session;
-    const form = h('form.m-form', { novalidate: true }, which.el, name.row, username.row, password.row, error,
+    const form = h('form.m-form', { novalidate: true }, which.el, name.row, username.row, password.row, remember && remember.el, error,
       h('div.m-dialog-actions',
         looking ? null : M.button('Just look around', lookAround, { variant: 'text' }),
         h('span.m-gap'),
@@ -523,8 +534,9 @@
       error.textContent = '';
       submit.disabled = true;
       try {
-        if (mode === 'register') await api.register(n, u, p);
-        else await api.login(u, p);
+        const keep = !!remember && remember.value;
+        if (mode === 'register') await api.register(n, u, p, keep);
+        else await api.login(u, p, keep);
         d.close();
         NT.nav.reset();
         UI.toast('Signed in as ' + (api.session.name || api.session.username));

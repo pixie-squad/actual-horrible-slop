@@ -149,6 +149,7 @@ Use the component Material has for the job (`ui.js`):
 | The action a screen leads with | The same at 56 | 24 at either end, a 24 symbol (`ButtonMediumTokens`) |
 | An action that is a symbol | Icon button: standard; tonal or filled to stand out | a 40 container in a 48 target (`SmallIconButtonTokens`) |
 | On or off | Switch (`M.switch`) | 52 × 32 track, 2 outline; handle 16, 24 on, 28 pressed, a 16 check; a 40 state layer (`SwitchTokens`) |
+| On or off, once its form is sent | Checkbox (`M.check`) | an 18 container, 2 corner, 2 outline in on surface variant; primary with the check in on primary once chosen; a 40 state layer; the check a 2 stroke with square ends, drawn on, and gone 100 ms into the box emptying (`CheckboxTokens`, `Checkbox.kt`) |
 | One of a few, all in view | Connected button group (`M.group`) | 40 high, 2 apart (`ConnectedButtonGroupSmallTokens`); it does not widen on a press, only a standard group does |
 | One of many | A menu from the item's value (`pickItem`) | |
 | A number in a range | Slider (`M.slider`) | 16 track, 4 × 44 handle with 6 either side, 2 while held, a 4 stop at the end (`SliderTokens`) |
@@ -182,11 +183,12 @@ Read on 2026-11-12.
     `ListTokens`, `LoadingIndicatorTokens`, `SegmentedMenuTokens`, `StandardMenuTokens`,
     `DialogTokens`, `SheetBottomTokens`, `SnackbarTokens`, `OutlinedTextFieldTokens`,
     `FilledCardTokens`, and (read 2026-11-13) `LinearProgressIndicatorTokens`,
-    `ProgressIndicatorTokens`, `MotionTokens`, `FilterChipTokens`.
+    `ProgressIndicatorTokens`, `MotionTokens`, `FilterChipTokens`, and (read
+    2026-11-14) `CheckboxTokens`.
   - the components, for behaviour: `Button.kt`, `IconButton.kt`, `ToggleButton.kt`,
     `ButtonGroup.kt`, `FloatingActionButtonMenu.kt`, `ListItem.kt`, `Menu.kt`,
     `Switch.kt`, `NavigationItem.kt`, `LoadingIndicator.kt`, `MaterialShapes.kt`,
-    `internal/AnimatedShape.kt`, `ProgressIndicator.kt`, `Chip.kt`.
+    `internal/AnimatedShape.kt`, `ProgressIndicator.kt`, `Chip.kt`, `Checkbox.kt`.
 - Material Components for the web, `packages/mdc-data-table/_data-table-theme.scss` and
   `packages/mdc-density/_density.scss` (read 2026-11-13): the data table's rows,
   heading, cell padding and lines, and its density (4 a step, down to rows of 36).

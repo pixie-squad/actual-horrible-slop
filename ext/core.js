@@ -9,6 +9,8 @@
     NT_UPSTREAM   upstream origin            (default https://scripting.nulls.gg)
     NT_TOOLS      where fetched tools live   (default ./.tools)
     NT_EXT        "off", or a comma list of extensions to load (default: all)
+    NT_KEEP_KEY   the secret Remember Me seals with (see keep.js; default: a new one
+                  each start)
 */
 'use strict';
 
@@ -85,7 +87,7 @@ async function readJson(req, limit) {
 
 // One request to the upstream API. `apiPath` starts with /api/. Never rejects on an
 // HTTP status; rejects only when the upstream cannot be reached.
-//   opts: { cookie, body (sent as JSON), timeout }
+//   opts: { cookie, body (sent as JSON), timeout, agent (the User-Agent to go by) }
 //   → { status, headers, body: Buffer, json (parsed body or null) }
 function upstream(method, apiPath, opts = {}) {
   return new Promise((resolve, reject) => {
@@ -93,7 +95,7 @@ function upstream(method, apiPath, opts = {}) {
     const payload = opts.body === undefined ? null : Buffer.from(JSON.stringify(opts.body));
     const headers = {
       accept: 'application/json',
-      'user-agent': 'nt-scripting-ext',
+      'user-agent': opts.agent || 'nt-scripting-ext',
       origin: UPSTREAM.origin,
       referer: UPSTREAM.origin + '/',
     };
@@ -128,6 +130,14 @@ function upstream(method, apiPath, opts = {}) {
     req.on('error', reject);
     req.end(payload || undefined);
   });
+}
+
+// Cookies are issued for the upstream host over HTTPS; make them usable on localhost.
+function localCookie(cookie) {
+  return cookie
+    .replace(/;\s*Domain=[^;]*/gi, '')
+    .replace(/;\s*Secure/gi, '')
+    .replace(/;\s*SameSite=None/gi, '; SameSite=Lax');
 }
 
 /* ---------- Who is asking ---------- */
@@ -286,7 +296,7 @@ function checkEntry(files, entry) {
 module.exports = {
   ROOT, UPSTREAM, TOOLS_DIR,
   HttpError, send, readBody, readJson,
-  upstream, session,
+  upstream, localCookie, session,
   sameOrigin, requireSameOrigin, clientKey, rateLimit, requireRate,
   sha256,
   PROJECT, badPath, checkFiles, checkEntry,

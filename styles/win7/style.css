@@ -818,6 +818,8 @@ textarea.w-edit { height: auto; resize: none; line-height: 1.4; }
 .w-field > label { flex: none; width: 88px; }
 .w-field > .w-edit, .w-field > .w-combo-host, .w-field-box { flex: 1; min-width: 0; }
 .w-field-box { display: flex; flex-direction: column; gap: 2px; }
+/* A check box under the fields starts where their boxes do. */
+.w-field + .w-check { margin-left: 96px; }
 .w-count { align-self: flex-end; color: var(--gray-text); }
 .w-combo-host .w-combo { width: 100%; }
 
@@ -1173,6 +1175,7 @@ html[data-theme="dark"] {
   .w-param-name { grid-column: 1 / -1; }
   .w-addr .w-find { flex-basis: 110px; }
   .w-field > label { width: 78px; }
+  .w-field + .w-check { margin-left: 86px; }
   .w-startmenu { grid-template-columns: minmax(0, 1fr) 132px; }
   .w-details-facts { max-height: 1.400em; overflow: hidden; }
 }

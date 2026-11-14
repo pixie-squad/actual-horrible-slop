@@ -663,11 +663,14 @@
     const error = h('p.form-error', { role: 'alert' });
     const submit = h('button.btn.filled.block', { type: 'submit' }, 'Log In');
     const seg = UI.segmented([{ value: 'login', label: 'Log In' }, { value: 'register', label: 'Create Account' }], mode, (v) => { mode = v; sync(); });
+    // Off until asked for, and only where the server can keep someone signed in.
+    const remember = api.canKeep ? UI.toggle(false, null, 'Remember Me') : null;
     // The sample data is a quiet way past the form, not a second way to sign in.
     const looking = api.mode === 'demo' && !!api.session;
     const form = h('form.form-stack', { novalidate: true },
       seg.el,
       h('div.list', name.row, username.row, password.row),
+      remember && h('div.list', h('div.row', h('span.row-title', 'Remember Me'), remember.el)),
       error,
       submit,
       looking ? null : h('button.text-btn', { type: 'button', onclick: lookAround }, 'Just look around'));
@@ -698,8 +701,9 @@
       error.textContent = '';
       submit.disabled = true;
       try {
-        if (mode === 'register') await api.register(n, u, p);
-        else await api.login(u, p);
+        const keep = !!remember && remember.value;
+        if (mode === 'register') await api.register(n, u, p, keep);
+        else await api.login(u, p, keep);
         sheet.close();
         NT.nav.reset();
         UI.toast('Signed in as ' + (api.session.name || api.session.username), { icon: 'person' });

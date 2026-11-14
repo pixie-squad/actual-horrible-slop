@@ -15,6 +15,8 @@ RUN node ext/tools.js
 # Test runs need a runner: NT_RUNNER_URL, NT_RUNNER_TOKEN and NT_RUNNER_CA (its
 # certificate, as PEM text or a mounted file) at run time. Without them the app
 # leaves testing out.
+# Remember Me seals with NT_KEEP_KEY (a secret of 32 characters or more, given at run
+# time, never built in). Without it every restart signs the remembered out.
 ENV HOST=0.0.0.0 PORT=5173
 EXPOSE 5173
 

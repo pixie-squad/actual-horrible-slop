@@ -438,6 +438,26 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-switch input:active + .m-switch-track .m-switch-handle::before, .m-switch input:focus-visible + .m-switch-track .m-switch-handle::before { opacity: var(--state-press); }
 .m-switch input:focus-visible + .m-switch-track { outline: 3px solid var(--secondary); outline-offset: 2px; }
 
+/* CheckboxTokens: an 18 container with a 2 corner and a 2 outline in a 40 state layer;
+   chosen, it is primary, and the check is drawn on in on primary: a 2 stroke with
+   square ends, taken away 100 ms after the box starts to empty (Checkbox.kt). */
+.m-check { position: relative; display: inline-flex; align-items: center; align-self: flex-start; min-height: 48px; margin-left: -11px; padding-right: 8px; font: 400 16px/24px var(--font); letter-spacing: 0.5px; cursor: pointer; }
+.m-check input { position: absolute; left: 0; top: 50%; width: 40px; height: 40px; margin: 0; translate: 0 -50%; opacity: 0; cursor: pointer; }
+.m-check-box { position: relative; flex: none; width: 18px; height: 18px; margin: 11px 15px 11px 11px; border-radius: 2px; box-shadow: inset 0 0 0 2px var(--on-surface-variant); transition: background var(--m-effects-fast-dur) var(--m-effects-fast), box-shadow var(--m-effects-fast-dur) var(--m-effects-fast); pointer-events: none; }
+.m-check-box::before { content: ""; position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; translate: -50% -50%; border-radius: 50%; background: var(--on-surface); opacity: 0; transition: opacity var(--m-effects-fast-dur) var(--m-effects-fast); }
+.m-check-box svg { position: relative; display: block; width: 18px; height: 18px; fill: none; stroke: var(--on-primary); stroke-width: 2; stroke-linecap: square; stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 0; transition: stroke-dashoffset 0s 100ms, opacity 0s 100ms; }
+.m-check input:checked + .m-check-box { background: var(--primary); box-shadow: inset 0 0 0 2px var(--primary); transition-duration: var(--m-effects-dur); transition-timing-function: var(--m-effects); }
+.m-check input:checked + .m-check-box::before { background: var(--primary); }
+.m-check input:checked + .m-check-box svg { stroke-dashoffset: 0; opacity: 1; transition: stroke-dashoffset var(--m-spatial-dur) var(--m-effects), opacity 0s; }
+@media (hover: hover) {
+  .m-check:hover .m-check-box { box-shadow: inset 0 0 0 2px var(--on-surface); }
+  .m-check:hover .m-check-box::before { opacity: var(--state-hover); }
+}
+.m-check input:active + .m-check-box::before, .m-check input:focus-visible + .m-check-box::before { opacity: var(--state-press); }
+.m-check input:focus-visible + .m-check-box { outline: 3px solid var(--secondary); outline-offset: 2px; }
+/* Under a field, which keeps room below itself for a note. */
+.m-field + .m-check { margin-top: -16px; }
+
 /* SliderTokens: a 16 track, round at its ends and 2 where it meets the handle's gap;
    the handle is 4 × 44 with 6 either side and narrows to 2 while held; a 4 stop marks
    the end of the track. */

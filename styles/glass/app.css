@@ -531,6 +531,8 @@
   height: var(--hairline);
   background: var(--sep);
 }
+/* None above the first row that shows. */
+.row[hidden]:first-child + .row::before { content: none; }
 .row.has-icon + .row.has-icon::before { left: 58px; }
 button.row, a.row { color: var(--label); transition: background 0.15s; cursor: pointer; }
 button.row:active, a.row:active { background: var(--fill); }

@@ -6,7 +6,8 @@
   as long as the bundler or the language server is working on them, and nothing of
   anyone's is written anywhere else. What the app stores, it stores in the upstream's
   own scripts or in the browser (js/pack.js, js/api.js), and the proxy passes those
-  calls through without looking at them.
+  calls through without looking at them. Remember Me (keep.js) is no exception: what
+  it remembers is in the browser, sealed, and here is only the key.
 
   Each extension is one file in this folder, mounted under /x/<name>:
 
@@ -31,7 +32,7 @@ const fs = require('fs');
 const path = require('path');
 const core = require('./core');
 
-const NAMES = ['bundle', 'lsp', 'tests'];
+const NAMES = ['bundle', 'lsp', 'tests', 'keep'];
 const wanted = (process.env.NT_EXT || '').trim();
 const enabled = wanted === 'off' ? [] : wanted ? wanted.split(',').map((s) => s.trim()).filter((s) => NAMES.includes(s)) : NAMES;
 

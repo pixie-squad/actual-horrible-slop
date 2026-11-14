@@ -834,11 +834,13 @@
     const password = W.field('Password:', { type: 'password', autocomplete: 'current-password' });
     const error = h('p.w-error', { role: 'alert' });
     const submit = W.button('OK', null, { primary: true, submit: true });
+    // Off until asked for, and only where the server can keep someone signed in.
+    const remember = api.canKeep ? W.check('Remember me', false) : null;
     const looking = api.mode === 'demo' && !!api.session;
     const which = W.radios([['login', 'Log In'], ['register', 'Create Account']], mode, (v) => { mode = v; sync(); });
     const win = W.dialog({ title: 'Sign In', icon: 'key', width: 330 });
     const form = h('form.w-form', { novalidate: true },
-      h('div.w-msg', W.icon('key', 32), h('div.w-fields', which.el, name.row, username.row, password.row, error)),
+      h('div.w-msg', W.icon('key', 32), h('div.w-fields', which.el, name.row, username.row, password.row, remember && remember.el, error)),
       h('div.w-buttons',
         looking ? null : W.button('Just look around', lookAround),
         h('span.w-gap'),
@@ -869,8 +871,9 @@
       error.textContent = '';
       submit.disabled = true;
       try {
-        if (mode === 'register') await api.register(n, u, p);
-        else await api.login(u, p);
+        const keep = !!remember && remember.value;
+        if (mode === 'register') await api.register(n, u, p, keep);
+        else await api.login(u, p, keep);
         win.close();
         NT.nav.reset();
         UI.toast('Signed in as ' + (api.session.name || api.session.username));
