@@ -55,7 +55,8 @@
   const parentOf = (path) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
   const join = (dir, name) => (dir ? dir + '/' + name : name);
   const within = (path, dir) => path.startsWith(dir + '/');
-  const iconFor = (name, folder) => (folder ? 'folder' : /\.json$/i.test(name) ? 'braces' : 'doc-text');
+  // Data (what #embed and require read) apart from code.
+  const iconFor = (name, folder) => (folder ? 'folder' : /\.(json|csv|txt)$/i.test(name) ? 'braces' : 'doc-text');
   const unfocused = () => !document.activeElement || document.activeElement === document.body;
   const storeKey = (id) => 'nt.tree.' + id;
 
@@ -385,7 +386,7 @@
       const read = [];
       let skipped = 0;
       for (const it of items) {
-        if (it.file.size > 1000000 || !/\.(luau|lua|json)$/i.test(it.rel)) { skipped++; continue; }
+        if (it.file.size > 1000000 || !/\.(luau|lua|json|csv|txt)$/i.test(it.rel)) { skipped++; continue; }
         try { read.push({ rel: it.rel, text: (await it.file.text()).replace(/\r\n?/g, '\n') }); } catch (e) { skipped++; }
       }
       model();
@@ -412,7 +413,7 @@
     }
 
     function browse(dest) {
-      const input = h('input', { type: 'file', multiple: true, accept: '.luau,.lua,.json' });
+      const input = h('input', { type: 'file', multiple: true, accept: '.luau,.lua,.json,.csv,.txt' });
       input.addEventListener('change', () => bring([...input.files].map((file) => ({ rel: file.name, file })), dest));
       input.click();
     }

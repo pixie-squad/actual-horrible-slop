@@ -19,7 +19,8 @@
   Requires resolve as in Luau (and luau-lsp): "./" and "../" from the file's folder,
   except in a folder's init.luau, where "./" is the folder's parent and "@self/" the
   folder. The path as written is tried, then with .luau, then .lua, then its
-  init.luau or init.lua. Case counts. JSON files (strict JSON) are required as data.
+  init.luau or init.lua. Case counts. JSON files (strict JSON) are required as data;
+  .csv and .txt files are not required at all (macros #embed them in the browser).
   darklua would follow a require to any file on this machine, so requires are checked
   here first: inside the project, naming one of its files or libraries, and no cycles.
 
@@ -282,6 +283,7 @@ function resolve(files, libs, from, literal, external) {
     : [base, base + '.luau', base + '.lua', base + '/init.luau', base + '/init.lua'];
   const target = tries.find((p) => has(files, p));
   if (!target) return { error: `cannot find "${shown}"` };
+  if (/\.(csv|txt)$/i.test(target)) return { error: `"${target}" is not code: #embed NAME "${shown}" brings it in as a value` };
   // darklua picks how to load a file by its exact extension.
   if (!/\.(luau|lua|json)$/.test(target)) return { error: `"${target}" needs a lower-case extension to be required` };
   return { target };

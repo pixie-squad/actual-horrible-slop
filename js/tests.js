@@ -5,7 +5,9 @@
   The battle happens on a runner behind this server (ext/tests.js). A run goes
   through: waiting for a free client, a room, the battle, done. The script passes if
   the battle ran its time without the script stopping it. The saved script is what
-  runs, so an editor saves before it starts one.
+  runs, so an editor saves before it starts one; built with DEBUG defined where that
+  changes it (opts.debug), which goes into a holder (<script>.meta.debug, api.js) for
+  the length of the run and is played from there.
 
   That alone does not say the script ran: the game server starts the battle all the
   same when it cannot fetch the script, and the battle then looks no different. What
@@ -14,10 +16,13 @@
 
     NT.tests.available()        there is a runner (asked once, with the extensions)
     NT.tests.seconds            { least, most, usual }: how long a battle is watched
-    NT.tests.start(script, { values, seconds })
+    NT.tests.start(script, { values, seconds, debug })
                                 → the run, at once; what goes wrong shows on it.
                                   values(parameter) → its value, as on the script's
-                                  page; left out, what setup() says
+                                  page; left out, what setup() says. debug() → Promise
+                                  of the code to play, null for the saved script
+                                  (session.debug); it rejects with an Error whose
+                                  reason is one of REASONS' keys
     NT.tests.setup(scriptId)    what this browser runs a script's tests with (nt.test.<id>):
                                 { seconds, map, values }. seconds: null is the usual.
                                 map: undefined is the script's own, null none, else
@@ -94,6 +99,9 @@
     'no-connect': 'The author hasn’t linked Null’s Connect',
     'not-verified': 'The author isn’t verified',
     lost: 'Lost touch with the runner',
+    'debug-failed': 'The DEBUG build failed',
+    'debug-too-large': 'The DEBUG build is over 1,000,000 characters',
+    'debug-unsaved': 'Couldn’t upload the DEBUG build',
   };
 
   class Run {
@@ -112,6 +120,7 @@
       this.ticker = 0;
       this.stopped = false;
       this.act = null;        // the acted-out run on sample data
+      this.after = null;      // what has to go once the run is over (the DEBUG holder)
     }
 
     on(fn) {
@@ -175,6 +184,10 @@
         // How long the battle itself was watched.
         battle: this.battleAt ? Math.round((Date.now() - this.battleAt) / 1000) : 0,
       };
+      if (this.after) {
+        this.after();
+        this.after = null;
+      }
       this.tell('state');
     }
 
@@ -265,13 +278,40 @@
     else NT.util.store.remove(setupKey(id));
   }
 
-  async function begin(run, script, values, map) {
+  // The code a run plays instead of the saved script, or null: debug() as start() has it.
+  async function debugged(run, debug) {
+    if (!debug) return null;
+    try {
+      return await debug();
+    } catch (e) {
+      run.finish('error', e && REASONS[e.reason] ? e.reason : 'debug-failed');
+      return undefined;
+    }
+  }
+
+  async function begin(run, script, values, map, debug) {
     const fail = (reason) => run.finish('error', reason);
     if (!API.session) return fail('unauthorized');
 
+    // A DEBUG build is played from a holder of its own, there only while the run is.
+    const code = await debugged(run, debug);
+    if (code === undefined) return;
+    if (run.stopped) return run.finish('cancelled', 'cancelled');
+    let played = script.script_id;
+    if (code !== null) {
+      try {
+        played = (await API.hold(null, { name: API.debugName(script.name), content: code })).id;
+      } catch (e) {
+        return fail(e && e.status === 413 ? 'debug-too-large' : 'debug-unsaved');
+      }
+      const holder = played;
+      run.after = () => API.drop(holder).catch(() => {});
+      if (run.stopped) return run.finish('cancelled', 'cancelled');
+    }
+
     let share, params;
     try {
-      [share, params] = await Promise.all([API.share(script.script_id), API.parameters(script.script_id)]);
+      [share, params] = await Promise.all([API.share(played), API.parameters(script.script_id)]);
     } catch (e) {
       // The service refuses to share a script whose author it does not vouch for.
       return fail(e && e.status === 401 ? 'unauthorized' : 'not-verified');
@@ -293,7 +333,7 @@
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          script_id: script.script_id,
+          script_id: played,
           token: share.token,
           bp,
           map: map === undefined ? (script.user_map_internal_id == null ? null : script.user_map_internal_id) : map,
@@ -330,11 +370,14 @@
 
   /* ---------- A run acted out, on the sample data ---------- */
 
-  async function act(run, script) {
+  async function act(run, script, debug) {
     run.act = true;
     const alive = () => !run.done;
-    let code = '';
-    try { code = (await API.scriptContent(script.script_id)).content || ''; } catch (e) { /* an empty script */ }
+    let code = await debugged(run, debug);
+    if (code === undefined) return;
+    if (code === null) {
+      try { code = (await API.scriptContent(script.script_id)).content || ''; } catch (e) { code = ''; }
+    }
     const prints = [...code.matchAll(/\bprint\(\s*(["'])((?:\\.|(?!\1).)*)\1/g)].map((m) => m[2]).slice(0, 12);
     const throws = /\berror\s*\(/.test(code);
     const seconds = Math.min(run.seconds, 8);
@@ -457,7 +500,8 @@ ${r.team}`.toLowerCase().includes(query)))
       // (Not called valueOf: every object has one of those, asked for or not.)
       const values = typeof opts.values === 'function' ? opts.values : (p) => (p.id in set.values ? set.values[p.id] : p.default_value);
       const map = set.map === undefined ? undefined : set.map && set.map.internal;
-      const go = API.mode === 'live' ? begin(run, script, values, map) : act(run, script);
+      const debug = typeof opts.debug === 'function' ? opts.debug : null;
+      const go = API.mode === 'live' ? begin(run, script, values, map, debug) : act(run, script, debug);
       go.catch((e) => {
         console.error(e);
         run.finish('error', 'internal');

@@ -115,7 +115,7 @@
       const going = NT.tests.of(id);
       if (!going || going.done) {
         if (!(await S.commit(false))) return;
-        testsPane().show(NT.tests.start(script));
+        testsPane().show(NT.tests.start(script, { debug: S.debug }));
       } else testsPane().show(going);
       showTests(true);
     }

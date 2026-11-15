@@ -236,7 +236,7 @@ const PROJECT = {
   maxFileBytes: 1000000,
   maxBytes: 4 * 1024 * 1024,
   maxDepth: 8,
-  extensions: ['.luau', '.lua', '.json'],
+  extensions: ['.luau', '.lua', '.json', '.csv', '.txt'],
   entry: 'main.luau',
 };
 const SEGMENT = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/;

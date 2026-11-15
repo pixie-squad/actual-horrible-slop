@@ -33,7 +33,8 @@
     NT.bus 'scripts' heard by the pages that list scripts: a delete was taken back
     Remember Me on its way in, off until chosen, where NT.api.canKeep (api.login and
     api.register take it last)
-    in the editor: Test Settings where tests run (NT.tests.setup / configure), History
+    in the editor: Test Settings where tests run, and a run started with the session's
+    DEBUG build (NT.tests.start(script, { debug: session.debug })), History
     (NT.history, ed.replace) with Restore and Undo, Library in Details (session.library,
     setLibrary), and .nt-inactive drawn on the lines an #if leaves out (macro-view.js)
     on Scripts, a Libraries list when signed in where NT.libs.available() (NT.libs.list);

@@ -565,7 +565,7 @@
     let last = ENTRY;            // where back() returns to
 
     function make(path, text) {
-      const model = monaco.editor.createModel(text, /\.json$/i.test(path) ? 'json' : 'luau', address('project', path));
+      const model = monaco.editor.createModel(text, /\.json$/i.test(path) ? 'json' : /\.luau?$/i.test(path) ? 'luau' : 'plaintext', address('project', path));
       // Scripts are stored with plain \n line endings whatever the platform.
       model.setEOL(monaco.editor.EndOfLineSequence.LF);
       indent(model);

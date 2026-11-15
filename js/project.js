@@ -33,14 +33,24 @@
     NT.project.tree(paths, dirs)        [{ name, path, kids }] with folders first; kids is null on a file
                                         (dirs: folders to show that have no file in them)
     NT.project.resolve(paths, from, s)  the file require(s) in `from` means, or null
+    NT.project.embed(paths, from, s, read)
+                                        what #embed s in `from` reads: { path, text } or { error }
+                                        (with path: the file it would be); read(path) → its text
     NT.project.load(id, content)        → { files, minify, base, built, inSync } or null
     NT.project.plain(files)             can these files be saved as the script, as typed? One
                                         file, no directive (macro.js), no library (libs.js)
     NT.project.build(files, o)          → what POST /x/bundle answers: the files with their
                                         macros expanded and the libraries they use, bundled.
-                                        o: { minify, library, fresh }. library: built as one
+                                        o: { minify, library, fresh, debug }. library: built as one
                                         (readable, its @ requires left in), and the answer
-                                        carries lib, the nt:lib block with its entry's macros
+                                        carries lib, the nt:lib block with its entry's macros.
+                                        debug: with DEBUG defined; { same: true } when that
+                                        changes nothing
+    NT.project.debug(files, o)          → what a Test run plays instead of the saved script:
+                                        the files built as a save builds them (o: { minify,
+                                        library }) with DEBUG defined. { code } (null when DEBUG
+                                        changes nothing), or build's answer when it fails
+    NT.project.DEBUG                    { DEBUG: 'true' }: macro.js's defines for it
     NT.project.store(id, files, minify, base, o)
                                         → { base, bundle } or { conflict: true, base }
     NT.project.fits(id, bundle)         is there room for this bundle in the script?
@@ -53,7 +63,10 @@
   const API = NT.api;
 
   const ENTRY = 'main.luau';
-  const DEFAULTS = { maxFiles: 300, maxFileBytes: 1000000, maxBytes: 4194304, maxDepth: 8, extensions: ['.luau', '.lua', '.json'] };
+  // Defined in what a Test run plays, and in the editor (macro-view.js); never in the
+  // saved script.
+  const DEBUG = Object.freeze({ DEBUG: 'true' });
+  const DEFAULTS = { maxFiles: 300, maxFileBytes: 1000000, maxBytes: 4194304, maxDepth: 8, extensions: ['.luau', '.lua', '.json', '.csv', '.txt'] };
   const SEGMENT = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$/;
   const RESERVED = /^(con|prn|aux|nul|com\d|lpt\d)(\.|$)/i; // not usable as file names on Windows
 
@@ -135,7 +148,37 @@
   /* ---------- Building ---------- */
 
   const isLuau = (path) => /\.luau?$/i.test(path);
+  const isData = (path) => /\.(csv|txt)$/i.test(path);
   const byLine = (a, b) => (a.line || 0) - (b.line || 0);
+
+  // The path a require or #embed of spec in `from` names, before any extension is
+  // tried: "./" and "../" from the file's folder (in an init file, its parent's), "@self/"
+  // from its own. Null when it names nothing in the project.
+  function target(from, spec) {
+    let base = folderOf(from).split('/').filter(Boolean);
+    let rest;
+    if (spec.startsWith('@self/')) rest = spec.slice(6);
+    else if (spec.startsWith('./') || spec.startsWith('../')) {
+      rest = spec;
+      if (/^init\.luau?$/.test(from.slice(from.lastIndexOf('/') + 1))) base = base.slice(0, -1);
+    } else return null;
+    for (const part of rest.split('/')) {
+      if (part === '..') {
+        if (!base.length) return null;
+        base.pop();
+      } else if (part && part !== '.') base.push(part);
+    }
+    return base.join('/');
+  }
+
+  // What #embed "spec" in `from` reads: { path, text }, or { error } (with the path it
+  // would be, where there is one). The path is written as a require's is, but names the
+  // file exactly.
+  function embedTarget(paths, from, spec, text) {
+    const wanted = target(from, spec);
+    if (wanted === null) return { error: /^\.\.?\/|^@self\//.test(spec) ? `"${spec}" is outside the project` : `"${spec}" starts with ./ or ../, from this file’s folder` };
+    return paths.includes(wanted) ? { path: wanted, text: text(wanted) } : { error: `cannot find "${spec}"`, path: wanted };
+  }
 
   // Where a library is first named in the files, for a problem with it to be marked at.
   function namedAt(files, spec) {
@@ -155,36 +198,51 @@
     const { libs, problems } = found;
     const paths = Object.keys(files);
     const theirs = new Map(); // spec → its macros
-    const done = new Map();   // path → what macro.js made of it
-    const open = [];
-    const run = (path) => {
-      if (done.has(path)) return done.get(path);
-      open.push(path);
-      const r = NT.macro.process(files[path], {
-        path,
-        include(spec, from) {
-          if (spec[0] === '@') {
-            if (!libs[spec]) return { error: problems[spec] || `cannot find library "${spec}"` };
-            if (!theirs.has(spec)) theirs.set(spec, NT.macro.process(libs[spec].macros, { path: spec }).macros);
-            return { macros: theirs.get(spec) };
-          }
-          const target = NT.project.resolve(paths, from || path, spec);
-          if (!target || !isLuau(target)) return { error: `cannot find "${spec}"` };
-          if (open.includes(target)) return { error: 'include cycle: ' + open.slice(open.indexOf(target)).concat(target).join(' → ') };
-          return { macros: run(target).macros };
-        },
-      });
-      open.pop();
-      done.set(path, r);
-      return r;
+    // The files with their macros expanded, with these predefined: { out, diagnostics, run }.
+    const expand = (defines) => {
+      const done = new Map(); // path → what macro.js made of it
+      const open = [];
+      const run = (path) => {
+        if (done.has(path)) return done.get(path);
+        open.push(path);
+        const r = NT.macro.process(files[path], {
+          path,
+          defines,
+          embed: (spec, from) => embedTarget(paths, from || path, spec, (p) => files[p]),
+          include(spec, from) {
+            if (spec[0] === '@') {
+              if (!libs[spec]) return { error: problems[spec] || `cannot find library "${spec}"` };
+              if (!theirs.has(spec)) theirs.set(spec, NT.macro.process(libs[spec].macros, { path: spec }).macros);
+              return { macros: theirs.get(spec) };
+            }
+            const target = NT.project.resolve(paths, from || path, spec);
+            if (!target || !isLuau(target)) return { error: `cannot find "${spec}"` };
+            if (open.includes(target)) return { error: 'include cycle: ' + open.slice(open.indexOf(target)).concat(target).join(' → ') };
+            return { macros: run(target).macros };
+          },
+        });
+        open.pop();
+        done.set(path, r);
+        return r;
+      };
+      const out = {}, diagnostics = [];
+      for (const path of paths) {
+        // Data that #embed has written into the code already: darklua has no use for it.
+        if (isData(path)) continue;
+        if (!isLuau(path)) { out[path] = files[path]; continue; }
+        const r = run(path);
+        out[path] = r.text;
+        for (const d of r.diagnostics) if (d.severity === 'error') diagnostics.push({ path, line: d.line, column: d.column, message: d.message });
+      }
+      return { out, diagnostics, run };
     };
-    const out = {}, diagnostics = [];
-    for (const path of paths) {
-      if (!isLuau(path)) { out[path] = files[path]; continue; }
-      const r = run(path);
-      out[path] = r.text;
-      for (const d of r.diagnostics) if (d.severity === 'error') diagnostics.push({ path, line: d.line, column: d.column, message: d.message });
+    const made = expand(o.debug ? DEBUG : undefined);
+    // Where DEBUG changes nothing, the saved script is what a Test run plays.
+    if (o.debug && !made.diagnostics.length) {
+      const plain = expand().out;
+      if (Object.keys(plain).every((p) => plain[p] === made.out[p])) return { same: true };
     }
+    const { out, diagnostics, run } = made;
     // Libraries asked for by require alone have not been through an include.
     for (const [spec, words] of Object.entries(problems)) {
       if (!diagnostics.some((d) => d.message.includes(spec))) diagnostics.push(Object.assign(namedAt(files, spec), { message: `${spec}: ${words}` }));
@@ -220,6 +278,8 @@
   NT.project = {
     ENTRY,
     badPath,
+    embed: embedTarget,
+    DEBUG,
 
     // More than one file needs the bundler.
     multi() {
@@ -255,7 +315,7 @@
         if (part.length > 64) return 'Too long';
         return 'Letters, digits, _ . - only';
       }
-      if (bad === 'extension') return 'Ends in .luau, .lua or .json';
+      if (bad === 'extension') return 'Ends in .luau, .lua, .json, .csv or .txt';
       const key = p.toLowerCase();
       const was = old == null ? null : old.toLowerCase();
       // What is being renamed is not in its own way; a folder takes what is in it along.
@@ -296,21 +356,9 @@
     // requiring file's folder (from that folder's parent inside an init file), "@self/"
     // from the folder itself; then the path as written, .luau, .lua, /init.luau, /init.lua.
     resolve(paths, from, spec) {
-      let base = folderOf(from).split('/').filter(Boolean);
-      let rest;
-      if (spec.startsWith('@self/')) rest = spec.slice(6);
-      else if (spec.startsWith('./') || spec.startsWith('../')) {
-        rest = spec;
-        if (/^init\.luau?$/.test(from.slice(from.lastIndexOf('/') + 1))) base = base.slice(0, -1);
-      } else return null;
-      for (const part of rest.split('/')) {
-        if (part === '..') {
-          if (!base.length) return null;
-          base.pop();
-        } else if (part && part !== '.') base.push(part);
-      }
-      const target = base.join('/');
-      const tries = /\.luau?$/.test(target) ? [target] : [target, target + '.luau', target + '.lua', target + '/init.luau', target + '/init.lua'];
+      const t = target(from, spec);
+      if (t === null) return null;
+      const tries = /\.luau?$/.test(t) ? [t] : [t, t + '.luau', t + '.lua', t + '/init.luau', t + '/init.lua'];
       return tries.find((p) => paths.includes(p)) || null;
     },
 
@@ -340,6 +388,15 @@
       return !NT.macro.uses(files[paths[0]]) && !NT.libs.specs(files).length;
     },
     build,
+    async debug(files, o = {}) {
+      // Saved as typed, so played as typed: only what DEBUG itself makes of it.
+      if (this.plain(files)) {
+        const r = NT.macro.process(files[ENTRY], { path: ENTRY, defines: DEBUG });
+        return { code: r.plain ? null : r.text };
+      }
+      const b = await build(files, { minify: o.minify, library: o.library, debug: true });
+      return b.same ? { code: null } : b;
+    },
     // The sources are kept first and bundled second, so a bundle that fails loses nothing.
     // bundle: what POST /x/bundle answers ({ code, hash, fits, … }), or { error, … }.
     async store(id, files, minify, base, o = {}) {

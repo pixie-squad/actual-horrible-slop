@@ -40,7 +40,7 @@
   let registered = false;
   let refreshHints = null;    // asks Monaco to read the inlay hints again, once it can
 
-  const isLuau = (path) => !/\.json$/i.test(path);
+  const isLuau = (path) => /\.luau?$/i.test(path);
   const bytes = (text) => new TextEncoder().encode(text).length;
 
   // Positions count UTF-16 units from zero there and from one here.

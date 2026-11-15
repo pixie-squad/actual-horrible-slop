@@ -34,6 +34,10 @@
                         showing it, are drawn again with every paint
     s.removed()         the script was deleted
     s.library           is it a library (libs.js)? s.setLibrary(on) changes that and saves
+    s.debug()           → Promise of what a Test run plays: the files built with DEBUG
+                        defined, or null where that changes nothing (NT.tests.start's
+                        debug; it can be passed as it is). A build that fails is marked in
+                        the files, as a save's is
     s.close()           the page is going: keeps a draft, sends what it can
     s.multi  s.gone
 
@@ -326,6 +330,21 @@
           NT.libs.forget(id);
           return done;
         });
+      },
+      async debug() {
+        const b = await Project.debug(snapshot().files, { minify, library });
+        if (b.code === null) return null;
+        const failed = (reason) => Object.assign(new Error(reason), { reason });
+        if (b.code != null) {
+          if (b.fits === false || b.code.length > NT.pack.LIMIT) throw failed('debug-too-large');
+          return b.code;
+        }
+        if (b.error === 'bundle-failed' && !gone) {
+          const problems = {};
+          for (const d of b.diagnostics || []) (problems[d.path] = problems[d.path] || []).push(d);
+          ed.report(problems);
+        }
+        throw failed('debug-failed');
       },
       files: null,
       status,

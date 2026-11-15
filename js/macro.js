@@ -7,6 +7,17 @@
     #define NAME body      #define NAME(a, b) body      #define NAME(fmt, ...) body
     #undef NAME            #include "spec"              #error msg      #warning msg
     #if expr   #ifdef NAME   #ifndef NAME   #elif expr   #else   #endif
+    #embed NAME "spec"     #embed NAME "spec" rows      #embed NAME "spec" text
+
+  #embed defines NAME as a file of the project written out as a Luau literal, read
+  while building: a .json file as the table it is, a .csv file as a table of its rows
+  by their first column (rows: a list of them), anything else (and text) as a string,
+  in parentheses so that CONFIG.waves and TEXT:split() read as Luau.
+  In a CSV the first row names the columns; a second row of types only (String, int,
+  number, Boolean) says what each column holds, else a column of numbers only is
+  numbers and one of true and false only is booleans. An empty cell is nil. A row with
+  no first cell goes on with the one above it, and a column it has a value in becomes
+  a list, one item to a row, as Supercell's tables write them.
 
   A directive is a line whose first character past blanks is # and a directive's name,
   where code could start a token (never inside a long string or a comment). Any other
@@ -32,7 +43,8 @@
     NT.macro.includes(text)       → [{ spec, line, column }]: every #include, skipped
                                   or not, so a caller can fetch them first
     NT.macro.process(text, opts)  opts: { path, defines: { NAME: 'body' },
-                                  include(spec, fromPath) → { macros } | { error } }
+                                  include(spec, fromPath) → { macros } | { error },
+                                  embed(spec, fromPath) → { path, text } | { error } }
                                   → {
       text, plain                 the output; plain when it is the input
       macros                      Map name → { name, params, variadic, body, file, line,
@@ -44,6 +56,7 @@
                                   that start and end the skipping (those inside count)
       directives                  [{ line, endLine, kind }]: every one, skipped or not
       diagnostics                 [{ line, column, endLine, endColumn, message, severity }]
+      embeds                      [{ name, path, line }]: the files this one #embeds
       visible(line)               names defined where that line starts, then __FILE__
                                   and __LINE__
       toSource(line, column)      output → input: { line, column, exact }. Copied tokens
@@ -54,9 +67,10 @@
     NT.macro.serialize(macros)    #define lines that process reads back as those macros
 
   Lines and columns count from 1, columns in UTF-16 units, end columns just past the
-  end. Errors in the input are diagnostics, never a throw. include is called at once
-  (no promise) and must stop include cycles itself; params lists the named
-  parameters, variadic says whether ... follows them.
+  end. Errors in the input are diagnostics, never a throw. include and embed are called
+  at once (no promise); include must stop include cycles itself. A macro's params lists
+  its named parameters, variadic says whether ... follows them; one from #embed has
+  embed: { path, mode }; one from opts.defines has file null and line 0.
 
   Where this is not C: #if counts as Luau does (/ divides, // floors, % is Luau's);
   a directive inside a call's arguments is an error, and the call is left as written; \ at a line's
@@ -71,8 +85,8 @@
   // around its holes. PM is a placemarker, DIR a directive.
   const ID = 1, NUM = 2, STR = 3, LONG = 4, IS = 5, IO = 6, IM = 7, IC = 8, OP = 9, PM = 10, DIR = 11;
 
-  const DIRECTIVE = /#[ \t]*(define|undef|ifdef|ifndef|if|elif|else|endif|include|error|warning)(?![A-Za-z0-9_])/y;
-  const USES = /^[ \t\v\f]*#[ \t]*(?:define|undef|ifn?def|if|elif|else|endif|include|error|warning)(?![A-Za-z0-9_])|__(?:FILE|LINE)__/m;
+  const DIRECTIVE = /#[ \t]*(define|undef|ifdef|ifndef|if|elif|else|endif|include|embed|error|warning)(?![A-Za-z0-9_])/y;
+  const USES = /^[ \t\v\f]*#[ \t]*(?:define|undef|ifn?def|if|elif|else|endif|include|embed|error|warning)(?![A-Za-z0-9_])|__(?:FILE|LINE)__/m;
   // As Luau reads a number: digits and dots, an exponent's sign, then any word characters.
   const NUMBER = /(?:\d|\.\d)[\d._]*(?:[eE][+-]?)?[A-Za-z0-9_]*/y;
   const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
@@ -420,6 +434,189 @@
     return PAIRS.has(String.fromCharCode(l, r));
   }
 
+  /* ---------- Data (#embed) ---------- */
+
+  const KEYWORDS = new Set('and break do else elseif end false for function if in local nil not or repeat return then true until while'.split(' '));
+  const DATA_DEPTH = 200;
+
+  class DataError extends Error {}
+
+  // A value as a Luau literal on one line: tables from arrays (holes are nil), plain
+  // objects and Maps (in their order), and numbers, strings, booleans; null is nil.
+  function literal(v, depth) {
+    if (v === null || v === undefined) return 'nil';
+    if (typeof v === 'boolean') return String(v);
+    if (typeof v === 'number') {
+      if (Number.isFinite(v)) return String(v);
+      return Number.isNaN(v) ? '0/0' : v > 0 ? 'math.huge' : '-math.huge';
+    }
+    if (typeof v === 'string') return quote(v);
+    if ((depth = (depth || 0) + 1) > DATA_DEPTH) throw new DataError('nested too deep');
+    if (Array.isArray(v)) {
+      let n = v.length;
+      while (n > 0 && (v[n - 1] === null || v[n - 1] === undefined)) n--;
+      const items = [];
+      for (let i = 0; i < n; i++) items.push(literal(v[i], depth));
+      return '{' + items.join(', ') + '}';
+    }
+    const items = [];
+    for (const [k, x] of v instanceof Map ? v : Object.entries(v)) {
+      if (x === null || x === undefined) continue;
+      const key = typeof k === 'string' ? (NAME.test(k) && !KEYWORDS.has(k) ? k : '[' + quote(k) + ']') : '[' + literal(k) + ']';
+      items.push(key + ' = ' + literal(x, depth));
+    }
+    return '{' + items.join(', ') + '}';
+  }
+
+  // RFC 4180, leniently: → [{ cells, line }], line being where the row starts.
+  function csvRows(text) {
+    const out = [], n = text.length;
+    let i = text.charCodeAt(0) === 0xfeff ? 1 : 0, line = 1;
+    while (i < n) {
+      const row = [], start = line;
+      for (;;) {
+        let cell = '', quoted = false;
+        while (text[i] === ' ' || text[i] === '\t') i++;
+        if (text[i] === '"') {
+          quoted = true;
+          i++;
+          for (;;) {
+            if (i >= n) throw new DataError(`line ${start}: a quoted cell never ends`);
+            const c = text[i];
+            if (c === '"') {
+              if (text[i + 1] === '"') {
+                cell += '"';
+                i += 2;
+                continue;
+              }
+              i++;
+              break;
+            }
+            if (c === '\n') line++;
+            if (c !== '\r' || text[i + 1] !== '\n') cell += c;
+            i++;
+          }
+        }
+        let rest = '';
+        while (i < n && text[i] !== ',' && text[i] !== '\n' && text[i] !== '\r') rest += text[i++];
+        // A quoted cell keeps its blanks; one written plainly does not.
+        row.push(quoted ? cell + rest.trim() : rest.trim());
+        if (text[i] === ',') {
+          i++;
+          continue;
+        }
+        if (text[i] === '\r') i++;
+        if (text[i] === '\n') {
+          i++;
+          line++;
+        }
+        break;
+      }
+      if (row.some((c) => c)) out.push({ cells: row, line: start });
+    }
+    return out;
+  }
+
+  const TYPE = /^(string|int|integer|number|float|boolean|bool)$/i;
+  const KIND = { string: 'string', int: 'int', integer: 'int', number: 'number', float: 'number', boolean: 'boolean', bool: 'boolean' };
+  const NUMERIC = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/;
+  const BOOL = /^(true|false)$/i;
+
+  // A CSV file as a table: its rows by their first column, or (rows) a list of them.
+  function csvValue(text, rows) {
+    const all = csvRows(text);
+    if (!all.length) throw new DataError('there is nothing in it');
+    const head = all[0].cells;
+    const seen = new Map();
+    head.forEach((name, c) => {
+      if (!name) return;
+      if (seen.has(name)) throw new DataError(`the column ${name} is there twice`);
+      seen.set(name, c);
+    });
+    if (!rows && !head[0]) throw new DataError('the first column needs a name: it is what the rows are found by');
+    let data = all.slice(1), types = null;
+    if (data.length && data[0].cells.every((c) => !c || TYPE.test(c))) {
+      types = data[0].cells.map((c) => (c ? KIND[c.toLowerCase()] : null));
+      data = data.slice(1);
+    }
+    const kinds = head.map((name, c) => {
+      if (types && types[c]) return types[c];
+      const cells = data.map((r) => r.cells[c]).filter(Boolean);
+      if (cells.length && cells.every((x) => NUMERIC.test(x))) return 'number';
+      if (cells.length && cells.every((x) => BOOL.test(x))) return 'boolean';
+      return 'string';
+    });
+    const cell = (r, c) => {
+      const raw = r.cells[c];
+      if (!raw) return undefined;
+      const k = kinds[c];
+      if (k === 'string') return raw;
+      if (k === 'boolean') {
+        if (/^(true|1|yes)$/i.test(raw)) return true;
+        if (/^(false|0|no)$/i.test(raw)) return false;
+        throw new DataError(`line ${r.line}: ${head[c]} is true or false, not "${raw}"`);
+      }
+      if (k === 'int' ? !/^[+-]?\d+$/.test(raw) : !NUMERIC.test(raw)) {
+        throw new DataError(`line ${r.line}: ${head[c]} is a ${k === 'int' ? 'whole number' : 'number'}, not "${raw}"`);
+      }
+      return Number(raw);
+    };
+    const record = (list) => {
+      const out = new Map();
+      head.forEach((name, c) => {
+        if (!name) return;
+        const values = list.map((r) => cell(r, c));
+        if (list.length > 1 && values.slice(1).some((v) => v !== undefined)) out.set(name, values);
+        else if (values[0] !== undefined) out.set(name, values[0]);
+      });
+      return out;
+    };
+    if (rows) return data.map((r) => record([r]));
+    const groups = new Map();
+    let last = null;
+    for (const r of data) {
+      const key = cell(r, 0);
+      if (key === undefined) {
+        if (!last) throw new DataError(`line ${r.line}: the first row has no ${head[0]}`);
+        last.push(r);
+        continue;
+      }
+      if (groups.has(key)) throw new DataError(`line ${r.line}: ${key} is there twice (line ${groups.get(key)[0].line}); with rows it keeps every row`);
+      groups.set(key, (last = [r]));
+    }
+    const out = new Map();
+    for (const [key, list] of groups) out.set(key, record(list));
+    return out;
+  }
+
+  // A file as #embed writes it: { text } or { error }. mode: null, 'rows' or 'text'.
+  // In parentheses, so a use can be indexed and called on as any value can:
+  // CONFIG.waves, TEXT:split("\n").
+  function embedded(path, text, mode) {
+    const r = embeddedBare(path, text, mode);
+    return r.error ? r : { text: '(' + r.text + ')' };
+  }
+
+  function embeddedBare(path, text, mode) {
+    const name = String(path).slice(String(path).lastIndexOf('/') + 1);
+    const ext = (/\.([^./]*)$/.exec(name) || [])[1];
+    const kind = mode === 'text' ? 'text' : /^csv$/i.test(ext || '') ? 'csv' : /^json$/i.test(ext || '') ? 'json' : 'text';
+    if (mode === 'rows' && kind !== 'csv') return { error: 'rows is for .csv files' };
+    text = String(text).replace(/\r\n?/g, '\n');
+    try {
+      if (kind === 'text') return { text: quote(text) };
+      if (kind === 'csv') return { text: literal(csvValue(text, mode === 'rows')) };
+      let value;
+      try { value = JSON.parse(text); } catch (e) {
+        throw new DataError('not valid JSON: ' + String(e.message).replace(/^JSON\.parse: /, ''));
+      }
+      return { text: literal(value) };
+    } catch (e) {
+      if (!(e instanceof DataError) && !(e instanceof RangeError)) throw e;
+      return { error: `${name}: ${e instanceof RangeError ? 'nested too deep' : e.message}` };
+    }
+  }
+
   /* ---------- Definitions ---------- */
 
   const copy = (t, ws, hs) => ({ k: t.k, v: t.v, s: t.s, e: t.e, ws, hs, bad: t.bad });
@@ -686,6 +883,8 @@
       this.src = text;
       this.path = opts.path == null ? '' : String(opts.path);
       this.fetch = typeof opts.include === 'function' ? opts.include : null;
+      this.read = typeof opts.embed === 'function' ? opts.embed : null;
+      this.embeds = [];
       this.macros = new Map();
       this.diagnostics = [];
       this.seen = new Set();
@@ -1262,6 +1461,54 @@
       }
     }
 
+    // A macro made here other than by #define: its body is `text`, one line of Luau.
+    made(n, text, extra) {
+      const kept = prepare(lexAll(text));
+      const at = this.pos(n.s);
+      const def = Object.assign({ name: n.v, params: null, variadic: false, body: bodyText(kept), file: this.path || null, line: at.line, column: at.column }, extra);
+      compile(def, kept);
+      return def;
+    }
+
+    // The name a directive starts with, checked as a macro's: the token, or null.
+    named(d, what) {
+      const n = d.toks[0];
+      if (!n) return void this.err(d, `#${d.name} needs ${what}`);
+      if (n.k !== ID) return void this.err(n, 'macro names must be names');
+      if (RESERVED.has(n.v)) return void this.err(n, `cannot define ${n.v}`);
+      return n;
+    }
+
+    embed(d) {
+      const n = this.named(d, 'a name and a "file"');
+      if (!n) return;
+      const toks = d.toks, t = toks[1];
+      if (!t || t.k !== STR || t.bad) return this.err(t || n, `#embed needs a "file" after ${n.v}`);
+      let mode = null;
+      if (toks[2]) {
+        if (toks[2].k !== ID || (toks[2].v !== 'rows' && toks[2].v !== 'text')) return this.err(toks[2], 'after the file, #embed takes rows or text');
+        mode = toks[2].v;
+        if (toks[3]) this.warn(toks[3], 'extra tokens after #embed');
+      }
+      const spec = strValue(t);
+      let r = null;
+      if (this.read) {
+        try {
+          r = this.read(spec, this.path || null);
+        } catch (e) {
+          r = { error: String((e && e.message) || e) };
+        }
+      }
+      if (!r || r.error || typeof r.text !== 'string') return this.err(t, r && r.error ? String(r.error) : `cannot find "${spec}"`);
+      const path = r.path == null ? spec : String(r.path);
+      const lit = embedded(path, r.text, mode);
+      if (lit.error) return this.err(t, lit.error);
+      this.embeds.push({ name: n.v, path, line: this.lineOf(d.s) });
+      this.put(this.made(n, lit.text, { embed: { path, mode } }), n, this.lineOf(d.e));
+      const at = this.pos(n.s);
+      this.defines.push({ name: n.v, line: at.line, column: at.column, endColumn: at.column + n.v.length });
+    }
+
     error(d) {
       this.diag(d.s, d.e, this.message(d) || '#error', 'error');
     }
@@ -1347,6 +1594,7 @@
         inactive: this.inactive,
         directives: this.directives,
         diagnostics: this.diagnostics,
+        embeds: this.embeds,
         visible: (line) => visible(this.events, line),
         toSource: (line, column) => this.toSource(line, column),
         toOutput: (line, column) => this.toOutput(line, column),
@@ -1443,6 +1691,7 @@
       inactive: [],
       directives: [],
       diagnostics: run.diagnostics,
+      embeds: [],
       visible: (line) => visible(run.events, line),
       toSource: (line, column) => ({ line, column, exact: true }),
       toOutput: (line, column) => ({ line, column }),

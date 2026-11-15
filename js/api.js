@@ -15,9 +15,10 @@
   - A script's project mark is a block after its code (pack.js). scriptContent hands
     back the code alone and saveContent puts the blocks back, so nothing else ever
     sees them.
-  - A profile photo, a script's thumbnail and a project's source files live in
-    holders: scripts of the user's own that exist only to hold them, told apart by
-    name (pfp.meta, <script>.meta.thumb, <script>.meta.<n>) and left out of every
+  - A profile photo, a script's thumbnail, a project's source files and a Test run's
+    DEBUG build live in holders: scripts of the user's own that exist only to hold
+    them, told apart by name (pfp.meta, <script>.meta.thumb, <script>.meta.<n>,
+    <script>.meta.debug) and left out of every
     list handed to a page. A script's own 1,000,000 characters are all its code's.
   - The audit log of what was done from this browser is in localStorage.
 */
@@ -424,12 +425,16 @@
   //   pfp.meta              a user's photo (published)
   //   <script>.meta.thumb   a script's thumbnail (published when its script is)
   //   <script>.meta.<n>     part n of a project's files (drafts)
+  //   <script>.meta.debug   what a Test run plays when DEBUG changes the script (a
+  //                         draft, there for the length of the run: tests.js)
   // <script> is the script's name, cut to fit a name's 32 characters. Scripts of one
   // author named alike have holders named alike, so a thumbnail or a part also says
   // which script it is for (for=<id>), and that is checked when it is read.
   const FACE = 'pfp.meta';
   const PART = /^(.*)\.meta\.(\d{1,3})$/;
   const THUMB = /^(.*)\.meta\.thumb$/;
+  const DEBUGGED = /\.meta\.debug$/;
+  const LEFT = 60 * 60 * 1000; // a DEBUG holder this old was left by a run that never ended
   const baseOf = (name) => String(name || '').slice(0, 23);
   const thumbBase = (name) => String(name || '').slice(0, 21);
   const thumbKey = (author, base) => `${author}\n${base}`;
@@ -441,6 +446,7 @@
   const sources = new Map(); // script id → { base, name, published, parts: [{ n, id }] }: where its project's files may be (own scripts)
   const thumbs = new Map();  // author and holder base → [{ id, author, base, stamp, published }]: where thumbnails may be
   const tidied = new Set();
+  const cleared = new Set(); // DEBUG holders left behind, deleted once
   const settled = new Set(); // users whose whole list has been read: no photo found means none
   const asking = new Map();  // user id → that list being read
   let publicSeen = false;    // … and the same for everyone, once the public list has been read
@@ -490,6 +496,13 @@
         const had = found.get(s.author_uuid);
         if (!had || new Date(s.updated_at) > new Date(had.updated_at)) found.set(s.author_uuid, s);
         if (old && mine) tidy(s, FACE);
+        continue;
+      }
+      if (mine && !s.published_at && DEBUGGED.test(s.name)) {
+        if (Date.now() - Date.parse(s.updated_at) > LEFT && !cleared.has(s.script_id)) {
+          cleared.add(s.script_id);
+          api.drop(s.script_id).catch(() => {});
+        }
         continue;
       }
       const t = THUMB.exec(s.name);
@@ -1326,6 +1339,7 @@
       else thumbs.delete(key);
     },
     thumbName: (name) => `${thumbBase(name)}.meta.thumb`,
+    debugName: (name) => `${thumbBase(name)}.meta.debug`,
     // Where a script's project files may be: { base, parts: [{ n, id }] }, by name
     // (another script of the same name has parts named alike; each part says whose it
     // is). null when the script is not one of the person's own. Asks afresh.

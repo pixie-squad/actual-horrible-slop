@@ -705,6 +705,96 @@ test('token soup keeps its lines', () => {
   }
 });
 
+/* ---------- #embed ---------- */
+
+const project = (files) => ({
+  path: 'main.luau',
+  embed(spec, from) {
+    assert.strictEqual(from, 'main.luau');
+    const p = spec.replace(/^\.\//, '');
+    return p in files ? { path: p, text: files[p] } : { error: `cannot find "${spec}"` };
+  },
+});
+
+test('#embed: text, JSON and a missing file', () => {
+  const files = { 'a.txt': 'line one\r\nline "two"\n', 'b.json': '{"name":"x","list":[1,null,3],"nil":null,"if":true,"a b":{"c":-2.5}}', 'bad.json': '{"a":' };
+  const r = run(lines('#embed A "./a.txt"', '#embed B "./b.json"', 'local a, b = A, B', '#embed C "./missing.txt"', '#embed D "./bad.json"'), project(files));
+  assert.strictEqual(r.text.split('\n')[2], 'local a, b = ("line one\\nline \\"two\\"\\n"), ({name = "x", list = {1, nil, 3}, ["if"] = true, ["a b"] = {c = -2.5}})');
+  assert.deepStrictEqual(r.embeds, [{ name: 'A', path: 'a.txt', line: 1 }, { name: 'B', path: 'b.json', line: 2 }]);
+  assert.deepStrictEqual(r.macros.get('A').embed, { path: 'a.txt', mode: null });
+  const m = messages(r);
+  assert.strictEqual(m[0], 'error 4: cannot find "./missing.txt"');
+  assert(/^error 5: bad\.json: not valid JSON/.test(m[1]), m[1]);
+  luau.push(['embed', r.text]);
+});
+
+test('#embed: a CSV by its first column, with a row of types', () => {
+  const csv = lines(
+    'Name,Speed,Hp,Ranged,Note',
+    'String,int,int,Boolean,String',
+    'Shelly,720,3600,TRUE,"a, quoted"',
+    'El Primo,770,6000,false,',
+    ',,6200,,',
+    ',,6400,,',
+    '"Colt",720,2800,true,"say ""hi"""',
+  );
+  const r = run(lines('#embed UNITS "./units.csv"', 'local u = UNITS'), project({ 'units.csv': csv }));
+  assert.strictEqual(r.text.split('\n')[1], 'local u = ({Shelly = {Name = "Shelly", Speed = 720, Hp = 3600, Ranged = true, Note = "a, quoted"}, ["El Primo"] = {Name = "El Primo", Speed = 770, Hp = {6000, 6200, 6400}, Ranged = false}, Colt = {Name = "Colt", Speed = 720, Hp = 2800, Ranged = true, Note = "say \\"hi\\""}})');
+  assert.deepStrictEqual(r.diagnostics, []);
+  luau.push(['embed csv', r.text]);
+});
+
+test('#embed: CSV types worked out, rows, and what is wrong with a CSV', () => {
+  const csv = lines('id,x,on,word', '1,1.5,true,a', '2,-3,False,7', '2,1e3,true,b');
+  const rows = run(lines('#embed R "./t.csv" rows', 'local r = R'), project({ 't.csv': csv }));
+  assert.strictEqual(rows.text.split('\n')[1], 'local r = ({{id = 1, x = 1.5, on = true, word = "a"}, {id = 2, x = -3, on = false, word = "7"}, {id = 2, x = 1000, on = true, word = "b"}})');
+  const twice = run('#embed K "./t.csv"', project({ 't.csv': csv }));
+  assert.deepStrictEqual(messages(twice), ['error 1: t.csv: line 4: 2 is there twice (line 3); with rows it keeps every row']);
+  const typed = run('#embed K "./t.csv"', project({ 't.csv': lines('a,b', 'string,int', 'x,1.5') }));
+  assert.deepStrictEqual(messages(typed), ['error 1: t.csv: line 3: b is a whole number, not "1.5"']);
+  const open = run('#embed K "./t.csv"', project({ 't.csv': lines('a,b', 'x,"never ends') }));
+  assert.deepStrictEqual(messages(open), ['error 1: t.csv: line 2: a quoted cell never ends']);
+  const first = run('#embed K "./t.csv"', project({ 't.csv': lines('a,b', ',1') }));
+  assert.deepStrictEqual(messages(first), ['error 1: t.csv: line 2: the first row has no a']);
+  const opts = run(lines('#embed K "./t.txt" rows', '#embed J "./t.csv" text', '#embed L "./t.csv" sideways', '#embed', '#embed M', '#embed N x'), project({ 't.txt': 'x', 't.csv': 'a,b' }));
+  assert.deepStrictEqual(messages(opts), [
+    'error 1: rows is for .csv files',
+    'error 3: after the file, #embed takes rows or text',
+    'error 4: #embed needs a name and a "file"',
+    'error 5: #embed needs a "file" after M',
+    'error 6: #embed needs a "file" after N',
+  ]);
+  assert.strictEqual(opts.macros.get('J').body, '("a,b")');
+});
+
+test('#embed without a way to read files, and through serialize', () => {
+  assert.deepStrictEqual(messages(run('#embed A "./a.txt"')), ['error 1: cannot find "./a.txt"']);
+  const r = run('#embed A "./a.json"', project({ 'a.json': '[1, "x"]' }));
+  const back = run(M.serialize(r.macros) + 'A');
+  assert.strictEqual(back.text.split('\n').pop(), '({1, "x"})');
+});
+
+test('#embed values can be indexed and called on', () => {
+  const r = run(lines('#embed C "./c.json"', '#embed T "./t.txt"', 'local w, parts = C.waves, T:split(",")', 'local x = C["waves"] + #T'), project({ 'c.json': '{"waves": 3}', 't.txt': 'a,b' }));
+  assert.strictEqual(r.text.split('\n')[2], 'local w, parts = ({waves = 3}).waves, ("a,b"):split(",")');
+  luau.push(['embed indexed', r.text]);
+});
+
+/* ---------- Predefined (DEBUG, as a Test run's build has it) ---------- */
+
+test('a predefined DEBUG: #ifdef and its use as a value', () => {
+  const src = lines('#ifdef DEBUG', 'print("debug")', '#else', 'print("release")', '#endif', 'if DEBUG then end');
+  const on = run(src, { defines: { DEBUG: 'true' } });
+  assert.deepStrictEqual(on.text.split('\n'), ['', 'print("debug")', '', '', '', 'if true then end']);
+  assert.deepStrictEqual(messages(on), []);
+  const off = run(src);
+  assert.deepStrictEqual(off.text.split('\n'), ['', '', '', 'print("release")', '', 'if DEBUG then end']);
+  const m = on.macros.get('DEBUG');
+  assert.deepStrictEqual([m.file, m.line, m.body], [null, 0, 'true']);
+  // Text that never names it, and has no directive, comes back as it is.
+  assert.strictEqual(run('print(1)', { defines: { DEBUG: 'true' } }).plain, true);
+});
+
 test('in a browser it is NT.macro', () => {
   const vm = require('vm');
   const window = { NT: {} };

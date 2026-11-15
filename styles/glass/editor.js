@@ -186,7 +186,7 @@
       const going = NT.tests.of(id);
       if (!going || going.done) {
         if (!(await commit(false, source || testBtn))) return;
-        testsView().show(NT.tests.start(script));
+        testsView().show(NT.tests.start(script, { debug: S.debug }));
       } else testsView().show(going);
       showTests(true, true);
     }

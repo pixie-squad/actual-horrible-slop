@@ -4,21 +4,25 @@
   the editor itself: what is wrong with a directive as a marker, the lines an #if
   leaves out dimmed (.nt-inactive, which each style draws), and on a macro's name a
   hover with what it is and what it becomes, Go to Definition to its #define, and
-  completion of names, directives and what an #include can name.
+  completion of names, directives and what an #include can name. DEBUG is defined
+  here, as it is in what a Test run plays (project.js), so its code is the live code.
 
     NT.macroView.attach(space)   a mounted editor (monaco.js does this) → view
     view.get(path)               → what macro.js made of the file now, or null when the
                                    file has nothing for it to do (it is then as typed)
     view.on('update', fn)        fn(paths): files whose expansion changed without an edit
-                                   of their own (a file they #include, a library arrived)
+                                   of their own (a file they #include or #embed, a library
+                                   arrived)
     view.dispose()
 */
 (function () {
   'use strict';
   const NT = window.NT;
   const OWNER = 'macro';
-  const DIRECTIVES = ['define', 'undef', 'if', 'ifdef', 'ifndef', 'elif', 'else', 'endif', 'include', 'error', 'warning'];
+  const DIRECTIVES = ['define', 'undef', 'if', 'ifdef', 'ifndef', 'elif', 'else', 'endif', 'include', 'embed', 'error', 'warning'];
   const isLuau = (path) => /\.luau?$/i.test(path);
+  const SHOWN = 1500; // characters of a macro's body or expansion a hover shows
+  const cut = (s) => (s.length > SHOWN ? s.slice(0, SHOWN) + ' …' : s);
   const views = new Map(); // model address authority → view
   let registered = false;
 
@@ -83,10 +87,16 @@
       if (had && had.text === text && had.gen === gen) return had.r;
       let r = null;
       const list = new Set();
-      if (NT.macro.uses(text)) {
+      if (NT.macro.uses(text) || text.includes('DEBUG')) {
         open.push(path);
         r = NT.macro.process(text, {
           path,
+          defines: NT.project.DEBUG,
+          embed(spec, from) {
+            const found = NT.project.embed(space.paths(), from || path, spec, (p) => space.text(p));
+            if (found.path) list.add(found.path);
+            return found;
+          },
           include(spec, from) {
             list.add(spec);
             if (spec[0] === '@') {
@@ -142,9 +152,17 @@
       }
     }
 
+    // A file that is not Luau changes what #embed makes of it.
+    const data = (path) => {
+      if (!isLuau(path)) updated(new Set([path]));
+      later();
+    };
     const offs = [
-      space.on('change', later),
-      space.on('add', later),
+      space.on('change', data),
+      space.on('add', (path) => {
+        updated(new Set([path]));
+        later();
+      }),
       space.on('reset', () => { cache.clear(); later(); }),
       space.on('remove', (path) => {
         cache.delete(path);
@@ -195,7 +213,10 @@
     };
     const covers = (x, line, col) => (x.line < line || (x.line === line && x.column <= col))
       && ((x.endLine || x.line) > line || ((x.endLine || x.line) === line && x.endColumn >= col));
-    const head = (m) => `#define ${m.name}${m.params ? `(${m.params.concat(m.variadic ? ['...'] : []).join(', ')})` : ''}${m.body ? ' ' + m.body : ''}`;
+    const head = (m) => {
+      if (m.embed) return `#embed ${m.name} "${m.embed.path}"${m.embed.mode ? ' ' + m.embed.mode : ''}`;
+      return cut(`#define ${m.name}${m.params ? `(${m.params.concat(m.variadic ? ['...'] : []).join(', ')})` : ''}${m.body ? ' ' + m.body : ''}`);
+    };
     const fence = (code) => ({ value: '```luau\n' + code + '\n```' });
 
     // The macro whose name is at the position: a use, or its own #define.
@@ -214,7 +235,9 @@
         const hit = at(of(model), position);
         if (!hit) return null;
         const contents = [fence(head(hit.macro))];
-        if (hit.use && hit.use.expansion != null) contents.push(fence(hit.use.expansion));
+        if (hit.macro.name in NT.project.DEBUG && !hit.macro.file) contents.push({ value: 'Defined only in Test runs.' });
+        else if (hit.use && hit.use.expansion != null) contents.push(fence(cut(hit.use.expansion)));
+        else if (hit.macro.embed) contents.push(fence(cut(hit.macro.body)));
         return { range: hit.range, contents };
       },
     });
@@ -248,18 +271,22 @@
             })),
           };
         }
-        // Inside #include "…": the project's other Luau files.
+        // Inside #include "…": the project's other Luau files; inside #embed NAME "…",
+        // its files, data first.
         const inc = /^\s*#\s*include\s+"([^"]*)$/.exec(line);
-        if (inc) {
-          const start = position.column - inc[1].length;
+        const emb = !inc && /^\s*#\s*embed\s+[A-Za-z_]\w*\s+"([^"]*)$/.exec(line);
+        if (inc || emb) {
+          const typed = (inc || emb)[1];
+          const start = position.column - typed.length;
           const here = o.path.split('/').slice(0, -1);
+          const wanted = (p) => p !== o.path && (inc ? isLuau(p) : true);
           return {
-            suggestions: o.view.space.paths().filter((p) => p !== o.path && isLuau(p)).map((p) => {
+            suggestions: o.view.space.paths().filter(wanted).map((p) => {
               const parts = p.split('/');
               let i = 0;
               while (i < here.length && i < parts.length - 1 && here[i] === parts[i]) i++;
               const rel = (i < here.length ? '../'.repeat(here.length - i) : './') + parts.slice(i).join('/');
-              return { label: rel, kind: K.File, insertText: rel, range: new monaco.Range(position.lineNumber, start, position.lineNumber, position.column) };
+              return { label: rel, kind: K.File, insertText: rel, sortText: (emb && isLuau(p) ? '1' : '0') + rel, range: new monaco.Range(position.lineNumber, start, position.lineNumber, position.column) };
             }),
           };
         }
