@@ -15,7 +15,7 @@
 @property --art { syntax: "*"; inherits: false; }
 
 .art-on > .cover-glyph { display: none; }
-.avatar.art-on { color: transparent; text-shadow: none; }
+.avatar.art-on::before { content: none; }
 
 /* ---------- What rests on an image ----------
    A photograph can be any brightness anywhere, where the generated covers are an

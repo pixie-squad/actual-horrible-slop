@@ -796,6 +796,9 @@ button.w-link:hover { text-decoration: underline; }
 .w-picture { flex: none; display: block; padding: 2px; background: var(--window); border: 1px solid var(--field-edge); }
 .w-picture > * { display: grid; place-items: center; }
 .w-avatar { color: #fff; font-weight: 700; }
+/* The letter is drawn, not text: it is not there to select or copy, and it is gone while a picture is on (media.js). */
+.w-avatar::before { content: attr(data-initials); }
+.w-avatar.art-on::before { content: none; }
 .w-desc { -webkit-user-select: text; user-select: text; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.4; }
 .w-callout { display: flex; align-items: flex-start; gap: 6px; padding: 6px 8px; border-radius: 3px; background: var(--tip); color: var(--tip-text); border: 1px solid var(--text); }
 .w-param { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(80px, 1.2fr) 34px auto; align-items: center; gap: 6px; }

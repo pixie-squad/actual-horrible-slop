@@ -589,6 +589,8 @@
   letter-spacing: 0;
   text-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
 }
+/* The letter is drawn, not text: it is not there to select or copy, and it is gone while a picture is on (media.js). */
+.avatar::before { content: attr(data-initials); }
 
 .card { background: var(--surface); border-radius: var(--r-card); overflow: hidden; }
 
@@ -1239,6 +1241,8 @@ html[data-solid] .monaco-editor .suggest-details { background: var(--surface-2) 
 /* While the sheet changes shape its glass has the corner the box has in that frame: a
    menu's as it leaves one, not a sheet's from the first. */
 .sheet.is-morphing > .sheet-glass.glass { border-radius: inherit; }
+/* The fill of a control that is not glass, on the box while the box is that control. */
+.sheet-fill { position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; }
 html[data-solid] .sheet-glass.glass { background-color: color-mix(in srgb, var(--surface) var(--_k), transparent); }
 
 /* ---------- Keyboard focus ----------

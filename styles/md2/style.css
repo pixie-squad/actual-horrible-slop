@@ -436,7 +436,9 @@ html[data-theme="dark"] .m-switch-handle { background: #bdbdbd; }
 .m-cover.thumb { flex: none; width: 40px; aspect-ratio: 1; border-radius: 50%; }
 .m-cover.detail { aspect-ratio: auto; height: clamp(160px, 32vh, 300px); border-radius: var(--r); box-shadow: var(--dp1); }
 .m-avatar { flex: none; display: grid; place-items: center; border-radius: 50%; color: #fff; font-weight: 500; background-size: cover; background-position: center; overflow: hidden; }
-.m-avatar.art-on { color: transparent; }
+/* The letter is drawn, not text: it is not there to select or copy, and it is gone while a picture is on (media.js). */
+.m-avatar::before { content: attr(data-initials); }
+.m-avatar.art-on::before { content: none; }
 .m-badge { display: inline-flex; align-items: center; height: 20px; padding: 0 8px; border-radius: 10px; background: rgb(0 0 0 / 0.6); color: #fff; font: 500 11px/20px var(--font); letter-spacing: 0.06em; text-transform: uppercase; }
 .m-badge.tonal { background: color-mix(in srgb, var(--secondary) 18%, transparent); color: var(--on-surface); }
 .m-cover > .m-badge, .m-badges { position: absolute; left: 12px; top: 12px; }

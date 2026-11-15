@@ -671,6 +671,19 @@
       return g;
     };
     const clipOf = (g, size) => `inset(${(size.height - g.height) / 2}px ${(size.width - g.width) / 2}px round ${g.radius}px)`;
+    // A control that is not glass has a fill of its own (a filled button). The box is
+    // that fill while it is the control, as it is the control's glass where the control
+    // is glass: without it the control would be its words alone until the swap.
+    const fillOf = () => {
+      if (srcOpts) return null;
+      const cs = getComputedStyle(src);
+      if (cs.backgroundImage === 'none' && /^(transparent|rgba\(0, 0, 0, 0\))$/.test(cs.backgroundColor)) return null;
+      const f = h('div.sheet-fill', { 'aria-hidden': 'true' });
+      f.style.backgroundColor = cs.backgroundColor;
+      f.style.backgroundImage = cs.backgroundImage;
+      sheetGlass.after(f);
+      return f;
+    };
 
     let closed = false;
     // The control it came out of is away for as long as the sheet is there.
@@ -711,6 +724,8 @@
           const ghost = ghostOf(seat);
           ghost.animate([pin(start, seat), pin(end, seat)], timing);
           ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: 'ease-out', fill: 'forwards' }).onfinish = () => ghost.remove();
+          const fill = fillOf();
+          if (fill) fill.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: 'ease-out', fill: 'forwards' }).onfinish = () => fill.remove();
         }
         grow.onfinish = () => {
           if (closed) return;
@@ -768,7 +783,12 @@
         const seat = { width: end.width, height: end.height };
         const ghost = ghostOf(seat);
         ghost.animate([pin(cur, seat), pin(end, seat)], timing);
-        ghost.animate([{ opacity: 0 }, { opacity: 1 }], { duration: sp.duration * 0.35, delay: sp.duration * 0.3, easing: 'ease-out', fill: 'both' });
+        const landing = { duration: sp.duration * 0.35, delay: sp.duration * 0.3, easing: 'ease-out', fill: 'both' };
+        ghost.animate([{ opacity: 0 }, { opacity: 1 }], landing);
+        // One still fading from the way out (closed at once) is not a second one.
+        panel.querySelectorAll('.sheet-fill').forEach((f) => f.remove());
+        const fill = fillOf();
+        if (fill) fill.animate([{ opacity: 0 }, { opacity: 1 }], landing);
         if (srcOpts) {
           NT.glass.lensFrom(sheetGlass, src, true);
           NT.glass.animate(sheetGlass, [{ k: was.k, t: was.t }, { k: 1, t: 0 }], timing);

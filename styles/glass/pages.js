@@ -144,13 +144,14 @@
     const a = NT.util.hash(String(seed || name)) % 360;
     return NT.media.avatar(h('span.avatar', {
       'aria-hidden': 'true',
+      'data-initials': NT.util.initials(name),
       style: {
         width: size + 'px',
         height: size + 'px',
         fontSize: Math.round(size * 0.4) + 'px',
         background: `linear-gradient(140deg, oklch(0.74 0.16 ${a}), oklch(0.55 0.2 ${(a + 55) % 360}))`,
       },
-    }, NT.util.initials(name)), seed);
+    }), seed);
   }
 
   // s: the script, as a list item or whole.
