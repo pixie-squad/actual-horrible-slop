@@ -4,16 +4,18 @@
 
     node check/run.js [options]
 
-      --only walk,states,frames,load   which checks (default: walk)
-      --styles glass,win7              which styles (default: all six)
+      --only walk,states,frames,load,anim   which checks (default: walk)
+      --styles glass,win7              which styles (default: all six; anim is Liquid Glass's only)
       --themes light,dark              (default: both)
       --sizes wide,phone               wide: 1280×800 at 150 %; phone: 390×844 at 3× (default: both)
       --routes /,/scripts              addresses for the walk (default: check/routes.js)
+      --scenarios menu-close,toast-in  which animations anim takes apart (default: all; check/anim.js)
       --against <git ref>              frames and load: compare with that ref, served beside this tree
       --reps <n>                       repetitions for frames (default 30) and load (default 5)
       --vsync off                      frames unthrottled: per-frame cost instead of dropped frames
       --out <folder>                   where screenshots and results go (default check/out/<time>)
-      --port <n>                       first of the ports used (default 5197; 9333 for the browser)
+      --port <n>                       first of the ports used (default 5197; the mock on <n> + 100)
+      --devtools <n>                   the browser's DevTools port (default 9333)
       --profile <folder>               the browser's profile (default: one in the system's temp folder)
 
   It starts the mock upstream (check/mock.js), the app's server (twice with
@@ -52,6 +54,7 @@ function options(argv) {
     themes: list(o.themes, ['light', 'dark']),
     sizes: list(o.sizes, Object.keys(SIZES)),
     routes: o.routes ? list(o.routes) : null,
+    scenarios: o.scenarios ? list(o.scenarios) : null,
     against: o.against || null,
     reps: o.reps ? Number(o.reps) : null,
     vsync: o.vsync !== 'off',
@@ -107,6 +110,11 @@ async function main() {
     if (opt.only.includes('frames')) {
       const frames = require('./frames');
       const r = await frames.run(ctx);
+      summary.push(r.summary);
+    }
+    if (opt.only.includes('anim')) {
+      const anim = require('./anim');
+      const r = await anim.run(ctx);
       summary.push(r.summary);
     }
     if (opt.only.includes('load')) {

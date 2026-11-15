@@ -351,14 +351,26 @@
       const back = h('button.code-return.glass.interactive', { type: 'button', hidden: true, onclick: () => ed.back() }, icon('chevron-left', 18), h('span'));
       host.append(NT.glass.refract(back));
       let lastPath = ed.path;
+      // It materializes over the code and goes the same way (NT.liquid), never popping.
+      let backMotion = null;
       ed.on('show', (path, doc) => {
         const was = shownDoc;
         shownDoc = doc;
         if (doc && !was) {
+          if (backMotion) backMotion.cancel();
           back.lastChild.textContent = nameOf(ed.paths().includes(lastPath) ? lastPath : ENTRY);
           back.hidden = false;
-          if (!NT.util.reducedMotion()) back.animate([{ transform: 'scale(0.2)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: motion.bouncy.duration, easing: motion.bouncy.easing });
-        } else if (!doc) back.hidden = true;
+          backMotion = NT.liquid.materialize(back, true, { timing: motion.bouncy, grow: 0.6 });
+        } else if (!doc && was) {
+          if (backMotion) backMotion.cancel();
+          const going = (backMotion = NT.liquid.materialize(back, false, { grow: 0.6 }));
+          going.finished.then(() => {
+            if (backMotion !== going) return;
+            back.hidden = true;
+            going.cancel();
+            backMotion = null;
+          });
+        }
         if (path) lastPath = path;
         paint();
       });

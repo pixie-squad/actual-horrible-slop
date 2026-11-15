@@ -10,22 +10,53 @@
     2. fill      – tint whose strength follows the Clear … Tinted preference,
                    under a soft top-to-bottom sheen that gives the slab volume
     3. shadows   – inner glow along the rim, shade at the lower edge, drop shadow
-    4. ::after   – specular highlight that follows the pointer
+    4. ::after   – light from a touch, spreading from the finger (liquid.js)
     5. ::before  – rim light: bright where light enters and leaves the edge
+
+  Two numbers drive all of it, and both can be animated:
+
+    --lg-k  presence, 0 … 1. Glass is never faded in or out: it materializes. At 0
+            there is nothing, no bend, frost, fill, light or shadow, and each of them
+            grows with it. glass.js gives the lens the same value in every frame.
+    --lg-t  thickness, 0 … 1. Regular glass is 0, .thick is 1. Glass that grows (a
+            button becoming its menu) thickens on the way: a denser fill, more frost,
+            a deeper shadow; and thins again on the way back, so it arrives as the
+            button it left.
+
+  So no colour below is used as it is: each is taken at the glass's presence (--_k).
 */
+
+@property --lg-k { syntax: '<number>'; inherits: true; initial-value: 1; }
+@property --lg-t { syntax: '<number>'; inherits: true; initial-value: 0; }
 
 .glass {
   --_r: 999px;
+  --_k: clamp(0%, calc(var(--lg-k) * 100%), 100%);
+  /* The dark theme's veil belongs to regular glass; thick glass has none. */
+  --_kv: clamp(0%, calc(var(--lg-k) * (1 - var(--lg-t)) * 100%), 100%);
+  --_fill: color-mix(in srgb, var(--glass-thick) clamp(0%, calc(var(--lg-t) * 100%), 100%), var(--glass-fill));
+  --_drop:
+    0 calc(var(--shadow-y) + 4px * var(--lg-t)) calc(var(--shadow-blur) + 8px * var(--lg-t)) color-mix(in srgb, var(--shadow-far) var(--_k), transparent),
+    0 2px 6px color-mix(in srgb, var(--shadow-near) var(--_k), transparent);
+  --_inner:
+    inset 0 0 8px -3px color-mix(in srgb, var(--inner-glow) var(--_k), transparent),
+    inset 0 -8px 10px -10px color-mix(in srgb, var(--inner-shade) var(--_k), transparent);
+  --_edge: inset 0 0 0 0.5px color-mix(in srgb, var(--glass-edge) var(--_k), transparent);
+  --_blur: calc((var(--glass-blur) + (var(--glass-blur-thick) - var(--glass-blur)) * var(--lg-t)) * var(--lg-k));
   position: relative;
   isolation: isolate;
   border-radius: var(--_r);
   color: var(--label);
-  background: var(--glass-sheen), var(--glass-fill);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--sheen-top) var(--_k), transparent) 0%, rgb(255 255 255 / 0) 50%, color-mix(in srgb, var(--sheen-bottom) var(--_k), transparent) 100%),
+    linear-gradient(color-mix(in srgb, var(--glass-veil) var(--_kv), transparent) 0 0);
+  background-color: color-mix(in srgb, var(--_fill) var(--_k), transparent);
+  -webkit-backdrop-filter: blur(var(--_blur)) saturate(calc(1 + (var(--glass-sat) - 1) * var(--lg-k)));
   /* With a lens filter the frost and saturation happen inside it. */
-  backdrop-filter: var(--glass-refract, blur(var(--glass-blur)) saturate(var(--glass-sat)) brightness(var(--glass-bright)));
-  box-shadow: var(--glass-shadow), var(--glass-inner), inset 0 0 0 0.5px var(--glass-edge);
+  backdrop-filter: var(--glass-refract, blur(var(--_blur)) saturate(calc(1 + (var(--glass-sat) - 1) * var(--lg-k))) brightness(calc(1 + (var(--glass-bright) - 1) * var(--lg-k))));
+  box-shadow: var(--_drop), var(--_inner), var(--_edge);
 }
+.glass.thick { --lg-t: 1; }
 
 /* Glass that only takes the shader's light (glass.js, Glass.shine). */
 .glass.no-lens { -webkit-backdrop-filter: none; backdrop-filter: none; }
@@ -49,8 +80,12 @@
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  opacity: var(--lg-k);
 }
 
+/* Light from a touch. It starts under the finger and spreads through the glass
+   (--glow-r grows), and reaches the glass beside it (liquid.js, Liquid.light). */
+@property --glow-r { syntax: '<length>'; inherits: true; initial-value: 120px; }
 .glass::after {
   content: "";
   position: absolute;
@@ -58,42 +93,51 @@
   z-index: 2;
   border-radius: inherit;
   pointer-events: none;
-  opacity: 0;
+  opacity: calc(var(--glow, 0) * var(--lg-k));
   transition: opacity 0.4s var(--ease-out);
-  background: radial-gradient(circle 120px at var(--mx, 50%) var(--my, 0%),
+  background: radial-gradient(circle var(--glow-r) at var(--mx, 50%) var(--my, 0%),
     rgb(255 255 255 / 0.32), rgb(255 255 255 / 0) 70%);
 }
 
 @media (hover: hover) {
-  .glass.interactive:hover::after { opacity: 0.4; }
+  .glass.interactive:hover { --glow: 0.4; }
 }
+.glass.interactive:active,
+.glass.is-pressed,
+.glass.is-lit { --glow: 0.8; }
 .glass.interactive:active::after,
-.glass.is-pressed::after { opacity: 0.8; transition-duration: 0.1s; }
-
-/* Thicker glass for surfaces that carry text: menus, dialogs, toasts. */
-.glass.thick {
-  --glass-blur: calc(12px + var(--frost) * 22px);
-  background: var(--glass-sheen), var(--glass-thick);
-}
+.glass.is-pressed::after,
+.glass.is-lit::after { transition-duration: 0.1s; }
+/* Light that has spread from glass beside it: fainter, and it lingers. */
+.glass.is-near { --glow: 0.36; }
 
 /* Prominent, tinted glass for the single most important action. */
 .glass.tinted {
+  --_drop: 0 10px 28px color-mix(in srgb, color-mix(in srgb, var(--accent) 38%, transparent) var(--_k), transparent),
+    0 2px 6px color-mix(in srgb, rgb(0 0 0 / 0.1) var(--_k), transparent);
+  --_inner: inset 0 0 8px -3px color-mix(in srgb, rgb(255 255 255 / 0.3) var(--_k), transparent);
+  --_edge: inset 0 0 0 0.5px color-mix(in srgb, rgb(0 0 0 / 0.08) var(--_k), transparent);
   color: #fff;
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.12), rgb(255 255 255 / 0) 46%),
-    linear-gradient(color-mix(in srgb, var(--accent) calc(72% + var(--frost) * 27%), transparent) 0 0);
-  box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 38%, transparent),
-    0 2px 6px rgb(0 0 0 / 0.1), inset 0 0 8px -3px rgb(255 255 255 / 0.3), inset 0 0 0 0.5px rgb(0 0 0 / 0.08);
+  background: linear-gradient(180deg, color-mix(in srgb, rgb(255 255 255 / 0.12) var(--_k), transparent), rgb(255 255 255 / 0) 46%);
+  background-color: color-mix(in srgb, color-mix(in srgb, var(--accent) calc(72% + var(--frost) * 27%), transparent) var(--_k), transparent);
 }
 
 /* Glass floating over artwork, where the label is always white. */
 .glass.on-art {
+  --_drop: 0 8px 22px color-mix(in srgb, rgb(0 0 0 / 0.2) var(--_k), transparent);
+  --_inner: inset 0 0 8px -3px color-mix(in srgb, rgb(255 255 255 / 0.35) var(--_k), transparent);
+  --_edge: inset 0 0 0 0.5px color-mix(in srgb, rgb(255 255 255 / 0.14) var(--_k), transparent);
   color: #fff;
-  background: linear-gradient(180deg, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0.02) 55%, rgb(255 255 255 / 0.06)),
-    rgb(255 255 255 / calc(0.02 + var(--frost) * 0.2));
-  box-shadow: 0 8px 22px rgb(0 0 0 / 0.2), inset 0 0 8px -3px rgb(255 255 255 / 0.35), inset 0 0 0 0.5px rgb(255 255 255 / 0.14);
+  background: linear-gradient(180deg, color-mix(in srgb, rgb(255 255 255 / 0.14) var(--_k), transparent),
+    color-mix(in srgb, rgb(255 255 255 / 0.02) var(--_k), transparent) 55%, color-mix(in srgb, rgb(255 255 255 / 0.06) var(--_k), transparent));
+  background-color: color-mix(in srgb, rgb(255 255 255 / calc(0.02 + var(--frost) * 0.2)) var(--_k), transparent);
 }
 /* The leading action on artwork: the same glass, tinted white. */
-.glass.on-art.solid { color: #000; background: rgb(255 255 255 / calc(0.56 + var(--frost) * 0.42)); }
+.glass.on-art.solid {
+  color: #000;
+  background: none;
+  background-color: color-mix(in srgb, rgb(255 255 255 / calc(0.56 + var(--frost) * 0.42)) var(--_k), transparent);
+}
 
 /* ---------- Tone (glass.js, NT.tone) ----------
    Glass at the top of the screen that has artwork under it turns dark, with a light
@@ -107,9 +151,11 @@
   --fill: rgb(120 120 128 / 0.28);
   --fill-2: rgb(120 120 128 / 0.4);
   --glass-fill: rgb(18 18 22 / calc(0.24 + var(--frost) * 0.46));
+  --glass-veil: transparent;
   --glass-thick: rgb(34 34 40 / calc(0.6 + var(--frost) * 0.39));
   --glass-edge: rgb(255 255 255 / 0.12);
-  --glass-inner: inset 0 0 8px -3px rgb(255 255 255 / 0.2), inset 0 -8px 10px -10px rgb(0 0 0 / 0.4);
+  --inner-glow: rgb(255 255 255 / 0.2);
+  --inner-shade: rgb(0 0 0 / 0.4);
   --rim-hi: rgb(255 255 255 / 0.6);
   --rim-mid: rgb(255 255 255 / 0.3);
   --rim-lo: rgb(255 255 255 / 0.1);
@@ -118,21 +164,24 @@
 }
 /* The dark theme's fill is a veil over a colour; the veil stays and the colour deepens. */
 html[data-theme="dark"] [data-over="dark"] {
-  --glass-fill: linear-gradient(rgb(255 255 255 / 0.1), rgb(255 255 255 / 0.1)), rgb(14 14 18 / calc(0.3 + var(--frost) * 0.5));
+  --glass-fill: rgb(14 14 18 / calc(0.3 + var(--frost) * 0.5));
+  --glass-veil: rgb(255 255 255 / 0.1);
 }
 .glass.has-spec::before { transition: opacity 0.22s var(--ease-out); }
 /* Glass that was only just built or revealed arrives in its tone. */
 .tone-snap, .tone-snap *, .tone-snap::before, .tone-snap::after { transition: none !important; }
 
-/* Pressing glass makes it swell, then settle with a spring. */
+/* Pressing glass makes it swell, then settle with a spring. A finger or the mouse also
+   pulls it after itself, as gel would (liquid.js, Liquid.flex, which sets the `scale` and
+   `translate` properties while .is-flexing); this rule is the press from the keyboard. */
 .interactive {
   cursor: pointer;
   -webkit-user-select: none;
   user-select: none;
   transition: transform var(--dur-bouncy) var(--spring-bouncy);
 }
-.interactive:active,
-.interactive.is-pressed {
+.interactive:active:not(.is-flexing),
+.interactive.is-pressed:not(.is-flexing) {
   transform: scale(var(--press, 1.08));
   transition-duration: 0.16s;
   transition-timing-function: var(--ease-out);
@@ -148,19 +197,29 @@ html[data-theme="dark"] [data-over="dark"] {
 }
 
 /* ---------- Lenses inside controls ----------
-   A knob is an opaque white capsule at rest. While held it lifts into clear
-   glass: it grows, drops its fill and refracts whatever it is resting on. */
+   A knob is an opaque capsule at rest. While held it lifts into clear glass: it grows,
+   its face clears and it refracts whatever it is resting on. How far it has lifted is
+   its presence as glass, --lg-k, so the bend comes in as the face clears, in every
+   frame (glass.js follows it). The filter is only there while it is lifted at all
+   (.lens-on, ui.js). Each knob gives its resting face and shadow (--_face, --_resting). */
 
-.lens-held {
-  background: rgb(255 255 255 / 0.03) !important;
+.lens {
+  --lg-k: 0;
+  --_k: clamp(0%, calc(var(--lg-k) * 100%), 100%);
+  --_rk: clamp(0%, calc((1 - var(--lg-k)) * 100%), 100%);
+  --_rim:
+    inset 0 0 0 0.75px color-mix(in srgb, rgb(255 255 255 / 0.7) var(--_k), transparent),
+    inset 0 1.5px 2px color-mix(in srgb, rgb(255 255 255 / 0.55) var(--_k), transparent),
+    inset 0 -1.5px 2px color-mix(in srgb, rgb(255 255 255 / 0.22) var(--_k), transparent);
+  --_lift:
+    0 8px 20px color-mix(in srgb, rgb(0 0 0 / 0.2) var(--_k), transparent),
+    0 2px 5px color-mix(in srgb, rgb(0 0 0 / 0.12) var(--_k), transparent);
+  background: color-mix(in srgb, rgb(255 255 255 / 0.03) var(--_k), var(--_face));
+  box-shadow: var(--_rim), var(--_lift), var(--_resting);
+}
+.lens.lens-on {
   -webkit-backdrop-filter: brightness(1.03);
   backdrop-filter: var(--glass-refract, brightness(1.03));
-  box-shadow:
-    inset 0 0 0 0.75px rgb(255 255 255 / 0.7),
-    inset 0 1.5px 2px rgb(255 255 255 / 0.55),
-    inset 0 -1.5px 2px rgb(255 255 255 / 0.22),
-    0 8px 20px rgb(0 0 0 / 0.2),
-    0 2px 5px rgb(0 0 0 / 0.12) !important;
 }
 
 /* Switch */
@@ -184,13 +243,13 @@ html[data-theme="dark"] [data-over="dark"] {
   width: 39px;
   height: 24px;
   border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 0.5px 3px rgb(0 0 0 / 0.14), 0 4px 10px rgb(0 0 0 / 0.12);
-  transition: transform var(--dur-bouncy) var(--spring-bouncy), background 0.18s, box-shadow 0.18s;
+  --_face: #fff;
+  --_resting: 0 0.5px 3px color-mix(in srgb, rgb(0 0 0 / 0.14) var(--_rk), transparent),
+    0 4px 10px color-mix(in srgb, rgb(0 0 0 / 0.12) var(--_rk), transparent);
 }
-.switch[aria-checked="true"] .switch-knob { transform: translateX(21px); }
-.switch.is-pressed .switch-knob { transform: scale(1.3, 1.5); }
-.switch[aria-checked="true"].is-pressed .switch-knob { transform: translateX(21px) scale(1.3, 1.5); }
+/* Where it is, how far it has lifted and how it stretches with speed are springs (UI.toggle).
+   Before they have run, it rests where its state says. */
+.switch[aria-checked="true"] .switch-knob:not(.is-sprung) { transform: translateX(21px); }
 
 /* Slider */
 .slider {
@@ -226,11 +285,12 @@ html[data-theme="dark"] [data-over="dark"] {
   height: 24px;
   margin-top: -12px;
   border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 0.5px 4px rgb(0 0 0 / 0.14), 0 6px 13px rgb(0 0 0 / 0.14);
-  transition: transform var(--dur-bouncy) var(--spring-bouncy), background 0.18s, box-shadow 0.18s;
+  --_face: #fff;
+  --_resting: 0 0.5px 4px color-mix(in srgb, rgb(0 0 0 / 0.14) var(--_rk), transparent),
+    0 6px 13px color-mix(in srgb, rgb(0 0 0 / 0.14) var(--_rk), transparent);
+  transition: transform var(--dur-bouncy) var(--spring-bouncy), --lg-k 0.24s var(--ease-out);
 }
-.slider.is-pressed .slider-thumb { transform: scale(1.4, 1.5); }
+.slider.is-pressed .slider-thumb { transform: scale(1.4, 1.5); --lg-k: 1; }
 
 /* Segmented control: press and drag the thumb between segments. */
 .seg {
@@ -256,13 +316,15 @@ html[data-theme="dark"] [data-over="dark"] {
   left: 3px;
   width: calc((100% - 6px) / var(--n));
   border-radius: 999px;
-  background: var(--surface);
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.12), 0 3px 10px rgb(0 0 0 / 0.06), inset 0 0 0 0.5px var(--glass-edge);
+  --_face: var(--surface);
+  --_resting: 0 1px 4px color-mix(in srgb, rgb(0 0 0 / 0.12) var(--_rk), transparent),
+    0 3px 10px color-mix(in srgb, rgb(0 0 0 / 0.06) var(--_rk), transparent),
+    inset 0 0 0 0.5px color-mix(in srgb, var(--glass-edge) var(--_rk), transparent);
   will-change: transform;
-  transition: background 0.18s, box-shadow 0.18s;
 }
-html[data-theme="dark"] .seg-thumb { background: rgb(118 118 128 / 0.5); }
-.seg.is-lifting .seg-thumb { z-index: 2; }
+html[data-theme="dark"] .seg-thumb { --_face: rgb(118 118 128 / 0.5); }
+/* Over the labels for as long as it is glass at all, so they bend through it. */
+.seg-thumb.lens-on { z-index: 2; }
 .seg-item {
   position: relative;
   z-index: 1;
@@ -277,25 +339,26 @@ html[data-theme="dark"] .seg-thumb { background: rgb(118 118 128 / 0.5); }
 
 /* ---------- Reduce Transparency (Settings › Liquid Glass) ---------- */
 
+/* Without the lens there is nothing to bend, so solid glass comes and goes by its
+   presence alone. */
 html[data-solid] .glass,
 html[data-solid] .glass.thick {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
-  background: var(--surface-2);
+  background: none;
+  background-color: color-mix(in srgb, var(--surface-2) var(--_k), transparent);
 }
-html[data-solid] .glass.tinted { background: var(--accent); }
-html[data-solid] .glass.on-art { background: rgb(0 0 0 / 0.55); }
-html[data-solid] .glass.on-art.solid { background: #fff; }
-html[data-solid] .sheet.glass { background: var(--surface); }
-html[data-solid] .tab-lens,
-html[data-solid] .lens-held {
-  -webkit-backdrop-filter: none !important;
-  backdrop-filter: none !important;
+html[data-solid] .glass.tinted { background-color: color-mix(in srgb, var(--accent) var(--_k), transparent); }
+html[data-solid] .glass.on-art { background-color: color-mix(in srgb, rgb(0 0 0 / 0.55) var(--_k), transparent); }
+html[data-solid] .glass.on-art.solid { background-color: color-mix(in srgb, #fff var(--_k), transparent); }
+html[data-solid] .lens.lens-on {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
-html[data-solid] .lens-held { background: #fff !important; }
+html[data-solid] .lens { background: var(--_face); }
 
 @media (prefers-contrast: more) {
-  .glass { box-shadow: var(--glass-shadow), inset 0 0 0 1.5px var(--label-2); }
+  .glass { --_inner: 0 0 transparent; --_edge: inset 0 0 0 1.5px color-mix(in srgb, var(--label-2) var(--_k), transparent); }
   .glass::before { display: none; }
 }
 
@@ -305,8 +368,7 @@ html[data-solid] .lens-held { background: #fff !important; }
 /* The light is a small tile: its corners are drawn at their own size in the element's
    corners and the edges between them stretch, so it is the right shape at any size. */
 .glass.has-spec::before,
-.lens-held.has-spec::before,
-.tab-lens::before {
+.lens.has-spec::before {
   border-image: var(--glass-spec) var(--glass-slice) fill / var(--glass-cut) stretch;
 }
 
@@ -315,18 +377,47 @@ html[data-solid] .lens-held { background: #fff !important; }
   background: none;
   -webkit-mask: none;
   mask: none;
-  opacity: var(--spec-opacity, 1);
+  opacity: calc(var(--spec-opacity, 1) * var(--lg-k));
 }
-.glass.has-spec:not(.tinted):not(.on-art) { box-shadow: var(--glass-shadow), inset 0 0 0 0.5px var(--glass-edge); }
+.glass.has-spec:not(.tinted):not(.on-art) { --_inner: 0 0 transparent; }
 
-.lens-held.has-spec {
-  box-shadow: 0 8px 20px rgb(0 0 0 / 0.2), 0 2px 5px rgb(0 0 0 / 0.12) !important;
+/* ---------- Glass that is joining or parting (liquid.js) ----------
+   The neck between two pieces: their material, clipped to the region their smooth union
+   fills and neither of them does, with a rim of its own where it runs free. */
+.glass.lg-neck {
+  position: absolute;
+  pointer-events: none !important;
+  border-radius: 0;
+  --_drop: 0 0 transparent;
+  --_inner: 0 0 transparent;
+  --_edge: 0 0 transparent;
+  background-image: linear-gradient(color-mix(in srgb, var(--glass-veil) var(--_kv), transparent) 0 0);
 }
-.lens-held.has-spec::before {
+.glass.lg-neck::before, .glass.lg-neck::after { display: none; }
+.lg-neck-rim {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  fill: none;
+  stroke: var(--rim-mid);
+  stroke-width: 1.1px;
+  stroke-linecap: round;
+}
+/* Where a neck meets a piece, the piece's rim is not drawn: the two are one glass there. */
+.glass.has-spec.lg-seamed::before {
+  -webkit-mask: linear-gradient(#000 0 0), linear-gradient(#000 0 0) var(--seam-x) var(--seam-y) / var(--seam-w) var(--seam-h) no-repeat;
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) exclude, linear-gradient(#000 0 0) var(--seam-x) var(--seam-y) / var(--seam-w) var(--seam-h) no-repeat;
+}
+
+.lens.has-spec { --_rim: 0 0 transparent; }
+.lens.has-spec::before {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  opacity: var(--spec-opacity, 1);
+  opacity: calc(var(--spec-opacity, 1) * var(--lg-k));
 }

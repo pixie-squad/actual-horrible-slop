@@ -49,45 +49,80 @@
   // opts.action: { label, onSelect }, a text button at the toast's trailing end, as
   // iOS puts Undo in a banner: no shape of its own inside the glass, the label in the
   // accent, dimming while held. Choosing it puts the toast away.
+  // A toast is glass that materializes where it is and goes the same way (NT.liquid). One
+  // that comes while another is showing does not stack on it: the glass that is there
+  // takes the new words, changing shape to fit them.
   UI.toast = function (message, opts = {}) {
-    if (currentToast) currentToast.remove();
     const act = opts.action;
-    const el = h('div.toast.glass.thick' + (opts.warn ? '.warn' : '') + (act ? '.has-action' : ''), { role: 'status' },
-      icon(opts.icon || (opts.warn ? 'warning' : 'check'), 20), h('span', message));
-    let gone = false;
-    const away = () => {
-      if (gone || !el.isConnected) return;
-      gone = true;
-      if (currentToast === el) currentToast = null;
-      if (reduced()) return void el.remove();
-      const a = el.animate(
-        [{ transform: 'none', opacity: 1, filter: 'blur(0px)' }, { transform: 'translateY(-12px) scale(0.7)', opacity: 0, filter: 'blur(8px)' }],
-        { duration: 240, easing: 'cubic-bezier(0.4, 0, 1, 1)', fill: 'forwards' });
-      a.onfinish = () => el.remove();
+    let owner = null;
+    const parts = () => {
+      const list = [icon(opts.icon || (opts.warn ? 'warning' : 'check'), 20), h('span', message)];
+      if (act) {
+        list.push(h('button.toast-action', { type: 'button', onclick: () => {
+          if (!owner || owner.gone) return;
+          owner.away();
+          act.onSelect();
+        } }, act.label));
+      }
+      return list;
     };
-    if (act) {
-      el.append(h('button.toast-action', { type: 'button', onclick: () => {
-        if (gone) return;
-        away();
-        act.onSelect();
-      } }, act.label));
+    const t = currentToast && !currentToast.gone && currentToast.el.isConnected ? currentToast : null;
+    owner = t;
+    if (t) {
+      clearTimeout(t.timer);
+      t.restyle(opts, act);
+      t.replace(parts());
+    } else {
+      const el = h('div.toast.glass.thick', { role: 'status' });
+      const toast = (currentToast = {
+        el,
+        gone: false,
+        timer: 0,
+        restyle(o, a) {
+          el.classList.toggle('warn', !!o.warn);
+          el.classList.toggle('has-action', !!a);
+        },
+        replace(nodes) {
+          if (reduced() || !el.firstChild) return void el.replaceChildren(...nodes);
+          // The old words leave from where they are while the glass changes size.
+          const from = { w: el.offsetWidth, h: el.offsetHeight };
+          const old = h('div.toast-was', { 'aria-hidden': 'true' }, ...el.childNodes);
+          old.style.cssText = `width:${from.w}px;height:${from.h}px`;
+          el.replaceChildren(...nodes);
+          const to = { w: el.offsetWidth, h: el.offsetHeight };
+          el.append(old);
+          const sp = motion.smooth;
+          el.animate([{ width: from.w + 'px', height: from.h + 'px' }, { width: to.w + 'px', height: to.h + 'px' }], { duration: sp.duration, easing: sp.easing });
+          old.animate([{ opacity: 1 }, { opacity: 0 }], { duration: sp.duration * 0.3, fill: 'forwards' }).onfinish = () => old.remove();
+          for (const n of nodes) n.animate([{ opacity: 0 }, { opacity: 1 }], { duration: sp.duration * 0.45, delay: sp.duration * 0.15, easing: 'ease-out', fill: 'backwards' });
+        },
+        away() {
+          if (toast.gone || !el.isConnected) return;
+          toast.gone = true;
+          clearTimeout(toast.timer);
+          if (currentToast === toast) currentToast = null;
+          el.removeAttribute('role');
+          NT.liquid.materialize(el, false, { content: [...el.children], grow: 0.62 }).finished.then(() => el.remove());
+        },
+      });
+      owner = toast;
+      toast.restyle(opts, act);
+      el.append(...parts());
+      NT.dom.toasts.append(el);
+      NT.glass.refract(el, { bezel: 18, magnify: 0.008 });
+      NT.liquid.materialize(el, true, { content: [...el.children], grow: 0.62, timing: motion.bouncy });
     }
-    currentToast = el;
-    NT.dom.toasts.append(el);
-    NT.glass.refract(el, { bezel: 18, magnify: 0.008 });
-    if (!reduced()) {
-      el.animate(
-        [{ transform: 'translateY(-16px) scale(0.6)', opacity: 0, filter: 'blur(10px)' }, { transform: 'none', opacity: 1, filter: 'blur(0px)' }],
-        { duration: motion.bouncy.duration, easing: motion.bouncy.easing });
-    }
-    setTimeout(away, opts.duration || (act ? 6000 : 2600));
+    const live = currentToast;
+    live.timer = setTimeout(() => live.away(), opts.duration || (act ? 6000 : 2600));
   };
 
   /* ---------- Morphing popover ----------
      Menus and confirmation dialogs are not new layers that fade in: the control
      that was tapped becomes the popover. The glass keeps one continuous shape,
-     growing from the control's exact frame and collapsing back into it. It grows from
-     the control's leading or trailing corner; `align: 'center'` grows it about the
+     growing from the control's exact frame and collapsing back into it, and its
+     material goes with its size: it starts as the control's own glass and thickens as
+     it grows, and thins back on the way home (glass.css, --lg-t). It grows from the
+     control's leading or trailing corner; `align: 'center'` grows it about the
      control's centre instead. */
 
   let activePop = null;
@@ -105,11 +140,20 @@
     const geometry = (el, atRest) => {
       const r = el.getBoundingClientRect();
       const cs = getComputedStyle(el);
-      let width = r.width, height = r.height;
-      if (atRest && cs.transform && cs.transform !== 'none') {
-        const m = new DOMMatrix(cs.transform);
-        width /= Math.hypot(m.a, m.b) || 1;
-        height /= Math.hypot(m.c, m.d) || 1;
+      let width = r.width, height = r.height, dx = 0, dy = 0;
+      if (atRest) {
+        // A press swells it (transform, scale) and a finger pulls it (translate).
+        if (cs.transform && cs.transform !== 'none') {
+          const m = new DOMMatrix(cs.transform);
+          width /= Math.hypot(m.a, m.b) || 1;
+          height /= Math.hypot(m.c, m.d) || 1;
+        }
+        if (cs.scale && cs.scale !== 'none') {
+          const [sx, sy = sx] = cs.scale.split(' ').map(parseFloat);
+          width /= sx || 1;
+          height /= sy || 1;
+        }
+        if (cs.translate && cs.translate !== 'none') [dx = 0, dy = 0] = cs.translate.split(' ').map(parseFloat);
       }
       // A row that fills a rounded list is drawn with that list's corners.
       let radius = parseFloat(cs.borderTopLeftRadius);
@@ -120,8 +164,8 @@
       }
       radius = radius || 14;
       return {
-        left: r.left + (r.width - width) / 2 - hr.left,
-        top: r.top + (r.height - height) / 2 - hr.top,
+        left: r.left + (r.width - width) / 2 - hr.left - dx,
+        top: r.top + (r.height - height) / 2 - hr.top - dy,
         width,
         height,
         radius: Math.min(radius, width / 2, height / 2),
@@ -145,10 +189,21 @@
     }
 
     const home = src && src.isConnected ? geometry(src) : null;
+    // What grows is the control as it is drawn at this moment; the press it was in is over.
+    if (home) NT.liquid.still(src);
     const seat = home ? geometry(src, true) : null;
+    // Glass that becomes the panel lends it its own glass, so the panel starts as exactly
+    // that control and thickens as it grows. Anything else (a row, a symbol in a card)
+    // is not glass: the panel materializes out of it instead.
+    const srcOpts = home && src.classList.contains('glass') ? NT.glass.optsOf(src) : null;
+    const glassy = !!srcOpts;
+    const srcT = glassy ? NT.glass.state(src).t : 0; // a thick badge is thick already
     const catcher = h('div.pop-catcher' + (opts.dim ? '.dim' : ''));
     const inner = h('div.pop-inner', content);
-    const panel = h('div.pop.glass.thick', { role: opts.role || 'menu', 'aria-label': opts.label || null, 'aria-modal': opts.role === 'alertdialog' ? 'true' : null }, inner);
+    // What is in the panel is clipped to its shape by a layer of its own: a clip on the
+    // panel itself would trim the outer edge of its rim light, which the control's has.
+    const clip = h('div.pop-clip', inner);
+    const panel = h('div.pop.glass.thick', { role: opts.role || 'menu', 'aria-label': opts.label || null, 'aria-modal': opts.role === 'alertdialog' ? 'true' : null }, clip);
     // Glass that is dark over artwork (NT.tone) opens into a panel of the same tone, so
     // the control turning into the panel and back never changes colour at the swap.
     if (src && src.dataset.over) panel.dataset.over = src.dataset.over;
@@ -194,7 +249,8 @@
       if (from) ghost.style.opacity = '0'; // only needed on the way back
       ghost.inert = true;
       ghost.setAttribute('aria-hidden', 'true');
-      panel.append(ghost);
+      NT.liquid.typeOf(src, ghost);
+      clip.append(ghost);
     }
 
     const frame = (g) => ({ left: g.left + 'px', top: g.top + 'px', width: g.width + 'px', height: g.height + 'px', borderRadius: g.radius + 'px' });
@@ -203,25 +259,39 @@
     // times (a row's menu button) is there to open from and to collapse back into.
     if (src) src.classList.add('pop-source');
     if (src) src.style.visibility = 'hidden';
-    // No colour split here: the panel changes size on every frame of its morph, and the
-    // three-pass filter cannot keep up with that. Its thick fill would hide the fringe anyway.
-    NT.glass.refract(panel, { bezel: 18, magnify: 0.008, dispersion: 0 });
+    // Thick glass splits no colour and magnifies less; the control's glass may do both, so
+    // the panel does as the control does at its size and less as it thickens. Where it no
+    // longer splits colour at all the lens drops to one pass, which keeps a growing panel
+    // within its frames (glass.js).
+    NT.glass.refract(panel, glassy
+      ? Object.assign(srcOpts, { lens: true, bezel: 18, magnifyThick: 0.008, dispersionThick: 0 })
+      : { bezel: 18, magnify: 0.008, dispersion: 0 });
+    // Exactly the control's lens on the first frame; its own once it is nearly grown.
+    if (glassy && !from) NT.glass.lensFrom(panel, src, true);
 
     let anims = [];
     if (!reduced()) {
-      const sp = motion.smooth;
+      const sp = NT.liquid.exact(motion.smooth);
+      const timing = { duration: sp.duration, easing: sp.easing };
       anims = [
-        panel.animate([frame(start), frame(to)], { duration: sp.duration, easing: sp.easing }),
-        inner.animate([{ opacity: 0, transform: 'scale(0.7)', filter: 'blur(8px)' }, { opacity: 1, transform: 'none', filter: 'blur(0px)' }],
-          { duration: sp.duration * 0.75, easing: sp.easing }),
+        panel.animate([frame(start), frame(to)], timing),
+        inner.animate([{ opacity: 0, transform: 'scale(0.7)' }, { opacity: 1, transform: 'none' }], { duration: sp.duration * 0.75, easing: sp.easing }),
       ];
+      if (glassy && !from) NT.glass.lensTo(panel, { w: fw, h: fh, r: to.radius }, anims[0], sp.duration * 0.3);
+      // A control's glass thickens into the panel's as it grows; anything else, and a
+      // dialog with no control to come from, materializes as it grows.
+      if (!from) anims.push(NT.glass.animate(panel, glassy ? [{ t: srcT }, { t: 1 }] : [{ k: 0 }, { k: 1 }], timing));
       if (ghost && !from) {
-        // Starts as large as the pressed control was drawn, so nothing jumps on the first frame.
+        // Starts as large as the pressed control was drawn (the panel starts where it was
+        // drawn, pulled by the finger), so nothing jumps on the first frame.
         const swell = `${(home.width / seat.width).toFixed(4)} ${(home.height / seat.height).toFixed(4)}`;
         anims.push(ghost.animate([{ opacity: 1, scale: swell }, { opacity: 0, scale: '1 1' }], { duration: 150, easing: 'ease-out', fill: 'forwards' }));
       }
       if (opts.dim) catcher.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 240, easing: 'ease-out' });
-    } else if (ghost) ghost.style.opacity = '0';
+    } else {
+      if (ghost) ghost.style.opacity = '0';
+      if (glassy && !from) NT.glass.lensTo(panel, { w: fw, h: fh, r: to.radius }, null, 0);
+    }
 
     let done = false;
     function onKey(e) {
@@ -285,6 +355,7 @@
         if (instant || reduced()) return void finish();
 
         const cur = pop.rect();
+        const was = NT.glass.state(panel);
         anims.forEach((a) => a.cancel());
         catcher.style.pointerEvents = 'none';
         panel.style.pointerEvents = 'none'; // the control coming back underneath takes the taps
@@ -292,22 +363,26 @@
         const target = back
           ? geometry(src, true)
           : { left: cur.left + (ax === 'right' ? cur.width : ax === 'center' ? cur.width / 2 : 0), top: cur.top + (ay === 'bottom' ? cur.height : 0), width: 0, height: 0, radius: 0 };
-        const sp = motion.snappy;
-        inner.animate([{ opacity: 1, filter: 'blur(0px)' }, { opacity: 0, filter: 'blur(6px)' }], { duration: 130, easing: 'ease-out', fill: 'forwards' });
+        // It lands exactly on the control, so the swap is not even a fraction of a pixel.
+        const sp = NT.liquid.exact(motion.snappy);
+        const timing = { duration: sp.duration, easing: sp.easing, fill: 'forwards' };
+        inner.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 130, easing: 'ease-out', fill: 'forwards' });
         if (ghost) ghost.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 170, delay: sp.duration * 0.3, easing: 'ease-out', fill: 'both' });
         if (opts.dim) catcher.animate([{ opacity: 1 }, { opacity: 0 }], { duration: sp.duration, fill: 'forwards' });
-        const a = panel.animate([frame(cur), frame(target)], { duration: sp.duration, easing: sp.easing, fill: 'forwards' });
-        if (back) {
-          // The panel is thick glass with its own light; the control is not. Swapping one
-          // for the other on the last frame shows as a jump, however well the frames line
-          // up. So once the shape has all but arrived (the spring covers ~90% of the way
-          // in the first 40% of its time) the real control comes back underneath and the
-          // panel's material clears away over it. Removing the panel then changes nothing.
-          const at = sp.duration * 0.4, span = sp.duration - at;
-          handover = [
-            src.animate([{ visibility: 'visible', opacity: 0 }, { visibility: 'visible' }], { delay: at, duration: span * 0.4, easing: 'ease-out', fill: 'forwards' }),
-            panel.animate([{ opacity: 1 }, { opacity: 0 }], { delay: at, duration: span, easing: 'ease-in-out', fill: 'forwards' }),
-          ];
+        const a = panel.animate([frame(cur), frame(target)], timing);
+        if (back && glassy) {
+          // The panel takes the control's own lens back and thins to its glass on the way,
+          // so its last frame is the control, light and all: the swap then shows nothing,
+          // and nothing has to fade to hide it.
+          NT.glass.lensFrom(panel, src, true);
+          NT.glass.animate(panel, [{ k: was.k, t: was.t }, { k: 1, t: srcT }], timing);
+        } else {
+          // Into something that is not glass, or into nothing: the glass goes as it shrinks.
+          NT.glass.animate(panel, [{ k: was.k, t: was.t }, { k: 0, t: was.t }], timing);
+          if (back) {
+            const at = sp.duration * 0.4;
+            handover = [src.animate([{ visibility: 'visible', opacity: 0 }, { visibility: 'visible' }], { delay: at, duration: (sp.duration - at) * 0.6, easing: 'ease-out', fill: 'forwards' })];
+          }
         }
         leaving.add(finish);
         a.onfinish = finish;
@@ -386,32 +461,119 @@
 
   /* ---------- Sheet (inset from the screen edges; drag down to dismiss) ---------- */
 
-  UI.sheet = function ({ title, body, onClose }) {
+  // The control a sheet comes from when none is named: the one that has focus, which a
+  // press gives a button. A menu's item is not it: that menu is on its way back into
+  // its own control, and the sheet comes out of that.
+  function sourceOf(el) {
+    const b = el && el !== document.body && el.closest ? el.closest('button, a[href], [role="button"]') : null;
+    if (!b) return null;
+    if (b.closest('.pop')) return activePop && activePop.src && activePop.src.isConnected ? activePop.src : null;
+    // A button in a capsule of glass: it is the capsule that becomes the sheet.
+    const piece = b.closest('.nav-group, .nav-btn, .nav-pill') || b;
+    const r = piece.getBoundingClientRect();
+    return r.width && r.height ? piece : null;
+  }
+
+  UI.sheet = function ({ title, body, onClose, source }) {
     const wide = () => window.matchMedia('(min-width: 820px)').matches;
     const dim = h('div.sheet-dim');
     const closeBtn = h('button.sheet-close.glass.interactive', { type: 'button', 'aria-label': 'Close', onclick: () => close() }, icon('xmark', 16));
     const header = h('header.sheet-header', h('h2', title), closeBtn);
     const bodyEl = h('div.sheet-body', body);
-    const panel = h('div.sheet', { role: 'dialog', 'aria-modal': 'true', 'aria-label': title },
-      h('div.sheet-glass.glass'), h('div.sheet-grabber'), header, bodyEl);
+    const sheetGlass = h('div.sheet-glass.glass');
+    const content = h('div.sheet-content', h('div.sheet-grabber'), header, bodyEl);
+    const panel = h('div.sheet', { role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, sheetGlass, content);
     const layer = h('div.sheet-layer', dim, panel);
     const returnFocus = document.activeElement;
+    const src = source !== undefined ? source : sourceOf(document.activeElement);
     overlays().append(layer);
     // A sheet is modal: everything else is out of reach until it closes. Only what this
     // sheet put out of reach is given back, so one opened over another nests.
     const held = [...NT.dom.app.children, ...overlays().children]
       .filter((n) => n !== overlays() && n !== NT.dom.toasts && n !== layer && !n.inert);
     held.forEach((n) => { n.inert = true; });
-    NT.glass.refract(panel.firstElementChild, { frost: [4, 12], bezel: 22, magnify: 0, dispersion: 0 });
+    // Grown out of glass, it starts as that glass and thickens into a sheet on the way.
+    const srcOpts = src && src.classList.contains('glass') ? NT.glass.optsOf(src) : null;
+    NT.glass.refract(sheetGlass, srcOpts
+      ? Object.assign(srcOpts, { lens: true, bezel: 22, frostThick: [4, 12], magnifyThick: 0, dispersionThick: 0 })
+      : { frost: [4, 12], bezel: 22, magnify: 0, dispersion: 0 });
     NT.glass.shine(closeBtn);
+
+    // The control's frame at rest, and the sheet's own, in the layer's coordinates.
+    const frameOf = (el, radius) => {
+      const r = el.getBoundingClientRect(), lr = layer.getBoundingClientRect();
+      const rad = radius != null ? radius : Math.min(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 14, r.width / 2, r.height / 2);
+      return { left: r.left - lr.left, top: r.top - lr.top, width: r.width, height: r.height, radius: rad };
+    };
+    const css = (g) => ({ left: g.left + 'px', top: g.top + 'px', width: g.width + 'px', height: g.height + 'px', borderRadius: g.radius + 'px' });
+    // The content sits in the middle of the box, and on whole pixels once the box is the
+    // sheet, so nothing shifts when the sheet goes back to its own layout.
+    const pin = (g, size) => ({ left: (g.width - size.width) / 2 + 'px', top: (g.height - size.height) / 2 + 'px' });
+    // While it changes shape it is a box of its own, its content held at the size it has
+    // at rest and clipped by it, so nothing inside reflows on the way.
+    const morphing = (at, size) => {
+      panel.classList.add('is-morphing');
+      Object.assign(panel.style, css(at));
+      content.style.width = size.width + 'px';
+      content.style.height = size.height + 'px';
+    };
+    const settled = () => {
+      panel.classList.remove('is-morphing');
+      for (const p of ['left', 'top', 'width', 'height', 'borderRadius']) panel.style[p] = '';
+      content.style.width = content.style.height = '';
+    };
+    const showing = () => src && src.isConnected && src.getClientRects().length > 0;
+    // A copy of the control's own content, held in the middle of the box: what the box
+    // is while it is still the control (as a popover's is, UI.popover).
+    const ghostOf = (seat) => {
+      const g = src.cloneNode(true);
+      g.removeAttribute('id');
+      g.classList.remove('glass', 'thick', 'interactive', 'tinted');
+      g.classList.add('pop-ghost');
+      g.style.cssText = `left:0;top:0;width:${seat.width}px;height:${seat.height}px`;
+      g.inert = true;
+      g.setAttribute('aria-hidden', 'true');
+      NT.liquid.typeOf(src, g);
+      panel.append(g);
+      return g;
+    };
+    const clipOf = (g, size) => `inset(${(size.height - g.height) / 2}px ${(size.width - g.width) / 2}px round ${g.radius}px)`;
 
     let closed = false;
     if (!reduced()) {
-      panel.animate(wide()
-        ? [{ transform: 'scale(0.86)' }, { transform: 'none' }]
-        : [{ transform: 'translateY(calc(100% + 24px))' }, { transform: 'none' }],
-      { duration: motion.smooth.duration, easing: motion.smooth.easing });
-      if (wide()) for (const part of panel.children) part.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220, easing: 'ease-out' });
+      const sp = NT.liquid.exact(motion.smooth);
+      const timing = { duration: sp.duration, easing: sp.easing };
+      if (showing()) {
+        // It grows out of the control that brought it up, which is hidden meanwhile: the
+        // control has become the sheet.
+        NT.liquid.still(src);
+        const start = frameOf(src);
+        const end = frameOf(panel, 38);
+        src.style.visibility = 'hidden';
+        morphing(end, end);
+        if (srcOpts) NT.glass.lensFrom(sheetGlass, src, true);
+        const grow = panel.animate([css(start), css(end)], timing);
+        if (srcOpts) NT.glass.lensTo(sheetGlass, { w: end.width, h: end.height, r: 38 }, grow, sp.duration * 0.3);
+        content.animate([pin(start, end), pin(end, end)], timing);
+        // Clipped to the growing box until it has all but arrived; then not at all, so the
+        // last frame is drawn exactly as the sheet at rest is.
+        content.animate([{ clipPath: clipOf(start, end) }, { clipPath: clipOf(end, end), offset: 0.985 }, { clipPath: 'none', offset: 0.99 }, { clipPath: 'none' }], timing);
+        NT.glass.animate(sheetGlass, srcOpts ? [{ t: 0 }, { t: 1 }] : [{ k: 0 }, { k: 1 }], timing);
+        content.animate([{ opacity: 0, transform: 'scale(0.92)' }, { opacity: 1, transform: 'none' }], { duration: sp.duration * 0.6, delay: sp.duration * 0.12, easing: 'ease-out', fill: 'backwards' });
+        const seat = { width: start.width, height: start.height };
+        const ghost = ghostOf(seat);
+        ghost.animate([pin(start, seat), pin(end, seat)], timing);
+        ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: 'ease-out', fill: 'forwards' }).onfinish = () => ghost.remove();
+        grow.onfinish = () => { if (!closed) settled(); };
+      } else if (wide()) {
+        // From nowhere in particular, it materializes where it will be.
+        panel.animate([{ scale: '0.92' }, { scale: '1' }], timing);
+        NT.glass.animate(sheetGlass, [{ k: 0 }, { k: 1 }], timing);
+        content.animate([{ opacity: 0 }, { opacity: 1 }], { duration: sp.duration * 0.5, delay: sp.duration * 0.12, easing: 'ease-out', fill: 'backwards' });
+      } else {
+        // A sheet of its own rises from the bottom edge, as on iOS.
+        panel.animate([{ transform: 'translateY(calc(100% + 24px))' }, { transform: 'none' }], timing);
+      }
       dim.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 300, easing: 'ease-out' });
     }
 
@@ -426,17 +588,44 @@
       NT.tone.touch();
       const done = () => {
         layer.remove();
+        if (src) src.style.visibility = '';
         if (onClose) onClose();
       };
       if (reduced()) return void done();
-      const from = getComputedStyle(panel).transform;
-      const sp = motion.snappy;
-      panel.animate(wide()
-        ? [{ transform: 'none' }, { transform: 'scale(0.88)' }]
-        : [{ transform: from === 'none' ? 'none' : from }, { transform: 'translateY(calc(100% + 24px))' }],
-      { duration: sp.duration, easing: sp.easing, fill: 'forwards' });
-      if (wide()) for (const part of panel.children) part.animate([{ opacity: 1 }, { opacity: 0 }], { duration: sp.duration * 0.8, fill: 'forwards' });
-      const a = dim.animate([{ opacity: getComputedStyle(dim).opacity }, { opacity: 0 }], { duration: sp.duration, fill: 'forwards' });
+      const sp = NT.liquid.exact(motion.snappy);
+      const timing = { duration: sp.duration, easing: sp.easing, fill: 'forwards' };
+      const was = NT.glass.state(sheetGlass);
+      // Where it is now, dragged or still growing.
+      const cur = frameOf(panel, parseFloat(getComputedStyle(panel).borderTopLeftRadius) || 38);
+      const size = { width: content.offsetWidth, height: content.offsetHeight };
+      for (const a of panel.getAnimations()) a.cancel();
+      panel.style.transform = '';
+      content.getAnimations().forEach((a) => a.cancel());
+      content.animate([{ opacity: 1 }, { opacity: 0 }], { duration: sp.duration * 0.4, easing: 'ease-in', fill: 'forwards' });
+      dim.animate([{ opacity: getComputedStyle(dim).opacity }, { opacity: 0 }], { duration: sp.duration, fill: 'forwards' });
+      let a;
+      if (showing()) {
+        // Back into the control it came from, thinning to its glass, so the last frame
+        // is the control and the swap shows nothing.
+        const end = frameOf(src);
+        src.style.visibility = 'hidden';
+        morphing(cur, size);
+        a = panel.animate([css(cur), css(end)], timing);
+        content.animate([Object.assign(pin(cur, size), { clipPath: clipOf(cur, size) }), Object.assign(pin(end, size), { clipPath: clipOf(end, size) })], timing);
+        const seat = { width: end.width, height: end.height };
+        const ghost = ghostOf(seat);
+        ghost.animate([pin(cur, seat), pin(end, seat)], timing);
+        ghost.animate([{ opacity: 0 }, { opacity: 1 }], { duration: sp.duration * 0.35, delay: sp.duration * 0.3, easing: 'ease-out', fill: 'both' });
+        if (srcOpts) {
+          NT.glass.lensFrom(sheetGlass, src, true);
+          NT.glass.animate(sheetGlass, [{ k: was.k, t: was.t }, { k: 1, t: 0 }], timing);
+        } else NT.glass.animate(sheetGlass, [{ k: was.k }, { k: 0 }], timing);
+      } else if (wide()) {
+        a = panel.animate([{ scale: '1' }, { scale: '0.92' }], timing);
+        NT.glass.animate(sheetGlass, [{ k: was.k }, { k: 0 }], timing);
+      } else {
+        a = panel.animate([{ transform: `translateY(${cur.top - frameOf(panel).top}px)` }, { transform: 'translateY(calc(100% + 24px))' }], timing);
+      }
       a.onfinish = done;
     }
 
@@ -486,35 +675,65 @@
 
   const KNOB_LENS = NT.glass.drop({ bezel: 12, magnify: 0.04 });
 
+  // A knob that lifts into glass while held (glass.css, .lens): its lift is its presence
+  // as glass, and its filter is there for as long as it is lifted at all.
+  function lifted(knob, l) {
+    const v = clamp(l, 0, 1);
+    NT.glass.set(knob, { k: v });
+    knob.classList.toggle('lens-on', v > 0.002);
+  }
+
   UI.toggle = function (checked, onChange, label) {
-    const knob = h('span.switch-knob');
+    // Its lens is made now, so the first press has it from its first frame (no filter is
+    // drawn until it lifts).
+    const knob = NT.glass.refract(h('span.switch-knob.lens'), KNOB_LENS);
     const el = h('button.switch', { type: 'button', role: 'switch', 'aria-checked': String(!!checked), 'aria-label': label }, knob);
     let on = !!checked;
     let drag = null;
+    const TRAVEL = 21;
+    // Where the knob is, how far it has lifted, and a stretch along the way it moves
+    // that grows with its speed: the knob is a drop of glass, not a disc.
+    const paint = () => {
+      const stretch = clamp(Math.abs(pos.velocity) / 900, 0, 0.24);
+      const l = lift.value;
+      knob.style.transform = `translateX(${pos.value.toFixed(2)}px) scale(${((1 + l * 0.3) * (1 + stretch)).toFixed(4)}, ${((1 + l * 0.5) * (1 - stretch * 0.4)).toFixed(4)})`;
+      lifted(knob, l);
+    };
+    const pos = new Spring({ stiffness: 420, damping: 30, value: on ? TRAVEL : 0, onUpdate: paint });
+    const lift = new Spring({ stiffness: 380, damping: 24, precision: 0.002, onUpdate: paint });
+    knob.classList.add('is-sprung');
+    paint();
     const set = (v, fire) => {
       if (v === on) return;
       on = v;
       el.setAttribute('aria-checked', String(on));
+      if (!drag) pos.set(on ? TRAVEL : 0);
       if (fire && onChange) onChange(on);
     };
     el.addEventListener('pointerdown', (e) => {
-      drag = { x: e.clientX, moved: false, start: on };
+      drag = { x: e.clientX, moved: false, start: pos.value };
       el.setPointerCapture(e.pointerId);
       NT.glass.refract(knob, KNOB_LENS);
       el.classList.add('is-pressed');
-      knob.classList.add('lens-held');
+      lift.set(1);
     });
     el.addEventListener('pointermove', (e) => {
       if (!drag) return;
       const dx = e.clientX - drag.x;
       if (Math.abs(dx) > 8) drag.moved = true;
-      if (drag.moved) set(drag.start ? dx > -8 : dx > 8, true);
+      if (!drag.moved) return;
+      // Held, the knob follows the finger along its track; past halfway it is the other state.
+      const x = clamp(drag.start + dx, 0, TRAVEL);
+      pos.set(x);
+      set(x > TRAVEL / 2, true);
     });
     const end = (e) => {
       el.classList.remove('is-pressed');
-      knob.classList.remove('lens-held');
-      if (drag && !drag.moved && e.type === 'pointerup') set(!on, true);
+      const tap = drag && !drag.moved && e.type === 'pointerup';
       drag = null;
+      lift.set(0);
+      if (tap) set(!on, true);
+      pos.set(on ? TRAVEL : 0);
     };
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
@@ -526,7 +745,7 @@
   /* ---------- Slider ---------- */
 
   UI.slider = function ({ min = 0, max = 100, step = 1, value = 0, onInput, label }) {
-    const thumb = h('div.slider-thumb');
+    const thumb = NT.glass.refract(h('div.slider-thumb.lens'), KNOB_LENS);
     const el = h('div.slider', { role: 'slider', tabIndex: 0, 'aria-label': label, 'aria-valuemin': min, 'aria-valuemax': max },
       h('div.slider-track', h('div.slider-fill')), thumb);
     let v = value;
@@ -549,12 +768,17 @@
       if (e.button > 0) return;
       el.setPointerCapture(e.pointerId);
       NT.glass.refract(thumb, KNOB_LENS);
+      // The lift itself is a transition of its presence (glass.css); the filter stays
+      // until that has run back down.
+      thumb.classList.add('lens-on');
       el.classList.add('is-pressed');
-      thumb.classList.add('lens-held');
       fromX(e.clientX);
     });
     el.addEventListener('pointermove', (e) => { if (el.hasPointerCapture(e.pointerId)) fromX(e.clientX); });
-    const end = () => { el.classList.remove('is-pressed'); thumb.classList.remove('lens-held'); };
+    const end = () => el.classList.remove('is-pressed');
+    thumb.addEventListener('transitionend', (e) => {
+      if (e.propertyName === '--lg-k' && !el.classList.contains('is-pressed')) thumb.classList.remove('lens-on');
+    });
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
     // The slider is not selectable (see .slider). If it were, a press would start a text
@@ -576,7 +800,7 @@
      follows the finger and settles on the nearest segment. */
 
   UI.segmented = function (options, value, onChange) {
-    const thumb = h('span.seg-thumb');
+    const thumb = NT.glass.refract(h('span.seg-thumb.lens'), NT.glass.drop({ bezel: 16, magnify: 0.04 }));
     const el = h('div.seg', { role: 'tablist' }, thumb);
     el.style.setProperty('--n', options.length);
     const buttons = options.map((o) => h('button.seg-item', { type: 'button', role: 'tab' }, o.label));
@@ -589,6 +813,7 @@
       const stretch = clamp(Math.abs(pos.velocity) / 2200, 0, 0.26);
       const l = lift.value;
       thumb.style.transform = `translateX(${pos.value.toFixed(2)}px) scale(${((1 + stretch) * (1 + l * 0.06)).toFixed(4)}, ${((1 - stretch * 0.4) * (1 + l * 0.3)).toFixed(4)})`;
+      lifted(thumb, l);
       if (drag) mark(nearest());
     };
     const pos = new Spring({ stiffness: 340, damping: 27, onUpdate: paint });
@@ -622,7 +847,6 @@
       el.setPointerCapture(e.pointerId);
       NT.glass.refract(thumb, NT.glass.drop({ bezel: 16, magnify: 0.04 }));
       el.classList.add('is-lifting');
-      thumb.classList.add('lens-held');
       lift.set(1);
       follow(e.clientX);
     });
@@ -631,7 +855,6 @@
       if (!drag) return;
       drag = null;
       el.classList.remove('is-lifting');
-      thumb.classList.remove('lens-held');
       lift.set(0);
       if (e.type === 'pointerup') {
         const r = el.getBoundingClientRect();
@@ -789,6 +1012,7 @@
       const stretch = clamp(Math.abs(pos.velocity) / 2400, 0, 0.3);
       const l = lift.value;
       lens.style.transform = `translateX(${pos.value.toFixed(2)}px) scale(${((1 + stretch) * (1 + l * 0.14)).toFixed(4)}, ${((1 - stretch * 0.4) * (1 + l * 0.24)).toFixed(4)})`;
+      lifted(lens, l);
       if (drag) markUnderLens();
     }
 
@@ -863,7 +1087,7 @@
     }
 
     function build() {
-      lens = h('div.tab-lens');
+      lens = h('div.tab-lens.lens');
       const sheetOfGlass = h('div.tabbar-glass.glass');
       capsule = h('div.tabbar-capsule', { role: 'tablist', 'aria-label': 'Sections' }, sheetOfGlass, lens);
       for (const t of TABS) {
@@ -963,20 +1187,24 @@
       else if (y < lastY - 4 || y < 24) setMinimized(false);
     }
 
+    // On a phone the accessory sits just above the bar: it comes out of the bar's glass and
+    // goes back into it, as a drop parts from water (NT.liquid). Elsewhere it has nothing
+    // beside it, and materializes where it is.
     function setAccessory(node) {
       if (node === currentAccessory) return;
       const old = currentAccessory;
       currentAccessory = node || null;
+      const bar = phone.matches && !NT.dom.app.classList.contains('tab-hidden') ? capsule.querySelector('.tabbar-glass') : null;
       if (old) {
         if (reduced()) old.remove();
-        else old.animate([{ opacity: 1, transform: 'none', filter: 'blur(0px)' }, { opacity: 0, transform: 'scale(0.8)', filter: 'blur(8px)' }], { duration: 200, easing: 'ease-in', fill: 'forwards' }).onfinish = () => old.remove();
+        else (bar ? NT.liquid.absorb(old, bar) : NT.liquid.materialize(old, false)).finished.then(() => old.remove());
       }
       if (node) {
         accessoryHost.append(node);
         NT.glass.refract(node);
         if (!reduced()) {
-          node.animate([{ opacity: 0, transform: 'translateY(20px) scale(0.8)', filter: 'blur(8px)' }, { opacity: 1, transform: 'none', filter: 'blur(0px)' }],
-            { duration: motion.bouncy.duration, easing: motion.bouncy.easing });
+          if (bar) NT.liquid.split(node, bar);
+          else NT.liquid.materialize(node, true, { timing: motion.bouncy });
         }
       }
     }

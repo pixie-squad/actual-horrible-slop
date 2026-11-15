@@ -52,7 +52,7 @@
       name: 'Liquid Glass',
       fonts: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap',
       css: ['tokens', 'glass', 'app', 'media', 'project', 'tests'],
-      js: ['lens', 'glass', 'ui', 'media-ui', 'pages', 'tests-ui', 'editor', 'app'],
+      js: ['lens', 'glass', 'liquid', 'ui', 'media-ui', 'pages', 'tests-ui', 'editor', 'app'],
     },
     {
       id: 'md3',

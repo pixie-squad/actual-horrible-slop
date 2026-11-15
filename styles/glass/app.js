@@ -20,38 +20,106 @@
 
   let stage;
 
-  // Toolbar glass reshapes between pages rather than cross-fading. On each side the
-  // outermost item stretches or shrinks into its counterpart on the next page; items
-  // with no counterpart materialise or dissolve where they sit.
+  /*
+    Toolbar glass reshapes between pages rather than cross-fading (NT.liquid). On each
+    side the outermost piece becomes its counterpart on the next page: one piece of
+    glass changes width while what is on it changes. The pieces beside it on the new
+    page come out of it, one out of the next; those that are not on the new page go back
+    into it. A side that had nothing materializes; one left with nothing dissolves.
+  */
+  // A copy of what is on a piece, to leave from where it was while the piece changes.
+  function ghostOf(el, side) {
+    const g = el.cloneNode(true);
+    g.removeAttribute('id');
+    g.classList.remove('glass', 'thick', 'interactive', 'tinted', 'has-spec');
+    g.classList.add('pop-ghost');
+    const w = el.offsetWidth;
+    const at = side === 'lead' ? 'left:0' : side === 'trail' ? 'right:0' : `left:calc(50% - ${w / 2}px)`;
+    g.style.cssText = `top:0;${at};width:${w}px;height:${el.offsetHeight}px`;
+    g.inert = true;
+    g.setAttribute('aria-hidden', 'true');
+    NT.liquid.typeOf(el, g);
+    return g;
+  }
+
+  // One piece of glass, `eb`, taking over from `ea` where it was: its width from ea's,
+  // ea's content leaving while its own arrives, and its colour from ea's where they differ.
+  function becomes(eb, ea, side, sp) {
+    const anims = [];
+    const w0 = ea.offsetWidth, w1 = eb.offsetWidth;
+    if (Math.abs(w0 - w1) > 1) anims.push(eb.animate([{ width: w0 + 'px' }, { width: w1 + 'px' }], { duration: sp.duration, easing: sp.easing }));
+    const ghost = ghostOf(ea, side);
+    eb.append(ghost);
+    // Where the glass narrows, what it carried is cut by its edge as it goes, never left
+    // hanging outside it.
+    const cut = Math.max(0, w0 - w1);
+    if (cut) {
+      const inset = side === 'lead' ? `0 ${cut}px 0 0` : side === 'trail' ? `0 0 0 ${cut}px` : `0 ${cut / 2}px`;
+      anims.push(ghost.animate([{ clipPath: 'inset(0)' }, { clipPath: `inset(${inset})` }], { duration: sp.duration, easing: sp.easing, fill: 'forwards' }));
+    }
+    const out = ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: sp.duration * 0.35, easing: 'ease-out', fill: 'forwards' });
+    out.onfinish = out.oncancel = () => ghost.remove();
+    anims.push(out);
+    for (const child of eb.children) {
+      if (child === ghost) continue;
+      anims.push(child.animate([{ opacity: 0 }, { opacity: 1 }], { duration: sp.duration * 0.45, delay: sp.duration * 0.15, easing: 'ease-out', fill: 'backwards' }));
+    }
+    // Tinted glass and plain glass are the same glass in another colour: it changes.
+    if (ea.classList.contains('tinted') !== eb.classList.contains('tinted')) {
+      const ca = getComputedStyle(ea), cb = getComputedStyle(eb);
+      anims.push(eb.animate([
+        { backgroundColor: ca.backgroundColor, backgroundImage: 'none', color: ca.color },
+        { backgroundColor: cb.backgroundColor, backgroundImage: 'none', color: cb.color, offset: 0.7 },
+        { backgroundColor: cb.backgroundColor, color: cb.color },
+      ], { duration: sp.duration, easing: 'ease-out' }));
+    }
+    return anims;
+  }
+
   function morphBars(from, to) {
     const anims = [];
-    const sp = motion.smooth;
+    const L = NT.liquid;
+    const sp = L.exact(motion.smooth);
+    const add = (h) => anims.push(...h.anims);
     for (const side of ['lead', 'trail']) {
-      const a = [...from[side].children].filter((n) => n.classList.contains('glass'));
-      const b = [...to[side].children].filter((n) => n.classList.contains('glass'));
-      const outer = (list) => (side === 'lead' ? list[0] : list[list.length - 1]);
-      const ea = outer(a), eb = outer(b);
-      for (const el of b) {
-        if (el === eb && ea) {
-          const w0 = ea.offsetWidth, w1 = el.offsetWidth;
-          if (Math.abs(w0 - w1) > 1) anims.push(el.animate([{ width: w0 + 'px' }, { width: w1 + 'px' }], { duration: sp.duration, easing: sp.easing }));
-          for (const child of el.children) {
-            anims.push(child.animate([{ opacity: 0, transform: 'scale(0.5)' }, { opacity: 1, transform: 'scale(1)' }],
-              { duration: sp.duration * 0.7, delay: 50, easing: sp.easing, fill: 'backwards' }));
-          }
-        } else {
-          anims.push(el.animate([{ transform: 'scale(0.2)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }],
-            { duration: motion.bouncy.duration, easing: motion.bouncy.easing }));
-        }
+      // Each side's pieces from the screen's edge inward.
+      const inward = (bar) => {
+        const list = [...bar[side].children].filter((n) => n.classList.contains('glass'));
+        return side === 'lead' ? list : list.reverse();
+      };
+      const a = inward(from), b = inward(to);
+      const ea = a[0], eb = b[0];
+      b.forEach((el, i) => {
+        if (i === 0) {
+          if (ea) anims.push(...becomes(el, ea, side, sp));
+          else add(L.materialize(el, true, { timing: sp, origin: side === 'lead' ? 'left center' : 'right center' }));
+        } else add(L.split(el, b[i - 1], { timing: sp }));
+      });
+      a.forEach((el, i) => {
+        if (i === 0 && eb) anims.push(el.animate([{ opacity: 0 }, { opacity: 0 }], { duration: sp.duration, fill: 'forwards' }));
+        else if (i === 0) add(L.materialize(el, false, { origin: side === 'lead' ? 'left center' : 'right center' }));
+        else add(L.absorb(el, eb || a[0]));
+      });
+    }
+    // The title: one capsule becoming the other where both are showing; otherwise the one
+    // that is there materializes or goes. A title with no glass (always there) only
+    // changes its words.
+    const tf = from.navbar.querySelector('.navbar-title-pill'), tt = to.navbar.querySelector('.navbar-title-pill');
+    const shown = (t) => t && getComputedStyle(t).visibility !== 'hidden';
+    const glassy = (t) => t && t.classList.contains('glass');
+    if (shown(tt) && shown(tf) && glassy(tt) && glassy(tf)) {
+      anims.push(...becomes(tt, tf, 'center', sp));
+      anims.push(tf.animate([{ visibility: 'hidden' }, { visibility: 'hidden' }], { duration: sp.duration, fill: 'forwards' }));
+    } else {
+      if (shown(tf)) {
+        if (glassy(tf)) add(L.materialize(tf, false));
+        else anims.push(tf.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, fill: 'forwards' }));
       }
-      for (const el of a) {
-        if (el === ea && eb) anims.push(el.animate([{ opacity: 0 }, { opacity: 0 }], { duration: sp.duration, fill: 'forwards' }));
-        else anims.push(el.animate([{ transform: 'scale(1)', opacity: 1 }, { transform: 'scale(0.2)', opacity: 0 }], { duration: 220, easing: 'ease-in', fill: 'forwards' }));
+      if (shown(tt)) {
+        if (glassy(tt)) add(L.materialize(tt, true, { timing: sp }));
+        else anims.push(tt.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260, delay: 120, easing: 'ease-out', fill: 'backwards' }));
       }
     }
-    const tf = from.navbar.querySelector('.navbar-title-pill'), tt = to.navbar.querySelector('.navbar-title-pill');
-    if (tf) anims.push(tf.animate([{ opacity: getComputedStyle(tf).opacity }, { opacity: 0 }], { duration: 140, fill: 'forwards' }));
-    if (tt) anims.push(tt.animate([{ opacity: 0 }, { opacity: getComputedStyle(tt).opacity }], { duration: 260, delay: 120, easing: 'ease-out', fill: 'backwards' }));
     return anims;
   }
 

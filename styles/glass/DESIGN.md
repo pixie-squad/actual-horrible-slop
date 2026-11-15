@@ -11,7 +11,7 @@ shares are in [/DESIGN.md](../../DESIGN.md); these are on top of them.
   dialogs, sheets, toasts. Content (cards, lists, the editor, a test run's panel) is
   opaque and scrolls underneath. Never put `.glass` on content.
 - The one exception is a control's moving part while it is held: a switch knob, slider
-  thumb or segment thumb lifts into glass (`.lens-held`) and settles back.
+  thumb or segment thumb lifts into glass (`.lens`) and settles back.
 - Use glass sparingly. Repeated glass in content (the heart on a card) takes the light
   only, never the lens (`NT.glass.shine`, not `NT.glass.refract`).
 - Nothing spans the top of the screen. The top bar is floating pieces, not a slab.
@@ -77,9 +77,32 @@ Prefer space and grouping to a line. Where a line is right:
 
 ## 7. Feedback and motion
 
-- Pressed glass swells and lights up where it was touched (`.interactive`, `--press`,
-  `.glass::after`). Pressed content recedes (`.pressable`). Neither changes colour in
-  blocks.
+Glass is liquid, not only glass. Its material has a presence and a thickness
+(`--lg-k`, `--lg-t`, glass.css), and the lens takes the same values in every frame
+(glass.js follows them). What moves it is in `liquid.js`.
+
+- **Glass never fades.** It materializes: its bend, frost, fill, light and shadow grow
+  from nothing while it swells out of a drop, and what is on it fades in
+  (`NT.liquid.materialize`). It goes the same way back. Nothing animates `opacity` on a
+  piece of glass; content on it may fade.
+- **Glass that appears beside glass comes out of it**, and goes back into it: a neck
+  joins the two until it thins and parts (`NT.liquid.split`, `absorb`). The top bar's
+  pieces between pages, the accessory above the tab bar.
+- **One piece of glass becomes the next** where it can: a toolbar piece changes width
+  while its content changes (`morphBars`), a toast that is replaced takes the new words.
+- **Size is thickness.** Glass that grows into a menu, dialog or sheet thickens on the
+  way (denser fill, more frost, deeper shadow, no colour split) and thins back on the
+  way home, so it lands as the control it left: the last frame and the frame after the
+  swap are the same, without a fade to hide anything (`UI.popover`, `UI.sheet`,
+  `NT.glass.lensFrom`, `NT.liquid.exact`).
+- Pressed glass swells, and the finger pulls it after itself, stretching past its edge
+  (`NT.liquid` flex, through `scale` and `translate`). Its light starts under the finger,
+  spreads through it and reaches the glass beside it (`.is-lit`, `.is-near`). Pressed
+  content recedes (`.pressable`). Neither changes colour in blocks.
+- A knob that lifts into glass (`.lens`) brings its lens in with its lift, never at
+  once; it stretches with its speed (switch, segmented control, tab bar).
+- Reduce Motion takes the elastic part away (no flex, no stretch); glass still comes
+  and goes in place.
 - Popovers are not new layers that fade in: the control that was tapped becomes the
   menu or dialog and collapses back into it (`UI.popover`).
 - A dialog grows about the centre of the control it came from (`UI.confirm`). Only an
@@ -134,4 +157,11 @@ Apple Human Interface Guidelines, as read on 2026-11-10:
 - [Toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars): grouping, symbols, the primary action, titles.
 - [Menus](https://developer.apple.com/design/human-interface-guidelines/menus): order, groups and separators, icons, labels.
 
-Sections 7, 9 and 10 are this project's own rules.
+Liquid motion (section 7), as read on 2026-11-15:
+
+- [Meet Liquid Glass](https://developer.apple.com/videos/play/wwdc2025/219/) (WWDC25): materializing instead of fading, lensing, flexing and light spreading on touch, thicker material at larger sizes, elements lifting into glass.
+- [Build a SwiftUI app with the new design](https://developer.apple.com/videos/play/wwdc2025/323/) (WWDC25): controls morphing into menus, dialogs and sheets; interactive glass scaling, bouncing and shimmering.
+- [Applying Liquid Glass to custom views](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views), [GlassEffectContainer](https://developer.apple.com/documentation/swiftui/glasseffectcontainer): shapes blending as they near each other, morphing apart and together.
+- [Adopting Liquid Glass](https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass): knobs transforming into glass, buttons morphing into menus and popovers.
+
+Sections 9 and 10, and the parts of 7 not covered above, are this project's own rules.

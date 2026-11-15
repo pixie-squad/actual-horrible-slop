@@ -55,7 +55,12 @@
     blur: null,       // fixed frost in px; null follows the Clear … Tinted preference
     frost: null,      // [px at Clear, px added by Tinted]; null picks by material
     lens: true,       // false: shader light only, no refraction filter
+    // Where thick glass differs (--lg-t at 1); null: the same as above.
+    magnifyThick: null,
+    dispersionThick: null,
+    frostThick: null, // [px at Clear, px added by Tinted]; null: that of menus
   };
+  const lerp = (a, b, t) => a + (b - a) * t;
 
   // A knob lifted into glass is all bevel: a droplet. It bends gently from edge to
   // centre, magnifying what it rests on instead of folding it over at the rim.
@@ -153,28 +158,70 @@
   };
 
   // Render (or reuse) the lens for the element's current shape and attach it.
+  const fullShape = (entry, size) => {
+    const o = entry.opts;
+    return Object.assign(shapeOf(size ? Object.assign({}, entry, size) : entry), { tilt: o.tilt * Math.PI / 180, curve: o.curve, ior: o.ior, dpr: density() });
+  };
+  function wear(entry, lens, key) {
+    const el = entry.el;
+    entry.key = key;
+    entry.lens = lens;
+    entry.pieces.forEach((node, i) => attr(node, 'href', lens.pieces[i]));
+    if (entry.ramp) attr(entry.ramp, 'href', NT.lens.ramp());
+    el.style.setProperty('--glass-spec', `url("${lens.spec}")`);
+    el.style.setProperty('--glass-slice', lens.slice);
+    fit(entry);
+    el.classList.add('has-spec');
+  }
+
   function apply(entry) {
-    const { opts: o, el } = entry;
-    if (!entry.w || !entry.h) return;
-    const shape = Object.assign(shapeOf(entry), { tilt: o.tilt * Math.PI / 180, curve: o.curve, ior: o.ior, dpr: density() });
+    if (!entry.w || !entry.h || entry.hold) return;
+    const shape = fullShape(entry);
     const key = keyOf(shape);
     // Already wearing this lens. (Counting the turn drops one still on its way for a
     // shape the element has since left.)
     if (key === entry.key) return void entry.turn++;
     const pending = lensFor(shape, key);
     const turn = ++entry.turn;
-    Promise.all([pending, entry.ramp ? NT.lens.ramp() : null]).then(([lens, ramp]) => {
+    pending.then((lens) => {
       if (!lens) return void cache.delete(key);
       if (turn !== entry.turn) return; // the element has changed shape again since
-      entry.key = key;
-      entry.lens = lens;
-      entry.pieces.forEach((node, i) => attr(node, 'href', lens.pieces[i]));
-      if (ramp) attr(entry.ramp, 'href', ramp);
-      el.style.setProperty('--glass-spec', `url("${lens.spec}")`);
-      el.style.setProperty('--glass-slice', lens.slice);
-      fit(entry);
-      el.classList.add('has-spec');
+      wear(entry, lens, key);
     });
+  }
+
+  // Render now the lens a shape will need, { w, h, r }, and wear it once `anim` (the
+  // growth toward that shape) is `at` ms in: a panel still growing takes it once it is
+  // nearly there, rather than after it has come to rest, where the change would show.
+  // It goes by the animation's own time, so a frame held still is still the right one.
+  Glass.lensTo = function (el, size, anim, at) {
+    const entry = entries.get(el);
+    if (!entry) return;
+    const w = Math.round(size.w), h = Math.round(size.h);
+    const r = Math.round(Math.min(size.r, w / 2, h / 2) * 2) / 2;
+    const shape = fullShape(entry, { w, h, r });
+    const key = keyOf(shape);
+    const turn = ++entry.turn;
+    entry.next = { key, lens: null, anim: anim || null, at: at || 0, turn };
+    lensFor(shape, key).then((lens) => {
+      if (!entry.next || entry.next.turn !== turn) return;
+      if (!lens) return void (entry.next = null);
+      entry.next.lens = lens;
+      due(entry);
+    });
+    follow(el);
+  };
+  function due(entry) {
+    const next = entry.next;
+    if (!next) return;
+    if (next.turn !== entry.turn) return void (entry.next = null);
+    if (!next.lens) return;
+    const a = next.anim;
+    const over = !a || a.playState === 'finished' || a.playState === 'idle';
+    if (!over && (Number(a.currentTime) || 0) < next.at) return;
+    entry.next = null;
+    entry.hold = false;
+    wear(entry, next.lens, next.key);
   }
 
   /*
@@ -215,18 +262,26 @@
     // Whole-surface magnification is the ramp, laid over the map at a fraction `a` of
     // full strength. That leaves the lens's own shifts at 1 − a, so the filter bends by
     // that much more to restore them.
-    const o = entry.opts;
+    const o = entry.opts, t = entry.t;
+    // Glass materializes by bending more and more light, never by fading (glass.css).
+    const presence = clamp(entry.k, 0, 1.25);
     const a = entry.ramp ? NT.lens.rampAlpha : 0;
     const scale = lens.reach * (now.throw / lens.throw) * 2 / (1 - a);
-    const spread = entry.passes.length > 1 ? o.dispersion : 0;
-    entry.passes.forEach((node, i) => attr(node, 'scale', (scale * (1 + (i - 1) * spread)).toFixed(2)));
+    // Thick glass may split colour less. Where it no longer splits at all, the filter
+    // drops to one pass (shape): the three would cost a large surface its frames.
+    const spread = o.dispersion > 0 ? lerp(o.dispersion, o.dispersionThick == null ? o.dispersion : o.dispersionThick, t) : 0;
+    shape(entry, spread >= 0.004);
+    const split = entry.passes.length > 1 ? spread : 0;
+    entry.passes.forEach((node, i) => attr(node, 'scale', (scale * presence * (1 + (i - 1) * split)).toFixed(2)));
+    tint(entry);
     if (entry.ramp) {
       // The ramp falls from 1 to 0 across its width and shifts by scale · a at full
       // value. Drawn scale · a / magnify px wide and centred on the element, it moves
       // every point by magnify × its distance from the centre. The edges of a very
       // large surface would ask for more than the ramp can give: there it is eased off.
       const most = scale * a * NT.lens.rampMost;
-      const magnify = Math.min(o.magnify, most / (Math.max(w, h) / 2));
+      const wanted = Math.max(1e-4, lerp(o.magnify, o.magnifyThick == null ? o.magnify : o.magnifyThick, t));
+      const magnify = Math.min(wanted, most / (Math.max(w, h) / 2));
       const span = +(scale * a / magnify / NT.lens.rampSpan).toFixed(1);
       attr(entry.ramp, 'x', +(w / 2 - span / 2).toFixed(1));
       attr(entry.ramp, 'y', +(h / 2 - span / 2).toFixed(1));
@@ -241,27 +296,192 @@
   function frost(entry) {
     if (!entry.blur) return;
     const o = entry.opts;
-    const kind = entry.el.classList;
-    // Glass that carries text diffuses more of what is under it than a clear control does.
-    const [base, span] = o.frost || (kind.contains('thick') ? [3, 8] : kind.contains('tinted') ? [2.5, 6] : [0.5, 4]);
-    const amount = o.blur != null ? o.blur : base + NT.prefs.data.frost * span;
-    attr(entry.blur, 'stdDeviation', amount.toFixed(2));
+    let amount = o.blur;
+    if (amount == null) {
+      const at = ([base, span]) => base + NT.prefs.data.frost * span;
+      // Glass that carries text diffuses more of what is under it than a clear control
+      // does, and glass that grows into such a surface gains it on the way.
+      const regular = at(o.frost || (entry.el.classList.contains('tinted') ? [2.5, 6] : [0.5, 4]));
+      amount = o.frost ? regular : lerp(regular, at(o.frostThick || [3, 8]), entry.t);
+    }
+    attr(entry.blur, 'stdDeviation', (amount * clamp(entry.k, 0, 1)).toFixed(2));
   }
   NT.bus.on('prefs', () => entries.forEach(frost));
+
+  // The steps after the frost: one bend, or, where the glass splits colour, one for each
+  // channel at a slightly different strength. Built again only when that choice changes.
+  function shape(entry, split) {
+    const mode = split ? 'split' : 'one';
+    if (entry.mode === mode) return;
+    entry.mode = mode;
+    for (const node of entry.tail) node.remove();
+    entry.tail = [];
+    entry.passes = [];
+    entry.tints = [];
+    const add = (...nodes) => {
+      entry.filter.append(...nodes);
+      entry.tail.push(...nodes);
+    };
+    const bend = (result) => {
+      const node = make('feDisplacementMap', { in: 'soft', in2: 'map', scale: '0', xChannelSelector: 'R', yChannelSelector: 'G', result });
+      entry.passes.push(node);
+      return node;
+    };
+    if (split) {
+      // Red bends least, blue most. Each pass keeps one channel (and applies that
+      // channel's share of the saturation boost, saving a pass); the three are summed.
+      for (let i = 0; i < 3; i++) {
+        const matrix = make('feColorMatrix', { in: 'b' + i, type: 'matrix', values: '', result: 'c' + i });
+        entry.tints.push(matrix);
+        add(bend('b' + i), matrix);
+      }
+      add(make('feBlend', { in: 'c0', in2: 'c1', mode: 'screen', result: 'rg' }),
+        make('feBlend', { in: 'rg', in2: 'c2', mode: 'screen' }));
+    } else {
+      const matrix = make('feColorMatrix', { in: 'bent', type: 'saturate', values: '1' });
+      entry.tints.push(matrix);
+      add(bend('bent'), matrix);
+    }
+  }
+
+  // Saturation comes in with the glass: at no presence the backdrop is left as it is.
+  function tint(entry) {
+    const s = +lerp(1, entry.opts.saturate, clamp(entry.k, 0, 1)).toFixed(4);
+    if (entry.mode === 'split') {
+      entry.tints.forEach((node, i) => {
+        const rows = [0, 1, 2].map((j) => (j === i ? saturationRow(i, s).join(' ') + ' 0 0' : '0 0 0 0 0'));
+        attr(node, 'values', rows.join('  ') + '  0 0 0 1 0');
+      });
+    } else if (entry.tints[0]) attr(entry.tints[0], 'values', String(s));
+  }
+
+  /*
+    Presence and thickness (--lg-k, --lg-t: glass.css). Whatever sets them, a class, an
+    animation or a transition, the lens takes the same values in the same frame: an
+    element whose values may be moving is read on every frame until they rest (follow).
+  */
+  const num = (v, d) => {
+    const n = parseFloat(v);
+    return isFinite(n) ? n : d;
+  };
+  function settleState(entry, k, t) {
+    if (k === entry.k && t === entry.t) return false;
+    entry.k = k;
+    entry.t = t;
+    frost(entry);
+    fit(entry);
+    return true;
+  }
+  function read(entry, cs = getComputedStyle(entry.el)) {
+    return settleState(entry, clamp(num(cs.getPropertyValue('--lg-k'), 1), 0, 1.25), clamp(num(cs.getPropertyValue('--lg-t'), 0), 0, 1));
+  }
+
+  const live = new Set();
+  let ticking = 0;
+  function tick() {
+    ticking = 0;
+    for (const entry of live) {
+      if (!entry.el.isConnected) { live.delete(entry); continue; }
+      // Paused animations count too: a frame held still for a look must be right as well.
+      due(entry);
+      if (read(entry) || entry.el.getAnimations().length || entry.next) entry.quiet = 0;
+      else if (++entry.quiet > 2) live.delete(entry);
+    }
+    if (live.size) ticking = requestAnimationFrame(tick);
+  }
+  function follow(el) {
+    const entry = entries.get(el);
+    if (!entry) return;
+    entry.quiet = 0;
+    live.add(entry);
+    if (!ticking) ticking = requestAnimationFrame(tick);
+  }
+  document.addEventListener('transitionrun', (e) => {
+    if (e.propertyName === '--lg-k' || e.propertyName === '--lg-t') follow(e.target);
+  }, true);
+
+  // Animate an element's presence and thickness: frames of { k, t, offset }.
+  Glass.animate = function (el, frames, timing) {
+    const keyframes = frames.map((f) => {
+      const o = {};
+      if (f.k != null) o['--lg-k'] = f.k;
+      if (f.t != null) o['--lg-t'] = f.t;
+      if (f.offset != null) o.offset = f.offset;
+      return o;
+    });
+    const anim = el.animate(keyframes, timing);
+    const entry = entries.get(el);
+    if (entry) {
+      // The first frame is painted before the next read, so it is given now.
+      const f = frames[0];
+      settleState(entry, f.k != null ? clamp(f.k, 0, 1.25) : entry.k, f.t != null ? clamp(f.t, 0, 1) : entry.t);
+      follow(el);
+    }
+    return anim;
+  };
+
+  // Set them outright (a knob following a spring sets its lift on every frame).
+  Glass.set = function (el, { k, t } = {}) {
+    if (k != null) el.style.setProperty('--lg-k', (+k).toFixed(4));
+    if (t != null) el.style.setProperty('--lg-t', (+t).toFixed(4));
+    const entry = entries.get(el);
+    if (entry) settleState(entry, k != null ? clamp(+(+k).toFixed(4), 0, 1.25) : entry.k, t != null ? clamp(+(+t).toFixed(4), 0, 1) : entry.t);
+  };
+
+  // What the lens shows now.
+  Glass.state = function (el) {
+    const entry = entries.get(el);
+    if (entry) return { k: entry.k, t: entry.t };
+    const cs = getComputedStyle(el);
+    return { k: num(cs.getPropertyValue('--lg-k'), 1), t: num(cs.getPropertyValue('--lg-t'), 0) };
+  };
+
+  // How much it frosts what is behind it now, as a blur's standard deviation in px
+  // (null where the lens filter does not run, and CSS frosts it instead).
+  Glass.frostOf = (el) => {
+    const entry = entries.get(el);
+    return entry && entry.blur ? num(entry.blur.getAttribute('stdDeviation'), 0) : null;
+  };
+
+  // The options an element's glass was made with, for glass that is to become it.
+  Glass.optsOf = (el) => {
+    const entry = entries.get(el);
+    return entry ? Object.assign({}, entry.opts) : null;
+  };
+
+  /*
+    Wear another element's lens: exactly that one, scaled to this element's shape. A
+    panel that grows out of a button starts as the button's very glass, and takes it
+    back before it collapses into it, so the last frame is the button. With `hold`,
+    no lens of its own is rendered meanwhile.
+  */
+  Glass.lensFrom = function (el, src, hold) {
+    const entry = entries.get(el), from = entries.get(src);
+    if (!entry || !from || !from.lens) return false;
+    entry.hold = !!hold;
+    clearTimeout(entry.timer);
+    entry.turn++; // a lens still on its way for this element is dropped
+    wear(entry, from.lens, from.key);
+    return true;
+  };
 
   function measure(entry) {
     const el = entry.el;
     const w = Math.round(el.offsetWidth), h = Math.round(el.offsetHeight);
     if (!w || !h) return;
-    const r = Math.round(Math.min(parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0, w / 2, h / 2) * 2) / 2;
-    if (w === entry.w && h === entry.h && r === entry.r) return;
+    const cs = getComputedStyle(el);
+    const r = Math.round(Math.min(parseFloat(cs.borderTopLeftRadius) || 0, w / 2, h / 2) * 2) / 2;
     const first = !entry.w;
+    // Presence and thickness are known once the element is in the page.
+    if (first) read(entry, cs);
+    if (w === entry.w && h === entry.h && r === entry.r) return;
     entry.w = w;
     entry.h = h;
     entry.r = r;
     fit(entry);
     clearTimeout(entry.timer);
     if (first) return void apply(entry);
+    if (entry.hold) return;
     // A change of size alone needs nothing more: the lens fits any size. If the corner
     // itself changed (a menu morphing out of a button) the lens is scaled for now, and
     // one for the new corner is rendered once the shape settles: rendering mid-animation
@@ -282,7 +502,11 @@
   Glass.refract = function (el, opts = {}) {
     if (!Glass.refraction || !observer || entries.has(el)) return el;
     const o = Object.assign({}, DEFAULTS, opts);
-    const entry = { el, filter: null, pieces: [], ramp: null, blur: null, passes: [], opts: o, lens: null, key: '', cut: '', w: 0, h: 0, r: -1, timer: 0, missing: 0, turn: 0 };
+    const entry = {
+      el, filter: null, pieces: [], ramp: null, blur: null, passes: [], tints: [], tail: [], mode: '', opts: o,
+      lens: null, key: '', cut: '', w: 0, h: 0, r: -1, timer: 0, missing: 0, turn: 0,
+      k: 1, t: 0, quiet: 0, hold: false, next: null,
+    };
 
     if (o.lens) {
       const id = 'lg-' + ++seq;
@@ -312,28 +536,12 @@
       filter.append(merge);
       const blur = make('feGaussianBlur', { in: 'SourceGraphic', stdDeviation: '0', edgeMode: 'duplicate', result: 'soft' });
       filter.append(blur);
-
-      const bend = (result) => {
-        const node = make('feDisplacementMap', { in: 'soft', in2: 'map', scale: '0', xChannelSelector: 'R', yChannelSelector: 'G', result });
-        entry.passes.push(node);
-        return node;
-      };
-      if (o.dispersion > 0) {
-        // Red bends least, blue most. Each pass keeps one channel (and applies that
-        // channel's share of the saturation boost, saving a pass); the three are summed.
-        for (let i = 0; i < 3; i++) {
-          const rows = [0, 1, 2].map((j) => (j === i ? saturationRow(i, o.saturate).join(' ') + ' 0 0' : '0 0 0 0 0'));
-          filter.append(bend('b' + i), make('feColorMatrix', { in: 'b' + i, type: 'matrix', values: rows.join('  ') + '  0 0 0 1 0', result: 'c' + i }));
-        }
-        filter.append(
-          make('feBlend', { in: 'c0', in2: 'c1', mode: 'screen', result: 'rg' }),
-          make('feBlend', { in: 'rg', in2: 'c2', mode: 'screen' }));
-      } else {
-        filter.append(bend('bent'), make('feColorMatrix', { in: 'bent', type: 'saturate', values: String(o.saturate) }));
-      }
-      ensureDefs().append(filter);
       entry.filter = filter;
       entry.blur = blur;
+      // The bend itself (shape): split into colours until the glass's thickness says not.
+      shape(entry, o.dispersion > 0);
+      tint(entry);
+      ensureDefs().append(filter);
       el.style.setProperty('--glass-refract', `url(#${id})`);
     }
 

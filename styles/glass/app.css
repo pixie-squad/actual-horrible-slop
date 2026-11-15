@@ -101,22 +101,40 @@
   justify-content: center;
   opacity: 0;
   visibility: hidden;
-  transform: translateY(8px) scale(0.92);
-  transition: opacity 0.22s var(--ease-out), transform 0.32s var(--ease-out), visibility 0s linear 0.22s, var(--tone-fade);
+  transition: opacity 0.22s var(--ease-out), visibility 0s linear 0.22s, var(--tone-fade);
 }
-.navbar-title-pill.glass { height: 38px; padding: 0 14px; font-size: 16px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.1), inset 0 0 0 0.5px var(--glass-edge); }
+/* As glass it is never faded: it materializes (glass.css, --lg-k), swelling out of a
+   drop, and its words fade in on it; it goes the same way. */
+.navbar-title-pill.glass {
+  height: 38px;
+  padding: 0 14px;
+  font-size: 16px;
+  opacity: 1;
+  --lg-k: 0;
+  scale: 0.84;
+  transition: --lg-k var(--dur-snappy) var(--land-snappy, var(--spring-snappy)), scale var(--dur-snappy) var(--land-snappy, var(--spring-snappy)),
+    visibility 0s linear var(--dur-snappy), var(--tone-fade);
+}
+.navbar-title-pill.glass > * { opacity: 0; transition: opacity 0.14s var(--ease-out); }
+.navbar.is-scrolled .navbar-title-pill.glass {
+  --lg-k: 1;
+  scale: 1;
+  transition: --lg-k var(--dur-smooth) var(--land-smooth, var(--spring-smooth)), scale var(--dur-smooth) var(--land-smooth, var(--spring-smooth)), visibility 0s, var(--tone-fade);
+}
+.navbar.is-scrolled .navbar-title-pill.glass > * { opacity: 1; transition: opacity 0.26s var(--ease-out) 0.08s; }
+.navbar-title-pill.glass:not(.has-spec) { --_drop: 0 4px 16px color-mix(in srgb, rgb(0 0 0 / 0.1) var(--_k), transparent); --_inner: 0 0 transparent; }
 .navbar-title span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .navbar-title small { display: block; font-size: 11px; line-height: 13px; font-weight: 500; letter-spacing: 0; color: var(--label-2); transition: color 0.22s var(--ease-out); }
 .navbar-title small:empty { display: none; }
 /* "inherit", not "visible": a page that is off screen hides its whole bar, and an
    explicit "visible" here would show through it. */
 .navbar.is-scrolled .navbar-title-pill,
-.navbar.always-title .navbar-title-pill { opacity: 1; visibility: inherit; transform: none; transition-delay: 0s; }
+.navbar.always-title .navbar-title-pill { opacity: 1; visibility: inherit; transition-delay: 0s; }
 
 .nav-btn { width: 44px; height: 44px; display: grid; place-items: center; --press: 1.14; }
 /* Top glass eases between tones (see glass.css, Tone) as well as springing from a press. */
 .nav-btn, .nav-pill { transition: transform var(--dur-bouncy) var(--spring-bouncy), var(--tone-fade); }
-.nav-group { display: flex; align-items: center; height: 44px; padding: 0 3px; transition: var(--tone-fade); }
+.nav-group { display: flex; align-items: center; height: 44px; padding: 0 3px; --press: 1.03; transition: var(--tone-fade); }
 .nav-group-btn {
   width: 42px;
   height: 38px;
@@ -130,9 +148,10 @@
 .nav-group-btn:active { transform: scale(1.18); transition-duration: 0.14s; }
 /* A button that stays on (Changes in the source viewer) says so in its glyph's tint alone. */
 .nav-group-btn[aria-pressed="true"] { color: var(--accent); }
-.nav-group:has(.nav-group-btn:active)::after { opacity: 0.8; transition-duration: 0.1s; }
+.nav-group:has(.nav-group-btn:active) { --glow: 0.8; }
+.nav-group:has(.nav-group-btn:active)::after { transition-duration: 0.1s; }
 @media (hover: hover) {
-  .nav-group:has(.nav-group-btn:hover):not(:has(.nav-group-btn:active))::after { opacity: 0.4; }
+  .nav-group:has(.nav-group-btn:hover):not(:has(.nav-group-btn:active)) { --glow: 0.4; }
 }
 .nav-pill {
   height: 44px;
@@ -199,7 +218,8 @@
 .tab.is-active { color: var(--accent); }
 .tabbar-capsule.is-lifting .tab.is-active svg { transform: scale(1.14); }
 
-/* The selection lens. At rest it is a quiet pill; while dragged it lifts into clear glass. */
+/* The selection lens. At rest it is a quiet pill; while dragged it lifts into clear glass
+   (glass.css, .lens: how far it has lifted is the spring in ui.js). */
 .tab-lens {
   position: absolute;
   z-index: 0;
@@ -208,19 +228,12 @@
   left: 0;
   width: 64px;
   border-radius: 999px;
-  background: var(--tab-sel);
+  --_face: var(--tab-sel);
+  --_resting: 0 0 transparent;
   transform-origin: center;
   will-change: transform;
   pointer-events: none;
-  transition: background 0.25s, box-shadow 0.25s, opacity 0.2s;
-}
-.tabbar-capsule.is-lifting .tab-lens {
-  z-index: 2;
-  background: rgb(255 255 255 / 0.04);
-  -webkit-backdrop-filter: brightness(1.03);
-  backdrop-filter: var(--glass-refract, brightness(1.03));
-  box-shadow: inset 0 0 0 0.75px rgb(255 255 255 / 0.7), inset 0 1.5px 2px rgb(255 255 255 / 0.55),
-    inset 0 -1.5px 2px rgb(255 255 255 / 0.22), 0 8px 22px rgb(0 0 0 / 0.18);
+  transition: opacity 0.2s;
 }
 
 .tabbar-search {
@@ -295,8 +308,9 @@
 #app.tab-hidden .accessory { bottom: calc(12px + var(--safe-bottom)); }
 
 .accessory-btn.glass.tinted {
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 30%, transparent), 0 1px 3px rgb(0 0 0 / 0.1),
-    inset 0 0 0 0.5px rgb(0 0 0 / 0.08);
+  --_drop: 0 4px 14px color-mix(in srgb, color-mix(in srgb, var(--accent) 30%, transparent) var(--_k), transparent),
+    0 1px 3px color-mix(in srgb, rgb(0 0 0 / 0.1) var(--_k), transparent);
+  --_inner: 0 0 transparent;
 }
 .accessory-btn {
   display: flex;
@@ -340,7 +354,10 @@
   font-size: 15px;
   font-weight: 600;
   line-height: 1.25;
+  overflow: hidden;
 }
+/* What a toast said before it took new words: it leaves from where it was. */
+.toast-was { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 10px; padding: inherit; pointer-events: none; }
 .toast svg { color: var(--accent); }
 .toast.warn svg { color: var(--orange); }
 /* A toast that can be acted on takes presses; its action is a plain label in the
@@ -364,7 +381,8 @@
 
 .pop-catcher { position: absolute; inset: 0; }
 .pop-catcher.dim { background: rgb(0 0 0 / 0.22); }
-.pop { position: absolute; overflow: hidden; will-change: width, height; }
+.pop { position: absolute; }
+.pop-clip { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; }
 .pop-inner {
   position: absolute;
   width: max-content;
@@ -429,7 +447,17 @@
   --glass-blur: calc(18px + var(--frost) * 32px);
   will-change: transform;
 }
-.sheet { overflow: hidden; }
+/* What is in the sheet is clipped to its corners, not the sheet itself: a clip there would
+   trim the outer edge of its glass's rim, and a sheet growing out of a control has to
+   arrive with that control's rim, whole (ui.js, UI.sheet). */
+.sheet-content { overflow: hidden; border-radius: inherit; }
+.sheet-content { flex: 0 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* Changing shape (ui.js, UI.sheet): a box of its own, its content held at its resting
+   size in the middle and clipped by it. */
+/* No layer of its own while it lands on a control: a layer's sub-pixel offset draws what
+   is in it a fraction away from where the control draws the same. */
+.sheet.is-morphing { position: absolute; margin: 0; max-width: none; max-height: none; will-change: auto; }
+.sheet.is-morphing > .sheet-content { position: absolute; left: 0; top: 0; flex: none; }
 .sheet-grabber { flex: none; width: 36px; height: 5px; margin: 8px auto 0; border-radius: 3px; background: var(--label-3); }
 .sheet-header {
   flex: none;
@@ -443,7 +471,7 @@
 }
 .sheet-header h2 { font-size: 20px; line-height: 25px; font-weight: 700; letter-spacing: var(--track-display); }
 .sheet-close { flex: none; width: 36px; height: 36px; display: grid; place-items: center; --press: 1.14; }
-.sheet-close.glass { box-shadow: 0 2px 8px rgb(0 0 0 / 0.08), inset 0 0 0 0.5px var(--glass-edge); }
+.sheet-close.glass:not(.has-spec) { box-shadow: 0 2px 8px rgb(0 0 0 / 0.08), inset 0 0 0 0.5px var(--glass-edge); }
 .sheet-body { overflow-y: auto; padding: 4px 16px 20px; overscroll-behavior: contain; scrollbar-width: none; }
 .sheet-body::-webkit-scrollbar { display: none; }
 
@@ -497,7 +525,7 @@
   white-space: nowrap;
   --press: 1.07;
 }
-.pill-btn.glass { box-shadow: 0 3px 12px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.05), inset 0 0 0 0.5px var(--glass-edge); }
+.pill-btn.glass:not(.has-spec) { box-shadow: 0 3px 12px rgb(0 0 0 / 0.08), 0 1px 2px rgb(0 0 0 / 0.05), inset 0 0 0 0.5px var(--glass-edge); }
 
 .badge {
   display: inline-flex;
@@ -1126,33 +1154,28 @@ html[data-solid] .monaco-editor .suggest-details { background: var(--surface-2) 
 .tabbar-glass.glass { position: absolute; inset: 0; z-index: 0; pointer-events: none; transition: var(--tone-fade); }
 .tab { z-index: 2; }
 .tab-lens { z-index: 1; }
-.tab-lens::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-.tabbar-capsule.is-lifting .tab-lens {
-  z-index: 3;
-  background: rgb(255 255 255 / 0.02);
-  box-shadow: 0 8px 22px rgb(0 0 0 / 0.2);
-}
-.tabbar-capsule.is-lifting .tab-lens::before { opacity: var(--spec-opacity, 1); }
+/* Over the tabs for as long as it is glass at all, so they bend through it. */
+.tab-lens.lens-on { z-index: 3; }
 
 .sheet { isolation: isolate; border-radius: 38px; background: none; }
+/* A sheet is the thickest glass there is. When it grows out of a control it starts as
+   that control's glass and thickens on the way (ui.js, UI.sheet). */
 .sheet-glass.glass {
   --_r: 38px;
-  --glass-blur: calc(18px + var(--frost) * 32px);
+  --lg-t: 1;
+  --glass-thick: var(--sheet-fill);
+  --glass-blur-thick: calc(18px + var(--frost) * 32px);
+  /* A sheet casts no shadow (it is clipped to its own shape); the control it grows out
+     of does, so the shadow is the control's and goes as the glass thickens. */
+  --_kd: clamp(0%, calc(var(--lg-k) * (1 - var(--lg-t)) * 100%), 100%);
+  --_drop: 0 var(--shadow-y) var(--shadow-blur) color-mix(in srgb, var(--shadow-far) var(--_kd), transparent),
+    0 2px 6px color-mix(in srgb, var(--shadow-near) var(--_kd), transparent);
   position: absolute;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background: var(--glass-sheen), var(--sheet-fill);
 }
-html[data-solid] .sheet-glass.glass { background: var(--surface); }
+html[data-solid] .sheet-glass.glass { background-color: color-mix(in srgb, var(--surface) var(--_k), transparent); }
 
 /* ---------- Keyboard focus ----------
    Kept at the end so these win over the wide layout above. */

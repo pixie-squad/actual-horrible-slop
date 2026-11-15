@@ -35,7 +35,7 @@
 .seg.tests-views { width: 172px; }
 .tests-act { flex: none; height: 36px; padding: 0 16px; }
 .tests-close { flex: none; display: grid; place-items: center; width: 36px; height: 36px; color: var(--label-2); --press: 1.14; }
-.tests-act.glass, .tests-close.glass { box-shadow: 0 2px 8px rgb(0 0 0 / 0.08), inset 0 0 0 0.5px var(--glass-edge); }
+.tests-act.glass:not(.has-spec), .tests-close.glass:not(.has-spec) { box-shadow: 0 2px 8px rgb(0 0 0 / 0.08), inset 0 0 0 0.5px var(--glass-edge); }
 @media (any-pointer: coarse) { .tests-act { height: 44px; } .tests-close { width: 44px; height: 44px; } }
 
 /* How far along. It fills while the battle is timed and travels while there is no

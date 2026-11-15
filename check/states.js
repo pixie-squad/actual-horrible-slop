@@ -24,14 +24,22 @@ const App = require('./page');
 const Input = require('./input');
 const { wait } = require('./cdp');
 
-// In the page: freezes every animation running at the given fraction of its length.
-function freeze(at) {
+// In the page: freezes every animation running at the given fraction of its length
+// (delay and all). With `clock` (ms) they share one clock instead, as in a real frame:
+// each is put at `at` × clock, or at its own end if that comes first. 'last' is 1 ms
+// before the end (of the clock, or of each), and no animation is put further than 1 ms
+// before its own end, so what an end does (a finish handler swapping one element for
+// another) has not happened yet.
+function freeze(at, clock) {
   const list = document.getAnimations().filter((a) => a.playState === 'running' || a.playState === 'paused');
   for (const a of list) {
     const t = a.effect && a.effect.getComputedTiming();
     if (!t || !isFinite(t.endTime)) continue;
     a.pause();
-    a.currentTime = (t.delay || 0) + (t.activeDuration || 0) * at;
+    const span = (t.delay || 0) + (t.activeDuration || 0);
+    const end = Math.max(0, span - 1);
+    if (clock) a.currentTime = Math.min(at === 'last' ? clock - 1 : clock * at, end);
+    else a.currentTime = at === 'last' ? end : span * at;
   }
   return list.length;
 }
