@@ -44,76 +44,140 @@
 
   /* ---------- Toast (sits below the top bar, never over its buttons) ---------- */
 
-  let currentToast = null;
+  /*
+    There is one toast: a piece of glass that materializes where it is and goes the same
+    way (NT.liquid). Whatever is said while it is there is said by that glass.
 
-  // opts.action: { label, onSelect }, a text button at the toast's trailing end, as
-  // iOS puts Undo in a banner: no shape of its own inside the glass, the label in the
-  // accent, dimming while held. Choosing it puts the toast away.
-  // A toast is glass that materializes where it is and goes the same way (NT.liquid). One
-  // that comes while another is showing does not stack on it: the glass that is there
-  // takes the new words, changing shape to fit them.
-  UI.toast = function (message, opts = {}) {
-    const act = opts.action;
-    let owner = null;
-    const parts = () => {
-      const list = [icon(opts.icon || (opts.warn ? 'warning' : 'check'), 20), h('span', message)];
-      if (act) {
-        list.push(h('button.toast-action', { type: 'button', onclick: () => {
-          if (!owner || owner.gone) return;
-          owner.away();
-          act.onSelect();
-        } }, act.label));
-      }
-      return list;
-    };
-    const t = currentToast && !currentToast.gone && currentToast.el.isConnected ? currentToast : null;
-    owner = t;
-    if (t) {
-      clearTimeout(t.timer);
-      t.restyle(opts, act);
-      t.replace(parts());
-    } else {
-      const el = h('div.toast.glass.thick', { role: 'status' });
-      const toast = (currentToast = {
-        el,
-        gone: false,
-        timer: 0,
-        restyle(o, a) {
-          el.classList.toggle('warn', !!o.warn);
-          el.classList.toggle('has-action', !!a);
-        },
-        replace(nodes) {
-          if (reduced() || !el.firstChild) return void el.replaceChildren(...nodes);
-          // The old words leave from where they are while the glass changes size.
-          const from = { w: el.offsetWidth, h: el.offsetHeight };
-          const old = h('div.toast-was', { 'aria-hidden': 'true' }, ...el.childNodes);
-          old.style.cssText = `width:${from.w}px;height:${from.h}px`;
-          el.replaceChildren(...nodes);
-          const to = { w: el.offsetWidth, h: el.offsetHeight };
-          el.append(old);
-          const sp = motion.smooth;
-          el.animate([{ width: from.w + 'px', height: from.h + 'px' }, { width: to.w + 'px', height: to.h + 'px' }], { duration: sp.duration, easing: sp.easing });
-          old.animate([{ opacity: 1 }, { opacity: 0 }], { duration: sp.duration * 0.3, fill: 'forwards' }).onfinish = () => old.remove();
-          for (const n of nodes) n.animate([{ opacity: 0 }, { opacity: 1 }], { duration: sp.duration * 0.45, delay: sp.duration * 0.15, easing: 'ease-out', fill: 'backwards' });
-        },
-        away() {
-          if (toast.gone || !el.isConnected) return;
-          toast.gone = true;
-          clearTimeout(toast.timer);
-          if (currentToast === toast) currentToast = null;
-          el.removeAttribute('role');
-          NT.liquid.materialize(el, false, { content: [...el.children], grow: 0.62 }).finished.then(() => el.remove());
-        },
-      });
-      owner = toast;
-      toast.restyle(opts, act);
-      el.append(...parts());
+      the same words again   it swells for a moment, as glass does when pressed, and stays
+                             its time over again; nothing is redrawn
+      other words            the glass takes them, closing in or opening out around them
+      while it is going      it turns back from where it had got to, with the new words
+
+    opts.action: { label, onSelect }, a text button at the toast's trailing end, as iOS
+    puts Undo in a banner: no shape of its own inside the glass, the label in the accent,
+    dimming while held. Choosing it puts the toast away.
+  */
+  let toast = null;
+
+  // A length as layout has it. A computed style's text is rounded to a thousandth; a
+  // box set that much too narrow would wrap its last word.
+  const laid = (el) => {
+    const cs = getComputedStyle(el);
+    return { w: Math.ceil(parseFloat(cs.width) * 64) / 64, h: Math.ceil(parseFloat(cs.height) * 64) / 64 };
+  };
+
+  function newToast() {
+    const el = h('div.toast.glass.thick', { role: 'status' });
+    const t = { el, timer: 0, sig: '', act: null, words: null, leaving: false, motion: null, morph: null };
+
+    // The words, the first time: the glass materializes around them.
+    t.arrive = (words) => {
+      t.words = words;
+      el.append(words);
       NT.dom.toasts.append(el);
       NT.glass.refract(el, { bezel: 18, magnify: 0.008 });
-      NT.liquid.materialize(el, true, { content: [...el.children], grow: 0.62, timing: motion.bouncy });
-    }
-    const live = currentToast;
-    live.timer = setTimeout(() => live.away(), opts.duration || (act ? 6000 : 2600));
+      const m = (t.motion = NT.liquid.materialize(el, true, { content: [words], grow: 0.62, timing: motion.bouncy }));
+      m.finished.then(() => { if (t.motion === m) t.motion = null; });
+    };
+
+    // New words in place of the old. Each is laid out at its own size about the middle
+    // of the glass, which changes shape around them: nothing in either is laid out
+    // again on the way, so no line breaks and joins as the glass passes its width.
+    // The old words go first, from however much of them was showing (words that had not
+    // come in yet never do), and the new come in as the glass reaches their size.
+    t.swap = (words) => {
+      const old = t.words;
+      t.words = words;
+      if (reduced() || !old || !old.isConnected) return void el.replaceChildren(words);
+      const seen = parseFloat(getComputedStyle(old).opacity);
+      const was = laid(old), from = laid(el);
+      if (t.morph) t.morph.cancel();
+      old.classList.add('toast-was');
+      old.inert = true;
+      old.setAttribute('aria-hidden', 'true');
+      old.style.cssText = `width:${was.w}px;height:${was.h}px;left:calc(50% - ${was.w / 2}px);top:calc(50% - ${was.h / 2}px)`;
+      el.prepend(words);
+      const to = laid(el);
+      // Held at the size they will have, whatever the glass is on the way there.
+      words.style.width = to.w + 'px';
+      words.style.maxWidth = 'none';
+      const sp = NT.liquid.exact(motion.smooth);
+      const a = (t.morph = el.animate([{ width: from.w + 'px', height: from.h + 'px' }, { width: to.w + 'px', height: to.h + 'px' }], { duration: sp.duration, easing: sp.easing }));
+      a.onfinish = () => {
+        if (t.morph !== a) return;
+        t.morph = null;
+        words.style.width = words.style.maxWidth = '';
+      };
+      for (const fade of old.getAnimations()) fade.cancel();
+      old.animate([{ opacity: seen }, { opacity: 0 }], { duration: sp.duration * 0.2, fill: 'forwards' }).onfinish = () => old.remove();
+      words.animate([{ opacity: 0 }, { opacity: 1 }], { duration: sp.duration * 0.4, delay: sp.duration * 0.2, easing: 'ease-out', fill: 'backwards' });
+    };
+
+    // Said again: the glass answers, and nothing on it changes.
+    t.nudge = () => {
+      if (reduced() || t.motion) return;
+      el.animate([{ scale: '1', easing: 'ease-out' }, { scale: '1.045', offset: 0.18, easing: motion.bouncy.easing }, { scale: '1' }], { duration: motion.bouncy.duration * 1.2 });
+    };
+
+    t.away = () => {
+      if (t.leaving || !el.isConnected) return;
+      t.leaving = true;
+      clearTimeout(t.timer);
+      el.removeAttribute('role');
+      if (t.motion) t.motion.cancel();
+      const m = (t.motion = NT.liquid.materialize(el, false, { content: [t.words], grow: 0.62 }));
+      m.finished.then(() => {
+        if (t.motion !== m) return; // it turned back
+        el.remove();
+        if (toast === t) toast = null;
+      });
+    };
+
+    // Wanted again while going: back from where it has got to, glass and size alike.
+    t.back = (words) => {
+      const k = NT.glass.state(el).k;
+      const size = parseFloat(getComputedStyle(el).scale) || 1;
+      const m = t.motion;
+      t.motion = null;
+      t.leaving = false;
+      el.setAttribute('role', 'status');
+      const sp = NT.liquid.exact(motion.smooth);
+      const timing = { duration: sp.duration, easing: sp.easing };
+      NT.glass.animate(el, [{ k }, { k: 1 }], timing);
+      el.animate([{ scale: String(size) }, { scale: '1' }], timing);
+      // The words are taken over as they are, before the way out is let go of.
+      t.swap(words);
+      if (m) m.cancel();
+    };
+    return t;
+  }
+
+  UI.toast = function (message, opts = {}) {
+    const act = opts.action || null;
+    const sig = JSON.stringify([message, opts.icon || '', !!opts.warn, act ? act.label : '']);
+    let t = toast && toast.el.isConnected ? toast : null;
+    const fresh = !t;
+    if (fresh) t = toast = newToast();
+    clearTimeout(t.timer);
+    const words = () => h('div.toast-words' + (opts.warn ? '.warn' : '') + (act ? '.has-action' : ''),
+      icon(opts.icon || (opts.warn ? 'warning' : 'check'), 20),
+      h('span', message),
+      act ? h('button.toast-action', { type: 'button', onclick: () => {
+        const chosen = t.act;
+        if (t.leaving || !chosen) return;
+        t.away();
+        chosen.onSelect();
+      } }, act.label) : null);
+    const same = !fresh && !t.leaving && t.sig === sig;
+    // The action is the latest one's, the same words or not (the last thing deleted).
+    t.act = act;
+    t.sig = sig;
+    t.el.classList.toggle('has-action', !!act);
+    if (fresh) t.arrive(words());
+    else if (t.leaving) t.back(words());
+    else if (same) t.nudge();
+    else t.swap(words());
+    t.timer = setTimeout(t.away, opts.duration || (act ? 6000 : 2600));
   };
 
   /* ---------- Morphing popover ----------
@@ -127,6 +191,7 @@
 
   let activePop = null;
   const leaving = new Set(); // popovers still collapsing: each entry completes one at once
+  let goingPop = null; // the one most lately on its way back, until it is there
 
   UI.popover = function (anchor, content, opts = {}) {
     const host = overlays();
@@ -239,18 +304,28 @@
     // A copy of the control's own content, so it visibly turns into the popover and back.
     // It is laid out at the control's resting size, pinned to the corner the panel grows
     // from: that is exactly where the real content sits once the panel has collapsed.
+    // It is a copy of the control as it is when the copy is made: on the way back that is
+    // the control as it is by then (a value picked from the menu is the new one).
+    const ghostOf = (at) => {
+      // Its colours are the control's own, not those of a control marked as away.
+      const marked = src.classList.contains('pop-source');
+      src.classList.remove('pop-source');
+      const g = src.cloneNode(true);
+      g.removeAttribute('id');
+      g.classList.remove('glass', 'thick', 'interactive', 'tinted', 'pop-source', 'is-flexing', 'is-lit', 'is-near');
+      g.classList.add('pop-ghost');
+      g.style.cssText = `width:${at.width}px;height:${at.height}px;${pinned(at.width)}`;
+      g.inert = true;
+      g.setAttribute('aria-hidden', 'true');
+      NT.liquid.typeOf(src, g);
+      if (marked) src.classList.add('pop-source');
+      clip.append(g);
+      return g;
+    };
     let ghost = null;
     if (home) {
-      ghost = src.cloneNode(true);
-      ghost.removeAttribute('id');
-      ghost.classList.remove('glass', 'thick', 'interactive', 'tinted');
-      ghost.classList.add('pop-ghost');
-      ghost.style.cssText = `width:${seat.width}px;height:${seat.height}px;${pinned(seat.width)}`;
+      ghost = ghostOf(seat);
       if (from) ghost.style.opacity = '0'; // only needed on the way back
-      ghost.inert = true;
-      ghost.setAttribute('aria-hidden', 'true');
-      NT.liquid.typeOf(src, ghost);
-      clip.append(ghost);
     }
 
     const frame = (g) => ({ left: g.left + 'px', top: g.top + 'px', width: g.width + 'px', height: g.height + 'px', borderRadius: g.radius + 'px' });
@@ -294,6 +369,8 @@
     }
 
     let done = false;
+    let kept = false; // its control has been taken over with it (handOver)
+    let settle = null; // on its way back: ends that at once
     function onKey(e) {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -328,6 +405,27 @@
         catcher.remove();
         if (src) src.classList.remove('pop-source');
       },
+      // A sheet takes this panel's place, wherever it has got to: open, or on its way
+      // back into its control. → what the sheet goes on from. The panel is gone at
+      // once and its control stays away: it is the sheet's now (UI.sheet).
+      handOver() {
+        const open = !done;
+        const state = NT.glass.state(panel);
+        const cs = getComputedStyle(panel);
+        const token = (name) => cs.getPropertyValue(name).trim();
+        const given = {
+          open, src, opener, panel, rect: pop.rect(), k: state.k, t: state.t,
+          // What is in it, where it is, to go as the sheet comes (an open one only).
+          rest: open ? inner : null,
+          look: { fill: token('--glass-thick'), blur: token('--glass-blur-thick'), y: token('--shadow-y'), spread: token('--shadow-blur') },
+        };
+        kept = true;
+        if (open) {
+          if (opts.onDismiss) opts.onDismiss();
+          pop.destroy();
+        } else if (settle) settle();
+        return given;
+      },
       close(instant) {
         if (done) return;
         done = true;
@@ -338,20 +436,21 @@
         // already sent it somewhere else. A closing panel takes no more keys.
         const restore = unfocused() || panel.contains(document.activeElement);
         panel.inert = true;
-        let handover = [];
         let settled = false;
         const finish = () => {
           if (settled) return;
           settled = true;
           leaving.delete(finish);
+          if (goingPop === pop) goingPop = null;
           panel.remove();
           catcher.remove();
-          if (src) src.style.visibility = '';
           if (src) src.classList.remove('pop-source');
-          handover.forEach((a) => a.cancel());
+          if (kept) return; // a sheet has taken its place, and its control
+          if (src) src.style.visibility = '';
           if (restore && unfocused()) refocus(opener);
           NT.tone.touch();
         };
+        settle = finish;
         if (instant || reduced()) return void finish();
 
         const cur = pop.rect();
@@ -367,6 +466,11 @@
         const sp = NT.liquid.exact(motion.snappy);
         const timing = { duration: sp.duration, easing: sp.easing, fill: 'forwards' };
         inner.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 130, easing: 'ease-out', fill: 'forwards' });
+        // What it turns back into is the control as it is now, at the size it has now.
+        if (back && ghost) {
+          ghost.remove();
+          ghost = ghostOf(target);
+        }
         if (ghost) ghost.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 170, delay: sp.duration * 0.3, easing: 'ease-out', fill: 'both' });
         if (opts.dim) catcher.animate([{ opacity: 1 }, { opacity: 0 }], { duration: sp.duration, fill: 'forwards' });
         const a = panel.animate([frame(cur), frame(target)], timing);
@@ -377,14 +481,14 @@
           NT.glass.lensFrom(panel, src, true);
           NT.glass.animate(panel, [{ k: was.k, t: was.t }, { k: 1, t: srcT }], timing);
         } else {
-          // Into something that is not glass, or into nothing: the glass goes as it shrinks.
+          // Into something that is not glass, or into nothing: the glass goes as it shrinks,
+          // and leaves the copy of the control where the control is. The control itself is
+          // not shown under it meanwhile: two of the same thing, each part there, are a
+          // smear, and with a value just picked they do not even say the same.
           NT.glass.animate(panel, [{ k: was.k, t: was.t }, { k: 0, t: was.t }], timing);
-          if (back) {
-            const at = sp.duration * 0.4;
-            handover = [src.animate([{ visibility: 'visible', opacity: 0 }, { visibility: 'visible' }], { delay: at, duration: (sp.duration - at) * 0.6, easing: 'ease-out', fill: 'forwards' })];
-          }
         }
         leaving.add(finish);
+        goingPop = pop;
         a.onfinish = finish;
       },
     };
@@ -462,12 +566,11 @@
   /* ---------- Sheet (inset from the screen edges; drag down to dismiss) ---------- */
 
   // The control a sheet comes from when none is named: the one that has focus, which a
-  // press gives a button. A menu's item is not it: that menu is on its way back into
-  // its own control, and the sheet comes out of that.
+  // press gives a button. (A menu's item is not it: a sheet chosen from a menu takes the
+  // menu's place, and its control with it. See UI.sheet.)
   function sourceOf(el) {
     const b = el && el !== document.body && el.closest ? el.closest('button, a[href], [role="button"]') : null;
-    if (!b) return null;
-    if (b.closest('.pop')) return activePop && activePop.src && activePop.src.isConnected ? activePop.src : null;
+    if (!b || b.closest('.pop')) return null;
     // A button in a capsule of glass: it is the capsule that becomes the sheet.
     const piece = b.closest('.nav-group, .nav-btn, .nav-pill') || b;
     const r = piece.getBoundingClientRect();
@@ -484,8 +587,18 @@
     const content = h('div.sheet-content', h('div.sheet-grabber'), header, bodyEl);
     const panel = h('div.sheet', { role: 'dialog', 'aria-modal': 'true', 'aria-label': title }, sheetGlass, content);
     const layer = h('div.sheet-layer', dim, panel);
-    const returnFocus = document.activeElement;
-    const src = source !== undefined ? source : sourceOf(document.activeElement);
+    // Chosen from a menu, the sheet is what the menu becomes. The menu does not go back
+    // into its button first, only for the sheet to come out of the same button, and the
+    // button is not there under the sheet for the sheet to go back into: the button
+    // became the menu, the menu becomes the sheet, and the sheet goes back into the
+    // button. A menu already on its way back is taken over from where it has got to.
+    // (A control that was pressed for the sheet is its source as ever, whatever menu
+    // happens to be going away elsewhere at that moment.)
+    const pressed = source === undefined ? sourceOf(document.activeElement) : null;
+    const menu = source === undefined && !pressed ? activePop || goingPop : null;
+    const from = menu ? menu.handOver() : null;
+    const returnFocus = from ? from.opener : document.activeElement;
+    const src = from ? (from.src && from.src.isConnected ? from.src : null) : source !== undefined ? source : pressed;
     overlays().append(layer);
     // A sheet is modal: everything else is out of reach until it closes. Only what this
     // sheet put out of reach is given back, so one opened over another nests.
@@ -494,9 +607,29 @@
     held.forEach((n) => { n.inert = true; });
     // Grown out of glass, it starts as that glass and thickens into a sheet on the way.
     const srcOpts = src && src.classList.contains('glass') ? NT.glass.optsOf(src) : null;
-    NT.glass.refract(sheetGlass, srcOpts
-      ? Object.assign(srcOpts, { lens: true, bezel: 22, frostThick: [4, 12], magnifyThick: 0, dispersionThick: 0 })
-      : { frost: [4, 12], bezel: 22, magnify: 0, dispersion: 0 });
+    // (Its rim is as wide as the menu's where it came out of one, so the first frame bends
+    // what the menu bent.)
+    const bezel = from ? 18 : 22;
+    const own = srcOpts
+      ? Object.assign(srcOpts, { lens: true, bezel, frostThick: [4, 12], magnifyThick: 0, dispersionThick: 0 })
+      : { frost: [4, 12], bezel, magnify: 0, dispersion: 0 };
+    // Out of an open menu its thin end is the menu's glass, not a control's: the menu's
+    // fill, frost and shadow, which it leaves for a sheet's as it grows. Once it is a
+    // sheet these make no difference, and its thin end is its control's again, for the
+    // way back (tuned).
+    const asMenu = !!from && from.open && !reduced();
+    NT.glass.refract(sheetGlass, asMenu
+      ? { lens: true, bezel, magnify: 0.008, magnifyThick: 0, dispersion: 0, frostThin: [3, 8], frostThick: [4, 12] }
+      : own);
+    const LOOK = { '--glass-fill': (l) => l.fill, '--glass-veil': () => 'transparent', '--glass-blur': (l) => l.blur, '--shadow-y': (l) => `calc(${l.y} + 4px)`, '--shadow-blur': (l) => `calc(${l.spread} + 8px)` };
+    let menuLook = asMenu;
+    if (asMenu) for (const name of Object.keys(LOOK)) sheetGlass.style.setProperty(name, LOOK[name](from.look));
+    const tuned = () => {
+      if (!menuLook) return;
+      menuLook = false;
+      for (const name of Object.keys(LOOK)) sheetGlass.style.removeProperty(name);
+      NT.glass.retune(sheetGlass, own);
+    };
     NT.glass.shine(closeBtn);
 
     // The control's frame at rest, and the sheet's own, in the layer's coordinates.
@@ -540,31 +673,50 @@
     const clipOf = (g, size) => `inset(${(size.height - g.height) / 2}px ${(size.width - g.width) / 2}px round ${g.radius}px)`;
 
     let closed = false;
+    // The control it came out of is away for as long as the sheet is there.
+    if (src && (from || showing())) src.style.visibility = 'hidden';
     if (!reduced()) {
       const sp = NT.liquid.exact(motion.smooth);
       const timing = { duration: sp.duration, easing: sp.easing };
-      if (showing()) {
-        // It grows out of the control that brought it up, which is hidden meanwhile: the
-        // control has become the sheet.
-        NT.liquid.still(src);
-        const start = frameOf(src);
+      if (from || showing()) {
+        // It grows out of the control that brought it up, or out of that control's menu
+        // from where the menu is.
+        if (!from) NT.liquid.still(src);
+        const start = from ? from.rect : frameOf(src);
         const end = frameOf(panel, 38);
-        src.style.visibility = 'hidden';
         morphing(end, end);
-        if (srcOpts) NT.glass.lensFrom(sheetGlass, src, true);
+        // Exactly the glass it grows out of on the first frame: its lens too.
+        const lensed = from ? NT.glass.lensFrom(sheetGlass, from.panel, true) : !!srcOpts && NT.glass.lensFrom(sheetGlass, src, true);
         const grow = panel.animate([css(start), css(end)], timing);
-        if (srcOpts) NT.glass.lensTo(sheetGlass, { w: end.width, h: end.height, r: 38 }, grow, sp.duration * 0.3);
+        if (lensed) NT.glass.lensTo(sheetGlass, { w: end.width, h: end.height, r: 38 }, grow, sp.duration * 0.3);
         content.animate([pin(start, end), pin(end, end)], timing);
         // Clipped to the growing box until it has all but arrived; then not at all, so the
         // last frame is drawn exactly as the sheet at rest is.
         content.animate([{ clipPath: clipOf(start, end) }, { clipPath: clipOf(end, end), offset: 0.985 }, { clipPath: 'none', offset: 0.99 }, { clipPath: 'none' }], timing);
-        NT.glass.animate(sheetGlass, srcOpts ? [{ t: 0 }, { t: 1 }] : [{ k: 0 }, { k: 1 }], timing);
+        NT.glass.animate(sheetGlass,
+          asMenu ? [{ k: from.k, t: 0 }, { k: 1, t: 1 }]
+            : from ? [{ k: from.k, t: srcOpts ? from.t : 1 }, { k: 1, t: 1 }]
+              : srcOpts ? [{ t: 0 }, { t: 1 }] : [{ k: 0 }, { k: 1 }], timing);
         content.animate([{ opacity: 0, transform: 'scale(0.92)' }, { opacity: 1, transform: 'none' }], { duration: sp.duration * 0.6, delay: sp.duration * 0.12, easing: 'ease-out', fill: 'backwards' });
-        const seat = { width: start.width, height: start.height };
-        const ghost = ghostOf(seat);
-        ghost.animate([pin(start, seat), pin(end, seat)], timing);
-        ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: 'ease-out', fill: 'forwards' }).onfinish = () => ghost.remove();
-        grow.onfinish = () => { if (!closed) settled(); };
+        if (from && from.rest) {
+          // What the menu said goes with the glass, held to the corner it was held to in
+          // the menu and cut by the glass's shape, as the sheet's own comes.
+          const rest = h('div.pop-rest', { 'aria-hidden': 'true' }, from.rest);
+          rest.inert = true;
+          if (from.panel.dataset.over) rest.dataset.over = from.panel.dataset.over;
+          panel.append(rest);
+          rest.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 130, easing: 'ease-out', fill: 'forwards' }).onfinish = () => rest.remove();
+        } else if (!from) {
+          const seat = { width: start.width, height: start.height };
+          const ghost = ghostOf(seat);
+          ghost.animate([pin(start, seat), pin(end, seat)], timing);
+          ghost.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, easing: 'ease-out', fill: 'forwards' }).onfinish = () => ghost.remove();
+        }
+        grow.onfinish = () => {
+          if (closed) return;
+          settled();
+          tuned();
+        };
       } else if (wide()) {
         // From nowhere in particular, it materializes where it will be.
         panel.animate([{ scale: '0.92' }, { scale: '1' }], timing);
@@ -594,6 +746,7 @@
       if (reduced()) return void done();
       const sp = NT.liquid.exact(motion.snappy);
       const timing = { duration: sp.duration, easing: sp.easing, fill: 'forwards' };
+      tuned();
       const was = NT.glass.state(sheetGlass);
       // Where it is now, dragged or still growing.
       const cur = frameOf(panel, parseFloat(getComputedStyle(panel).borderTopLeftRadius) || 38);
@@ -676,11 +829,23 @@
   const KNOB_LENS = NT.glass.drop({ bezel: 12, magnify: 0.04 });
 
   // A knob that lifts into glass while held (glass.css, .lens): its lift is its presence
-  // as glass, and its filter is there for as long as it is lifted at all.
-  function lifted(knob, l) {
-    const v = clamp(l, 0, 1);
+  // as glass. Its filter is there for as long as it is lifted at all or its spring is
+  // still moving: a spring swings through nothing on its way to rest, and the filter
+  // does not come and go with every swing.
+  function lifted(knob, spring) {
+    const v = clamp(spring.value, 0, 1);
     NT.glass.set(knob, { k: v });
-    knob.classList.toggle('lens-on', v > 0.002);
+    knob.classList.toggle('lens-on', v > 0.002 || spring.target > 0 || spring.velocity !== 0);
+    return v;
+  }
+
+  // A knob that marks one of several labels is two layers that move as one: its face,
+  // under the labels, which clears as the knob lifts, and its glass, over them, which
+  // comes in as it does. The labels are never covered and never change layer, so they
+  // bend through the glass while it is held and are as they were in every other frame.
+  function knobLayers(face, glass, transform, spring) {
+    face.style.transform = glass.style.transform = transform;
+    face.style.setProperty('--lg-k', lifted(glass, spring).toFixed(4));
   }
 
   UI.toggle = function (checked, onChange, label) {
@@ -697,7 +862,7 @@
       const stretch = clamp(Math.abs(pos.velocity) / 900, 0, 0.24);
       const l = lift.value;
       knob.style.transform = `translateX(${pos.value.toFixed(2)}px) scale(${((1 + l * 0.3) * (1 + stretch)).toFixed(4)}, ${((1 + l * 0.5) * (1 - stretch * 0.4)).toFixed(4)})`;
-      lifted(knob, l);
+      lifted(knob, lift);
     };
     const pos = new Spring({ stiffness: 420, damping: 30, value: on ? TRAVEL : 0, onUpdate: paint });
     const lift = new Spring({ stiffness: 380, damping: 24, precision: 0.002, onUpdate: paint });
@@ -800,11 +965,12 @@
      follows the finger and settles on the nearest segment. */
 
   UI.segmented = function (options, value, onChange) {
-    const thumb = NT.glass.refract(h('span.seg-thumb.lens'), NT.glass.drop({ bezel: 16, magnify: 0.04 }));
-    const el = h('div.seg', { role: 'tablist' }, thumb);
+    const face = h('span.seg-thumb.lens-face');
+    const thumb = NT.glass.refract(h('span.seg-glass.lens'), NT.glass.drop({ bezel: 16, magnify: 0.04 }));
+    const el = h('div.seg', { role: 'tablist' }, face);
     el.style.setProperty('--n', options.length);
     const buttons = options.map((o) => h('button.seg-item', { type: 'button', role: 'tab' }, o.label));
-    el.append(...buttons);
+    el.append(...buttons, thumb);
 
     let index = Math.max(0, options.findIndex((o) => o.value === value));
     let drag = null;
@@ -812,8 +978,7 @@
     const paint = () => {
       const stretch = clamp(Math.abs(pos.velocity) / 2200, 0, 0.26);
       const l = lift.value;
-      thumb.style.transform = `translateX(${pos.value.toFixed(2)}px) scale(${((1 + stretch) * (1 + l * 0.06)).toFixed(4)}, ${((1 - stretch * 0.4) * (1 + l * 0.3)).toFixed(4)})`;
-      lifted(thumb, l);
+      knobLayers(face, thumb, `translateX(${pos.value.toFixed(2)}px) scale(${((1 + stretch) * (1 + l * 0.06)).toFixed(4)}, ${((1 - stretch * 0.4) * (1 + l * 0.3)).toFixed(4)})`, lift);
       if (drag) mark(nearest());
     };
     const pos = new Spring({ stiffness: 340, damping: 27, onUpdate: paint });
@@ -1001,7 +1166,7 @@
 
   NT.tabbar = (function () {
     const phone = window.matchMedia('(max-width: 819.98px)');
-    let el, capsule, lens, input, searchEl, searchBtn, accessoryHost;
+    let el, capsule, lens, lensGlass, input, searchEl, searchBtn, accessoryHost;
     let active = 'home', minimized = false, searching = false, drag = null, currentAccessory = null;
     const tabEls = {};
 
@@ -1011,8 +1176,7 @@
     function paintLens() {
       const stretch = clamp(Math.abs(pos.velocity) / 2400, 0, 0.3);
       const l = lift.value;
-      lens.style.transform = `translateX(${pos.value.toFixed(2)}px) scale(${((1 + stretch) * (1 + l * 0.14)).toFixed(4)}, ${((1 - stretch * 0.4) * (1 + l * 0.24)).toFixed(4)})`;
-      lifted(lens, l);
+      knobLayers(lens, lensGlass, `translateX(${pos.value.toFixed(2)}px) scale(${((1 + stretch) * (1 + l * 0.14)).toFixed(4)}, ${((1 - stretch * 0.4) * (1 + l * 0.24)).toFixed(4)})`, lift);
       if (drag) markUnderLens();
     }
 
@@ -1031,7 +1195,7 @@
     function layoutLens(instant) {
       const b = tabEls[active];
       if (!b || !b.offsetWidth) return;
-      lens.style.width = b.offsetWidth + 'px';
+      lens.style.width = lensGlass.style.width = b.offsetWidth + 'px';
       if (instant) pos.jump(b.offsetLeft);
       else pos.set(b.offsetLeft);
     }
@@ -1059,37 +1223,135 @@
       if (!v) setTimeout(() => layoutLens(true), motion.smooth.duration * 0.7);
     }
 
+    /*
+      Search opens where it is pressed and stays there: pressing it goes nowhere. On
+      Scripts the page itself is what is found. Anywhere else what is found comes up
+      beside the field, out of its glass, over the page as it is; one of them opens that
+      script, and Return (or "All Results") is what goes to Scripts, with the words kept.
+    */
+    const MOST = 5;
+    let searchAt = null, results = null, pool = null, resultsAnim = null;
+    const onScripts = () => NT.nav.paths().join() === '/scripts';
+    const asked = () => input.value.trim().toLowerCase();
+
+    function hit(s) {
+      const path = `/scripts/${s.script_id}`;
+      return h('a.menu-item.search-hit', { href: NT.nav.href(path), onclick: (e) => { e.preventDefault(); NT.nav.go(path); } },
+        NT.kit.cover(s, '.thumb', 18),
+        h('span.row-main', h('span.row-title', s.name || s.script_id), h('span.row-sub', s.author_name || '')));
+    }
+
+    // found: the scripts that match, or null for no panel at all.
+    function showResults(found) {
+      if (!found) {
+        const old = results;
+        results = null;
+        if (!old) return;
+        old.inert = true;
+        if (reduced()) old.remove();
+        else NT.liquid.absorb(old, searchEl).finished.then(() => old.remove());
+        return;
+      }
+      const kids = found.length
+        ? found.slice(0, MOST).map(hit).concat(found.length > MOST
+          ? [h('div.menu-sep', { role: 'separator' }), h('button.menu-item', { type: 'button', onclick: seeAll }, h('span', 'All Results'), h('i.search-count', String(found.length)))]
+          : [])
+        : [h('p.search-none', 'No Results')];
+      if (!results) {
+        results = h('div.search-results.glass.thick', { role: 'group', 'aria-label': 'Results' }, kids);
+        if (searchEl.dataset.over) results.dataset.over = searchEl.dataset.over;
+        el.append(results);
+        NT.glass.refract(results, { bezel: 18, magnify: 0.008, dispersion: 0 });
+        if (!reduced()) NT.liquid.split(results, searchEl);
+        return;
+      }
+      // The glass that is there takes what is found now, and its height with it.
+      const from = parseFloat(getComputedStyle(results).height);
+      if (resultsAnim) resultsAnim.cancel();
+      results.replaceChildren(...kids);
+      const to = parseFloat(getComputedStyle(results).height);
+      if (reduced() || Math.abs(to - from) < 0.5) return;
+      const sp = NT.liquid.exact(motion.snappy);
+      resultsAnim = results.animate([{ height: from + 'px' }, { height: to + 'px' }], { duration: sp.duration, easing: sp.easing });
+    }
+
+    async function suggest() {
+      const q = asked();
+      if (!searching || !q || onScripts()) return void showResults(null);
+      if (!pool) {
+        const me = NT.api.session;
+        const mine = pool = Promise.all([NT.api.scripts(), me ? NT.api.userScripts(me.user_id).catch(() => []) : []]).then(([all, own]) => {
+          const seen = new Set();
+          return own.concat(all).filter((s) => !seen.has(s.script_id) && seen.add(s.script_id));
+        }, () => {
+          if (pool === mine) pool = null; // asked again with the next letter
+          return null;
+        });
+      }
+      const list = await pool;
+      // Only for what is still being asked.
+      if (!searching || asked() !== q || onScripts()) return;
+      if (!list) return void showResults(null);
+      showResults(list
+        .filter((s) => (`${s.name} ${s.description || ''} ${s.author_name}`).toLowerCase().includes(q))
+        .sort((a, b) => new Date(b.updated_at) - new Date(a.updated_at)));
+    }
+
+    function seeAll() {
+      if (!searching || !asked() || onScripts()) return;
+      NT.nav.go('/scripts');
+      input.focus({ preventScroll: true });
+    }
+
+    // The page on top has changed (app.js). Search goes with the page it was on; on
+    // Scripts it stays, and the page is what is found.
+    function onPage(top) {
+      if (!searching) return;
+      if (onScripts()) {
+        searchAt = top;
+        showResults(null);
+      } else if (top !== searchAt) closeSearch(true);
+    }
+
     function openSearch() {
       if (searching) return void input.focus({ preventScroll: true });
       searching = true;
+      searchAt = NT.nav.top();
       minimized = false;
       NT.dom.app.classList.remove('tab-min');
       NT.dom.app.classList.add('tab-search');
-      if (NT.nav.paths().join() !== '/scripts') NT.nav.go('/scripts');
       // While open the field is the capsule's tab stop; closed, its button is.
       input.tabIndex = 0;
       searchBtn.tabIndex = -1;
       input.focus({ preventScroll: true });
     }
 
-    function closeSearch() {
+    // moved: the page has changed under it, and the new page has the keyboard.
+    function closeSearch(moved) {
       if (!searching) return;
       searching = false;
       NT.dom.app.classList.remove('tab-search');
-      const inside = searchEl.contains(document.activeElement);
+      const inside = searchEl.contains(document.activeElement) || (!!results && results.contains(document.activeElement));
+      showResults(null);
+      pool = null;
+      searchAt = null;
       input.value = '';
       input.tabIndex = -1;
       searchBtn.tabIndex = 0;
       input.blur();
-      if (inside && window.matchMedia('(hover: hover)').matches) searchBtn.focus({ preventScroll: true });
+      if (inside && moved !== true) {
+        if (window.matchMedia('(hover: hover)').matches) searchBtn.focus({ preventScroll: true });
+      } else if (inside && NT.nav.top()) NT.nav.top().page.el.focus({ preventScroll: true });
       NT.bus.emit('search', '');
       setTimeout(() => layoutLens(true), motion.smooth.duration * 0.7);
     }
 
     function build() {
-      lens = h('div.tab-lens.lens');
+      // The selection: its face under the tabs, its glass over them (knobLayers).
+      lens = h('div.tab-lens.lens-face');
+      lensGlass = h('div.tab-lens.tab-lens-glass.lens');
       const sheetOfGlass = h('div.tabbar-glass.glass');
-      capsule = h('div.tabbar-capsule', { role: 'tablist', 'aria-label': 'Sections' }, sheetOfGlass, lens);
+      capsule = h('div.tabbar-capsule', { role: 'tablist', 'aria-label': 'Sections' }, sheetOfGlass, lens, lensGlass);
       for (const t of TABS) {
         const b = h('button.tab', { type: 'button', role: 'tab', 'aria-selected': 'false', dataset: { tab: t.id } }, icon(t.icon, 24), h('span', t.label));
         // Pointer input is handled on the capsule; this covers keyboard and assistive tech.
@@ -1102,8 +1364,20 @@
       searchBtn = h('button.tabbar-search-btn', { type: 'button', 'aria-label': 'Search', onclick: openSearch }, icon('search', 24));
       const clearBtn = h('button.tabbar-search-clear', { type: 'button', 'aria-label': 'Close search', onclick: (e) => { e.stopPropagation(); closeSearch(); } }, icon('xmark', 18));
       searchEl = h('div.tabbar-search.glass.interactive', { onclick: (e) => { if (!searching && !e.target.closest('button')) openSearch(); } }, searchBtn, input, clearBtn);
-      input.addEventListener('input', () => NT.bus.emit('search', input.value));
-      input.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSearch(); });
+      input.addEventListener('input', () => {
+        NT.bus.emit('search', input.value);
+        suggest();
+      });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeSearch();
+        else if (e.key === 'Enter') seeAll();
+        else if (e.key === 'ArrowDown' && results) {
+          const first = results.querySelector('.menu-item');
+          if (!first) return;
+          e.preventDefault();
+          first.focus({ preventScroll: true });
+        }
+      });
       input.tabIndex = -1;
       // "/" or Ctrl/Cmd+K opens search from anywhere the tab bar is showing.
       document.addEventListener('keydown', (e) => {
@@ -1118,6 +1392,17 @@
       });
 
       el = h('nav.tabbar', { 'aria-label': 'Primary' }, capsule, searchEl);
+      // In what is found, the arrows move between them and back to the field.
+      el.addEventListener('keydown', (e) => {
+        if (!results || !results.contains(e.target)) return;
+        if (e.key === 'Escape') return void closeSearch();
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+        e.preventDefault();
+        const list = [...results.querySelectorAll('.menu-item')];
+        const i = list.indexOf(document.activeElement) + (e.key === 'ArrowDown' ? 1 : -1);
+        if (i < 0) input.focus({ preventScroll: true });
+        else if (i < list.length) list[i].focus({ preventScroll: true });
+      });
       accessoryHost = h('div.accessory');
 
       // Press and drag the lens between tabs; it stretches with speed and lifts into clear glass.
@@ -1156,7 +1441,7 @@
 
       NT.glass.refract(sheetOfGlass);
       NT.glass.refract(searchEl);
-      NT.glass.refract(lens, NT.glass.drop({ bezel: 24, magnify: 0.05 }));
+      NT.glass.refract(lensGlass, NT.glass.drop({ bezel: 24, magnify: 0.05 }));
       return { el, accessoryHost };
     }
 
@@ -1210,7 +1495,7 @@
     }
 
     return {
-      build, setActive, setMinimized, setAccessory, onScroll, closeSearch,
+      build, setActive, setMinimized, setAccessory, onScroll, closeSearch, onPage,
       get searching() { return searching; },
       get query() { return input ? input.value : ''; },
       relayout: () => layoutLens(true),

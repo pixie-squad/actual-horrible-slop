@@ -925,7 +925,7 @@
     // As the editor: the code has the screen, and the title says which version it is.
     const page = makePage({ title: 'Source', back: true, large: false, hideTabbar: true, className: 'page-editor.page-code' });
     const host = h('div.code-host');
-    page.inner.append(host);
+    page.inner.append(h('div.code-well', host));
     let view = null, ready = false, content = '', rev = null, earlier = null, stats = null, turn = 0;
     let mode = against != null && against !== '' ? 'changes' : 'source';
 
@@ -1006,7 +1006,7 @@
   /* ---------- Editor ---------- */
 
   // The editor page is a module of its own (editor.js), built from these pieces.
-  NT.kit = { makePage, navButton, navGroup, groupButton, emptyState, errorState, publishScript, deleteScript, paramGroups };
+  NT.kit = { makePage, navButton, navGroup, groupButton, emptyState, errorState, publishScript, deleteScript, paramGroups, cover };
 
   /* ---------- Maps ---------- */
 

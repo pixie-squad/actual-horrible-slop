@@ -59,6 +59,7 @@
     magnifyThick: null,
     dispersionThick: null,
     frostThick: null, // [px at Clear, px added by Tinted]; null: that of menus
+    frostThin: null,  // the same for the thin end, where it is not a plain control's (a menu growing into a sheet)
   };
   const lerp = (a, b, t) => a + (b - a) * t;
 
@@ -171,7 +172,12 @@
     el.style.setProperty('--glass-spec', `url("${lens.spec}")`);
     el.style.setProperty('--glass-slice', lens.slice);
     fit(entry);
-    el.classList.add('has-spec');
+    if (el.classList.contains('has-spec')) return;
+    // Its light is the shader's from now on, at once: the ease there is on that light is
+    // for a change of tone, and would otherwise run on every piece of glass as it is made
+    // (in the dark theme, whose light is dimmer, each would arrive too bright and settle).
+    el.classList.add('has-spec', 'spec-snap');
+    requestAnimationFrame(() => requestAnimationFrame(() => el.classList.remove('spec-snap')));
   }
 
   function apply(entry) {
@@ -301,7 +307,7 @@
       const at = ([base, span]) => base + NT.prefs.data.frost * span;
       // Glass that carries text diffuses more of what is under it than a clear control
       // does, and glass that grows into such a surface gains it on the way.
-      const regular = at(o.frost || (entry.el.classList.contains('tinted') ? [2.5, 6] : [0.5, 4]));
+      const regular = at(o.frost || o.frostThin || (entry.el.classList.contains('tinted') ? [2.5, 6] : [0.5, 4]));
       amount = o.frost ? regular : lerp(regular, at(o.frostThick || [3, 8]), entry.t);
     }
     attr(entry.blur, 'stdDeviation', (amount * clamp(entry.k, 0, 1)).toFixed(2));
@@ -441,6 +447,19 @@
   Glass.frostOf = (el) => {
     const entry = entries.get(el);
     return entry && entry.blur ? num(entry.blur.getAttribute('stdDeviation'), 0) : null;
+  };
+
+  // Other options for glass that is there already: what it is at either end of its
+  // thickness changes with what it is to grow out of or go back into (a sheet that came
+  // out of a menu goes back into the menu's button). Its lens is kept where the new
+  // options ask for the same one.
+  Glass.retune = function (el, opts) {
+    const entry = entries.get(el);
+    if (!entry) return;
+    entry.opts = Object.assign({}, DEFAULTS, opts);
+    frost(entry);
+    fit(entry);
+    if (!entry.hold && !entry.next) apply(entry);
   };
 
   // The options an element's glass was made with, for glass that is to become it.
@@ -739,9 +758,25 @@
   window.addEventListener('resize', Tone.touch, { passive: true });
   NT.bus.on('prefs', Tone.touch);
 
+  // A new theme or accent is every colour at once, in one frame. Anything that eases
+  // its colour (a label, a row's fill) would otherwise be the old theme's for a moment
+  // on the new one's surface: light words on a light card.
+  let palette = root.dataset.theme + ' ' + root.dataset.accent;
+  NT.bus.on('prefs', () => {
+    const now = root.dataset.theme + ' ' + root.dataset.accent;
+    if (now === palette) return;
+    palette = now;
+    root.classList.add('tone-snap');
+    void root.offsetWidth;
+    root.classList.remove('tone-snap');
+  });
+
   // What the core asks a style for (js/styles.js). Monaco's popups take the same
   // material and lens as the app's own menus.
   NT.look = {
+    // The code's well is set 10px into its card (app.css, .code-well): with this the
+    // first line is as far from the card's edge as it was.
+    codeOptions: { padding: { top: 4, bottom: 4 } },
     pane(el) {
       el.classList.add('glass', 'thick');
       Glass.refract(el, { bezel: 18, magnify: 0.008, dispersion: 0 });

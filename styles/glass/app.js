@@ -222,7 +222,7 @@
       NT.dom.app.classList.toggle('tab-hidden', !!top.page.hideTabbar);
       NT.tabbar.setAccessory(top.page.accessory || null);
       NT.tabbar.setMinimized(false);
-      if (NT.tabbar.searching && this.paths().join() !== '/scripts') NT.tabbar.closeSearch();
+      NT.tabbar.onPage(top);
       this.retitle();
       NT.tone.touch();
     },

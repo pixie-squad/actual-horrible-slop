@@ -50,7 +50,7 @@
     const host = h('div.code-host');
     const side = h('aside.editor-side', { hidden: true, 'aria-label': 'Files' });
     const dock = h('div.tests-dock', { hidden: true });
-    page.inner.append(h('div.editor-split', side, h('div.editor-main', host, dock)));
+    page.inner.append(h('div.editor-split', side, h('div.editor-main', h('div.code-well', host), dock)));
     const store = NT.util.store;
     let script = null, ed = null, lsp = null, saveBtn = null, filesBtn = null, testBtn = null, ready = false;
     let shownDoc = null;
@@ -296,10 +296,10 @@
     async function historyEntry(entry, under) {
       const before = await NT.history.text(entry.id);
       if (before == null || !ed.has(entry.path)) return void UI.toast('Couldn’t open', { warn: true });
-      const host = h('div.code-host.history-diff');
+      const host = h('div.code-host');
       const restore = h('button.btn.filled.block', { type: 'button', disabled: before === ed.text(entry.path) }, 'Restore');
       let view = null;
-      const sheet = UI.sheet({ title: stamp(entry.at), body: h('div.form-stack', host, restore), onClose: () => { if (view) view.dispose(); } });
+      const sheet = UI.sheet({ title: stamp(entry.at), body: h('div.form-stack', h('div.code-well.history-diff', host), restore), onClose: () => { if (view) view.dispose(); } });
       view = await NT.code.diff(host, { before, after: ed.text(entry.path), onStats: (s) => { restore.disabled = !s.changes; } });
       restore.addEventListener('click', () => {
         const was = ed.text(entry.path);

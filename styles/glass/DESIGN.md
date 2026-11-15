@@ -12,6 +12,12 @@ shares are in [/DESIGN.md](../../DESIGN.md); these are on top of them.
   opaque and scrolls underneath. Never put `.glass` on content.
 - The one exception is a control's moving part while it is held: a switch knob, slider
   thumb or segment thumb lifts into glass (`.lens`) and settles back.
+- A knob that rests under labels (a segment's thumb, the tab bar's selection) is two
+  layers that move as one: its face under the labels (`.lens-face`), its glass over
+  them. The labels never change layer, so nothing covers them on the way up or down
+  (`knobLayers`, ui.js).
+- Code is content in a well inside its card (`.code-well`): a rectangle set in from the
+  card's corners, so a line at the edge of the code is cut straight or not at all.
 - Use glass sparingly. Repeated glass in content (the heart on a card) takes the light
   only, never the lens (`NT.glass.shine`, not `NT.glass.refract`).
 - Nothing spans the top of the screen. The top bar is floating pieces, not a slab.
@@ -90,6 +96,17 @@ Glass is liquid, not only glass. Its material has a presence and a thickness
   pieces between pages, the accessory above the tab bar.
 - **One piece of glass becomes the next** where it can: a toolbar piece changes width
   while its content changes (`morphBars`), a toast that is replaced takes the new words.
+- **There is one toast.** The same words again make it swell for a moment and stay its
+  time over; other words are taken by the glass that is there, each laid out at its own
+  size while the glass changes shape around them; one that was going turns back from
+  where it had got to (`UI.toast`).
+- **A chain of glass is one piece all the way.** A sheet chosen from a menu is what the
+  menu becomes: the menu does not go back into its button first, and the button is not
+  there under the sheet. Button, menu, sheet, and the sheet back into the button
+  (`handOver`, `UI.sheet`).
+- What a panel collapses into is a copy of the control **as it is by then** (a value just
+  picked is the new one), and the control itself is not shown under the copy: never two
+  of the same thing, each part there.
 - **Size is thickness.** Glass that grows into a menu, dialog or sheet thickens on the
   way (denser fill, more frost, deeper shadow, no colour split) and thins back on the
   way home, so it lands as the control it left: the last frame and the frame after the
@@ -121,8 +138,11 @@ Glass is liquid, not only glass. Its material has a presence and a thickness
 - Content that has not arrived is its own layout with the words and artwork left out,
   never a blank block (`ph`, `hold`). It dissolves into the content in place; nothing
   moves (`settle`).
-- An action never navigates as a side effect.
+- An action never navigates as a side effect. Search opens where it is pressed: on
+  Scripts the page is what is found, anywhere else it comes up beside the field, out of
+  its glass, and only Return or All Results goes to Scripts (`NT.tabbar`).
 - Defaults are the quiet state: closed, collapsed, unselected.
+- A new theme or accent is every colour in one frame; nothing eases across it.
 
 ## 8. Colour and type
 

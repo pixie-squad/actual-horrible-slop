@@ -287,6 +287,26 @@
 #app.tab-search .tabbar-search input { opacity: 1; }
 #app.tab-search .tabbar-search-clear { width: 48px; opacity: 1; }
 
+/* What a search finds on a page other than Scripts (ui.js): a menu's glass beside the
+   field, come out of the field's own. Above the bar on a phone, under it where the bar
+   is at the top. */
+.search-results.glass {
+  --_r: 28px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 10px);
+  padding: 6px;
+  overflow: hidden;
+}
+.search-hit { min-height: 56px; padding: 0 14px 0 10px; color: var(--label); }
+.search-hit .thumb { width: 36px; height: 36px; border-radius: 10px; }
+.search-hit .row-main { flex: 1; min-width: 0; }
+.search-hit .row-sub { color: var(--label-2); }
+.search-count { flex: none; font-style: normal; font-variant-numeric: tabular-nums; color: var(--label-2); }
+.search-none { padding: 13px 14px; text-align: center; font-size: 15px; line-height: 20px; color: var(--label-2); }
+.search-results .menu-item:focus-visible { outline-offset: -3px; }
+
 /* Bottom accessory: floats above the tab bar, tucks beside it when the bar minimises. */
 .accessory {
   position: absolute;
@@ -343,28 +363,34 @@
   gap: 8px;
   pointer-events: none;
 }
+/* There is one toast (ui.js, UI.toast): its glass, and on it the words. The words are a
+   box of their own in the middle of the glass, so the glass can change shape around
+   them without anything in them being laid out again. */
 .toast {
   --_r: 26px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
   min-height: 46px;
   max-width: calc(100% - 32px);
-  padding: 8px 20px 8px 14px;
   font-size: 15px;
   font-weight: 600;
   line-height: 1.25;
   overflow: hidden;
 }
-/* What a toast said before it took new words: it leaves from where it was. */
-.toast-was { position: absolute; left: 0; top: 0; display: flex; align-items: center; gap: 10px; padding: inherit; pointer-events: none; }
-.toast svg { color: var(--accent); }
-.toast.warn svg { color: var(--orange); }
+.toast-words { flex: none; display: flex; align-items: center; gap: 10px; max-width: 100%; padding: 8px 20px 8px 14px; }
+/* What it said before it took new words: they leave from where they were. */
+.toast-words.toast-was { position: absolute; max-width: none; pointer-events: none; }
+.toast-words svg { color: var(--accent); }
+.toast-words.warn svg { color: var(--orange); }
 /* A toast that can be acted on takes presses; its action is a plain label in the
    accent, as in an iOS banner, with no shape of its own inside the glass. */
-.toast.has-action { pointer-events: auto; padding-right: 6px; }
+.toast.has-action { pointer-events: auto; }
+.toast-words.has-action { padding-right: 6px; }
 .toast-action {
   position: relative;
+  flex: none;
+  white-space: nowrap;
   min-height: 34px;
   margin-left: 4px;
   padding: 0 14px;
@@ -402,6 +428,13 @@
   pointer-events: none;
 }
 .pop-ghost::before, .pop-ghost::after { display: none !important; }
+/* What a menu said, on the sheet that was chosen from it and has taken the menu's glass
+   (ui.js, UI.sheet): words only, so they may fade. */
+.pop-rest { position: absolute; inset: 0; z-index: 1; border-radius: inherit; overflow: hidden; color: var(--label); pointer-events: none; }
+/* A row that a dialog has come out of keeps its place in its list, the line above it
+   too: only what it says is away. */
+.row.pop-source { visibility: visible !important; color: transparent; }
+.row.pop-source > * { visibility: hidden; }
 
 .menu-item {
   display: flex;
@@ -930,6 +963,7 @@ button.row:active, a.row:active { background: var(--fill); }
   #app.tab-search .tab span { max-height: none; opacity: 1; }
   #app.tab-search .tab-lens { opacity: 1; }
   #app.tab-search .tabbar-search { flex: 0 0 300px; }
+  .search-results.glass { left: auto; width: 340px; top: calc(100% + 10px); bottom: auto; }
 
   .navbar-title, .navbar.always-title .navbar-title { display: none; }
   .page-editor .navbar.always-title .navbar-title { display: flex; }
@@ -969,25 +1003,30 @@ button.row.accent { color: var(--accent); }
 
 /* ---------- Code editor (Monaco, restyled) ---------- */
 
-.code-host { position: relative; flex: 1; min-height: 0; border-radius: var(--r-card); overflow: hidden; background: var(--code-bg); }
+/* The code is in a well inside its card: a plain rectangle, set in from the card's edge
+   by enough that its corners are clear of the card's (at 10px down a 26px corner has
+   come within 6px of the side). Whatever is at the edge of the code, a line number
+   scrolled to the top, the lines held there, a bar that says lines are hidden, is cut
+   by a straight edge or not at all, never by the curve. */
+.code-well { position: relative; flex: 1; display: flex; min-width: 0; min-height: 0; padding: 10px 6px; border-radius: var(--r-card); overflow: hidden; background: var(--code-bg); }
+.code-host { position: relative; flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
 .code-host.is-basic { display: flex; }
 .code-host.is-basic .code-card { flex: 1; border-radius: 0; }
 .code-host > .empty { height: 100%; justify-content: center; }
 
-.monaco-editor, .monaco-editor .overflow-guard, .monaco-editor-background { border-radius: var(--r-card); }
 .monaco-editor { --vscode-focusBorder: transparent; outline: none !important; }
 .monaco-editor .cursors-layer .cursor { background: var(--accent) !important; border-color: var(--accent) !important; border-radius: 1px; }
 .monaco-editor .scrollbar .slider { border-radius: 999px; background: var(--fill-2) !important; }
 .monaco-editor .scrollbar.vertical .slider { width: 6px !important; left: 2px !important; }
 .monaco-editor .scrollbar.horizontal .slider { height: 6px !important; top: 2px !important; }
 .monaco-editor .line-numbers { font-variant-numeric: tabular-nums; }
-.monaco-editor .selected-text { border-radius: 4px; }
+/* A selection's corners are Monaco's own (roundedSelection): which of them are round
+   depends on the lines above and below, so that a selection over several lines is one
+   shape. A radius set here for all of them breaks it up into a pill a line. */
 
 /* The find bar and the context menu take on the glass material. (Suggestions follow
    below; hovers, parameter hints and rename are in project.css.) */
-.monaco-editor .find-widget,
-.monaco-menu-container,
-.context-view .monaco-menu {
+.monaco-editor .find-widget {
   border: 0 !important;
   border-radius: 20px !important;
   background: var(--glass-thick) !important;
@@ -997,6 +1036,28 @@ button.row.accent { color: var(--accent); }
   color: var(--label) !important;
   overflow: hidden;
 }
+/* A menu's submenu (Peek) is a child of the row it opens from, placed against the
+   screen. So the menu itself must neither clip nor filter: either would hold the
+   submenu inside it, cut to its shape. Its glass is a layer behind its rows instead. */
+.monaco-menu-container {
+  border: 0 !important;
+  border-radius: 20px !important;
+  background: none !important;
+  box-shadow: var(--glass-shadow), inset 0 0 0 0.5px var(--glass-edge) !important;
+  color: var(--label) !important;
+}
+.monaco-menu-container::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: var(--glass-thick);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  backdrop-filter: blur(24px) saturate(1.8);
+}
+html[data-solid] .monaco-menu-container::before { background: var(--surface-2); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.context-view .monaco-menu { background: none !important; box-shadow: none !important; color: inherit !important; }
 .monaco-editor .find-widget { top: 8px !important; right: 18px !important; padding: 6px 8px !important; height: auto !important; }
 .monaco-editor .find-widget .monaco-inputbox,
 .monaco-editor .find-widget .monaco-findInput .monaco-inputbox { border: 0 !important; border-radius: 12px !important; background: var(--fill) !important; }
@@ -1154,8 +1215,8 @@ html[data-solid] .monaco-editor .suggest-details { background: var(--surface-2) 
 .tabbar-glass.glass { position: absolute; inset: 0; z-index: 0; pointer-events: none; transition: var(--tone-fade); }
 .tab { z-index: 2; }
 .tab-lens { z-index: 1; }
-/* Over the tabs for as long as it is glass at all, so they bend through it. */
-.tab-lens.lens-on { z-index: 3; }
+/* Its glass is over the tabs, so they bend through it while it is held. */
+.tab-lens.tab-lens-glass { z-index: 3; }
 
 .sheet { isolation: isolate; border-radius: 38px; background: none; }
 /* A sheet is the thickest glass there is. When it grows out of a control it starts as
@@ -1175,6 +1236,9 @@ html[data-solid] .monaco-editor .suggest-details { background: var(--surface-2) 
   z-index: -1;
   pointer-events: none;
 }
+/* While the sheet changes shape its glass has the corner the box has in that frame: a
+   menu's as it leaves one, not a sheet's from the first. */
+.sheet.is-morphing > .sheet-glass.glass { border-radius: inherit; }
 html[data-solid] .sheet-glass.glass { background-color: color-mix(in srgb, var(--surface) var(--_k), transparent); }
 
 /* ---------- Keyboard focus ----------

@@ -510,6 +510,104 @@ const SCENARIOS = [
     expect: gone('.toast'),
   },
   {
+    name: 'toast-again',
+    path: '/scripts',
+    how: "NT.ui.toast('Link copied') while it is showing",
+    setup: async (page) => { await page.eval(() => { NT.ui.toast('Link copied', { icon: 'link', duration: 60000 }); }); await settle(page); },
+    trigger: (page, h) => call(page, () => { NT.ui.toast('Link copied', { icon: 'link', duration: 60000 }); }, h),
+    catch: '.toast',
+    scope: '.toast',
+    expect: () => {
+      const all = document.querySelectorAll('.toast');
+      if (all.length !== 1) return all.length + ' toasts';
+      return all[0].querySelectorAll('.toast-words').length === 1 ? '' : 'its words are there more than once';
+    },
+  },
+  {
+    name: 'toast-swap',
+    path: '/scripts',
+    how: 'another toast while one is showing',
+    setup: async (page) => { await page.eval(() => { NT.ui.toast('Saved', { duration: 60000 }); }); await settle(page); },
+    trigger: (page, h) => call(page, () => { NT.ui.toast('Couldn’t publish: no connection', { warn: true, duration: 60000 }); }, h),
+    catch: '.toast',
+    scope: '.toast',
+    expect: () => {
+      const all = document.querySelectorAll('.toast');
+      if (all.length !== 1) return all.length + ' toasts';
+      const words = all[0].querySelectorAll('.toast-words');
+      if (words.length !== 1) return 'the old words are still there';
+      const span = words[0].querySelector('span');
+      return span.getBoundingClientRect().height < parseFloat(getComputedStyle(span).lineHeight) * 1.5 ? '' : 'its words wrapped';
+    },
+  },
+  {
+    name: 'pick-close',
+    path: '/settings/editor',
+    how: 'another value picked from a row’s menu (Width)',
+    setup: async (page) => {
+      await spot(page, '.row-pick[aria-label="Width"]', null, true);
+      await tap(page, await spot(page, '.row-pick[aria-label="Width"]', null));
+      await settle(page);
+    },
+    trigger: async (page, h) => {
+      const now = await page.eval(() => NT.editorPrefs.data.tabSize);
+      await tap(page, await spot(page, '.pop .menu-item span', now === 8 ? '2' : '8'), h);
+    },
+    catch: '.pop',
+    expect: () => {
+      if (document.querySelector('.pop')) return 'the menu is still there';
+      const pick = [...document.querySelectorAll('.row-pick[aria-label="Width"]')].find((b) => b.checkVisibility());
+      if (!pick || getComputedStyle(pick).visibility !== 'visible') return 'the value is not back';
+      return pick.textContent.trim() === String(NT.editorPrefs.data.tabSize) ? '' : 'the value shown is not the one picked';
+    },
+  },
+  {
+    name: 'menu-sheet',
+    path: '/scripts/ada-trainer',
+    how: 'a sheet chosen from the More menu',
+    setup: async (page) => {
+      await tap(page, await find(page, ['More']));
+      await settle(page);
+      // An item of the test's own that opens a sheet, as Details does in the editor.
+      await page.eval(() => {
+        const item = document.querySelector('.pop .menu-item');
+        const mine = item.cloneNode(true);
+        mine.querySelector('span').textContent = 'Sheet';
+        mine.onclick = () => NT.ui.sheet({ title: 'Details', body: NT.util.h('div.list', NT.util.h('div.row', NT.util.h('span.row-title', 'Name'))) });
+        item.before(mine);
+      });
+    },
+    trigger: async (page, h) => tap(page, await spot(page, '.pop .menu-item span', 'Sheet'), h),
+    catch: '.sheet',
+    scope: '.sheet',
+    expect: () => {
+      if (!document.querySelector('.sheet')) return 'no sheet';
+      if (document.querySelector('.pop')) return 'the menu is still there';
+      const g = [...document.querySelectorAll('.navbar .nav-group')].find((n) => n.checkVisibility());
+      return g && getComputedStyle(g).visibility === 'hidden' ? '' : 'the control is there under its own sheet';
+    },
+  },
+  {
+    name: 'search-found',
+    path: '/',
+    how: 'a letter typed into Search on Home',
+    setup: async (page) => {
+      await tap(page, await find(page, ['Search']));
+      await settle(page);
+    },
+    trigger: async (page, h) => {
+      await h.before();
+      await page.send('Input.insertText', { text: 'a' });
+    },
+    catch: '.search-results',
+    scope: '.tabbar',
+    wait: 4000,
+    expect: () => {
+      if (NT.nav.paths().join() !== '/') return 'it left the page: ' + NT.nav.paths().join(' ');
+      return document.querySelector('.search-results .search-hit') ? '' : 'nothing found is showing';
+    },
+  },
+  {
     name: 'push',
     path: '/scripts',
     how: 'press a card in Scripts',
