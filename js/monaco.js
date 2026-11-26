@@ -72,6 +72,9 @@
   /* ---------- Luau ---------- */
 
   const KEYWORDS = ['and', 'break', 'continue', 'do', 'else', 'elseif', 'end', 'export', 'for', 'function', 'if', 'in', 'local', 'not', 'or', 'repeat', 'return', 'then', 'type', 'until', 'while'];
+  // Keywords only where they declare something (`const x = 1`, `const function f()`);
+  // names like any other anywhere else (`local const = 2`).
+  const DECLARES = ['const'];
   const CONSTANTS = ['true', 'false', 'nil', 'self'];
   const TYPES = ['any', 'boolean', 'buffer', 'never', 'number', 'string', 'thread', 'unknown', 'vector'];
   const BUILTINS = ['assert', 'error', 'getmetatable', 'ipairs', 'next', 'pairs', 'pcall', 'print', 'rawequal', 'rawget', 'rawset', 'require', 'select', 'setmetatable', 'tonumber', 'tostring', 'typeof', 'unpack', 'xpcall', 'math', 'table', 'os', 'coroutine', 'bit32', 'utf8', 'task'];
@@ -114,6 +117,7 @@
       defaultToken: '',
       tokenPostfix: '.luau',
       keywords: KEYWORDS,
+      declares: new RegExp(DECLARES.join('|')),
       constants: CONSTANTS,
       typeKeywords: TYPES,
       builtins: BUILTINS,
@@ -127,12 +131,13 @@
       tokenizer: {
         root: [
           // A directive of macro.js, at the start of its line.
-          [/^\s*#\s*(?:define|undef|ifdef|ifndef|if|elif|else|endif|include|error|warning)\b/, 'keyword'],
+          [/^\s*#\s*(?:define|undef|ifdef|ifndef|if|elif|else|endif|include|embed|error|warning)\b/, 'keyword'],
           [/--\[(=*)\[/, { token: 'comment', next: '@blockComment.$1' }],
           [/--.*$/, 'comment'],
           [/\[(=*)\[/, { token: 'string', next: '@longString.$1' }],
           [/([.:])([A-Za-z_]\w*)(?=\s*[({"'`])/, ['delimiter', 'function']],
           [/(\.)([A-Za-z_]\w*)/, ['delimiter', 'property']],
+          [/(?:@declares)(?=[ \t]+[A-Za-z_])/, 'keyword'],
           [/[A-Za-z_]\w*(?=\s*[({"'`])/, { cases: { '@keywords': 'keyword', '@builtins': 'support', '@default': 'function' } }],
           [/[A-Za-z_]\w*/, { cases: { '@keywords': 'keyword', '@constants': 'constant', '@typeKeywords': 'type', '@builtins': 'support', '@default': 'identifier' } }],
           [/0[xX][0-9A-Fa-f_]+/, 'number'],
@@ -192,7 +197,7 @@
         // so listing them here as well would show each twice. The snippets are only here.
         const served = !!NT.lsp && NT.lsp.serves(model);
         if (!served) {
-          for (const k of KEYWORDS.concat(CONSTANTS)) suggestions.push({ label: k, kind: K.Keyword, insertText: k, range });
+          for (const k of KEYWORDS.concat(DECLARES, CONSTANTS)) suggestions.push({ label: k, kind: K.Keyword, insertText: k, range });
           for (const t of TYPES) suggestions.push({ label: t, kind: K.TypeParameter, insertText: t, range });
           for (const b of BUILTINS) suggestions.push({ label: b, kind: K.Function, insertText: b, range });
         }

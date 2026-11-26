@@ -45,11 +45,14 @@
                                         (readable, its @ requires left in), and the answer
                                         carries lib, the nt:lib block with its entry's macros.
                                         debug: with DEBUG defined; { same: true } when that
-                                        changes nothing
+                                        changes nothing. Either way the answer has warnings,
+                                        [{ path, line, column, message }]: what the files'
+                                        #warning lines say, which stops nothing
     NT.project.debug(files, o)          → what a Test run plays instead of the saved script:
                                         the files built as a save builds them (o: { minify,
-                                        library }) with DEBUG defined. { code } (null when DEBUG
-                                        changes nothing), or build's answer when it fails
+                                        library }) with DEBUG defined. { code, warnings } (code
+                                        null when DEBUG changes nothing), or build's answer
+                                        when it fails
     NT.project.DEBUG                    { DEBUG: 'true' }: macro.js's defines for it
     NT.project.store(id, files, minify, base, o)
                                         → { base, bundle } or { conflict: true, base }
@@ -225,22 +228,23 @@
         done.set(path, r);
         return r;
       };
-      const out = {}, diagnostics = [];
+      const out = {}, diagnostics = [], warnings = [];
       for (const path of paths) {
         // Data that #embed has written into the code already: darklua has no use for it.
         if (isData(path)) continue;
         if (!isLuau(path)) { out[path] = files[path]; continue; }
         const r = run(path);
         out[path] = r.text;
-        for (const d of r.diagnostics) if (d.severity === 'error') diagnostics.push({ path, line: d.line, column: d.column, message: d.message });
+        // An #error stops the build; a #warning is said and the build goes on.
+        for (const d of r.diagnostics) (d.severity === 'error' ? diagnostics : warnings).push({ path, line: d.line, column: d.column, message: d.message });
       }
-      return { out, diagnostics, run };
+      return { out, diagnostics, warnings: warnings.sort(byLine), run };
     };
     const made = expand(o.debug ? DEBUG : undefined);
     // Where DEBUG changes nothing, the saved script is what a Test run plays.
     if (o.debug && !made.diagnostics.length) {
       const plain = expand().out;
-      if (Object.keys(plain).every((p) => plain[p] === made.out[p])) return { same: true };
+      if (Object.keys(plain).every((p) => plain[p] === made.out[p])) return { same: true, warnings: made.warnings };
     }
     const { out, diagnostics, run } = made;
     // Libraries asked for by require alone have not been through an include.
@@ -261,7 +265,7 @@
       const lines = files[ENTRY].split('\n').length;
       diagnostics.push({ path: ENTRY, line: lines, column: 1, message: 'a library returns its module (end with return …) or defines macros' });
     }
-    if (diagnostics.length) return { error: 'bundle-failed', diagnostics: diagnostics.sort(byLine).slice(0, 50) };
+    if (diagnostics.length) return { error: 'bundle-failed', diagnostics: diagnostics.sort(byLine).slice(0, 50), warnings: made.warnings };
     const code = {};
     if (!o.library) for (const spec of Object.keys(libs)) code[spec] = libs[spec].code;
     const r = await call('POST', '/bundle', { files: out, entry: ENTRY, minify: o.library ? false : o.minify !== false, libs: code, external: !!o.library });
@@ -272,6 +276,7 @@
     }
     if (o.library && answer.code != null) answer.lib = NT.libs.block(NT.macro.serialize(run(ENTRY).macros));
     answer.libs = Object.keys(libs).map((spec) => ({ spec, id: libs[spec].id }));
+    answer.warnings = made.warnings;
     return answer;
   }
 
@@ -392,10 +397,10 @@
       // Saved as typed, so played as typed: only what DEBUG itself makes of it.
       if (this.plain(files)) {
         const r = NT.macro.process(files[ENTRY], { path: ENTRY, defines: DEBUG });
-        return { code: r.plain ? null : r.text };
+        return { code: r.plain ? null : r.text, warnings: [] };
       }
       const b = await build(files, { minify: o.minify, library: o.library, debug: true });
-      return b.same ? { code: null } : b;
+      return b.same ? { code: null, warnings: b.warnings } : b;
     },
     // The sources are kept first and bundled second, so a bundle that fails loses nothing.
     // bundle: what POST /x/bundle answers ({ code, hash, fits, … }), or { error, … }.

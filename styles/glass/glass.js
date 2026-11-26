@@ -758,17 +758,23 @@
   window.addEventListener('resize', Tone.touch, { passive: true });
   NT.bus.on('prefs', Tone.touch);
 
-  // A new theme or accent is every colour at once, in one frame. Anything that eases
-  // its colour (a label, a row's fill) would otherwise be the old theme's for a moment
-  // on the new one's surface: light words on a light card.
-  let palette = root.dataset.theme + ' ' + root.dataset.accent;
+  // A new theme is every colour at once, in one frame. Anything that eases its colour
+  // (a label, a row's fill) would otherwise be the old theme's for a moment on the new
+  // one's surface: light words on a light card.
+  let theme = root.dataset.theme;
   NT.bus.on('prefs', () => {
-    const now = root.dataset.theme + ' ' + root.dataset.accent;
-    if (now === palette) return;
-    palette = now;
+    if (root.dataset.theme === theme) return;
+    theme = root.dataset.theme;
     root.classList.add('tone-snap');
     void root.offsetWidth;
     root.classList.remove('tone-snap');
+  });
+  // A new accent eases instead: the accent is one colour going over to the next
+  // (--accent, tokens.css), so nothing is ever two accents at once. What took the accent
+  // as a value while it was on its way (the editor's own colours) takes it again once
+  // it is there.
+  root.addEventListener('transitionend', (e) => {
+    if (e.target === root && e.propertyName === '--accent') NT.bus.emit('prefs', NT.prefs.data);
   });
 
   // What the core asks a style for (js/styles.js). Monaco's popups take the same

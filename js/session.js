@@ -34,10 +34,11 @@
                         showing it, are drawn again with every paint
     s.removed()         the script was deleted
     s.library           is it a library (libs.js)? s.setLibrary(on) changes that and saves
-    s.debug()           → Promise of what a Test run plays: the files built with DEBUG
-                        defined, or null where that changes nothing (NT.tests.start's
-                        debug; it can be passed as it is). A build that fails is marked in
-                        the files, as a save's is
+    s.debug()           → Promise of what a Test run plays, { code, warnings }: the files
+                        built with DEBUG defined (code null where that changes nothing)
+                        and what their #warning lines say (NT.tests.start's debug; it
+                        can be passed as it is). A build that fails is marked in the
+                        files, as a save's is
     s.close()           the page is going: keeps a draft, sends what it can
     s.multi  s.gone
 
@@ -158,14 +159,19 @@
       }
     }
 
+    // How many #warning lines the last build met: what is saved still has them.
+    let warned = 0;
+
     // One save, start to finish. → true when the script itself is now what the project says.
     async function cycle(shot, cheer, warn) {
       if (clash) return false;
+      const cheered = () => (warned ? toast(`Saved with ${warned} warning${warned === 1 ? '' : 's'}`, { warn: true }) : toast('Saved'));
       if (sameAs(shot.stamps, shot.minify) && !stale) {
-        if (cheer) toast('Saved');
+        if (cheer) cheered();
         return true;
       }
       let done = false, problems = {}, trouble = '';
+      warned = 0;
       saving++;
       paint();
       try {
@@ -203,6 +209,8 @@
           stored(shot);
           NT.history.record(id, shot.files);
           const b = res.bundle;
+          // What the files' #warning lines say: marked in them, counted in what a save says.
+          warned = (b.warnings || []).length;
           if (b.code != null && Project.fits(id, b)) {
             await Project.report(id, b, base);
             stale = false;
@@ -221,7 +229,7 @@
           } else throw new Error(b.error);
         }
         failed = false;
-        if (done && cheer) toast('Saved');
+        if (done && cheer) cheered();
         else if (trouble && warn) toast(trouble, { warn: true });
       } catch (e) {
         failed = true;
@@ -335,11 +343,12 @@
       },
       async debug() {
         const b = await Project.debug(snapshot().files, { minify, library });
-        if (b.code === null) return null;
+        const warnings = b.warnings || [];
+        if (b.code === null) return { code: null, warnings };
         const failed = (reason) => Object.assign(new Error(reason), { reason });
         if (b.code != null) {
           if (b.fits === false || b.code.length > NT.pack.LIMIT) throw failed('debug-too-large');
-          return b.code;
+          return { code: b.code, warnings };
         }
         if (b.error === 'bundle-failed' && !gone) {
           const problems = {};

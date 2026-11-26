@@ -9,6 +9,11 @@
     #if expr   #ifdef NAME   #ifndef NAME   #elif expr   #else   #endif
     #embed NAME "spec"     #embed NAME "spec" rows      #embed NAME "spec" text
 
+  #error and #warning are diagnostics with that severity. An error stops a build
+  (project.js). A warning stops nothing and is said wherever a build is: marked in the
+  editor (macro-view.js), counted when a save says Saved (session.js), and the first
+  lines of a Test run (tests.js).
+
   #embed defines NAME as a file of the project written out as a Luau literal, read
   while building: a .json file as the table it is, a .csv file as a table of its rows
   by their first column (rows: a list of them), anything else (and text) as a string,

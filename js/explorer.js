@@ -38,7 +38,8 @@
   'use strict';
   const NT = window.NT;
   const { h, clamp, Spring, motion, store } = NT.util;
-  const icon = NT.icon;
+  // Asked for as it is drawn: a style may bring its own drawings (styles/<id>/icons.js).
+  const icon = (name, size) => NT.icon(name, size);
   // The style's own toast, dialog and menu, looked up when they are needed: the style
   // is loaded after this.
   const UI = {

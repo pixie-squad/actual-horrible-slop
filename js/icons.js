@@ -77,7 +77,8 @@
     books: '<rect x="3.5" y="4" width="5" height="16" rx="1.2"/><rect x="10" y="4" width="5" height="16" rx="1.2"/><path d="m16.6 5.6 3.2-.9 3 14.6-3.2.9-3-14.6Z"/>',
   };
 
-  // data-icon names the drawing, so a style can put its own picture in its place.
+  // data-icon names the drawing, so a style can put its own picture in its place; or it
+  // gives NT.icon drawings of its own for these names (styles/glass/icons.js).
   NT.icon = function (name, size = 24) {
     const t = document.createElement('template');
     t.innerHTML =

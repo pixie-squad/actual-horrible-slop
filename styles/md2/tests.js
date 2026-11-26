@@ -230,7 +230,8 @@
       if (empty && run.lines.length) empty.remove();
       for (; drawn < run.lines.length; drawn++) {
         const line = run.lines[drawn];
-        const log = line.kind === 'log';
+        // A level is what the game said: beside the script (log), or that it stopped it.
+        const log = !!line.level;
         lines.append(h('li' + (log ? '.is-' + (line.level === 'error' ? 'error' : 'warning') : ''),
           log ? M.icon(line.level === 'error' ? 'error' : 'warning', { size: 16 }) : null,
           h('span', line.text)));

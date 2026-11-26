@@ -155,6 +155,12 @@ html[data-theme="dark"] {
   --tk-p: #6bdfff;
 }
 
+/* The accent is one colour that the page can ease. Chosen anew, it goes over to the
+   new one, and everything drawn in it is that same colour in every frame on the way: a
+   label, a fill, a tint and a ring never disagree. (A new theme does not ease: glass.js.) */
+@property --accent { syntax: "<color>"; inherits: true; initial-value: #0088ff; }
+html { transition: --accent 0.42s var(--ease-out); }
+
 html[data-accent="blue"] { --accent: var(--blue); }
 html[data-accent="indigo"] { --accent: var(--indigo); }
 html[data-accent="purple"] { --accent: var(--purple); }

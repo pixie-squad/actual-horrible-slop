@@ -846,7 +846,10 @@
 
   /* ---------- Switch ---------- */
 
-  const KNOB_LENS = NT.glass.drop({ bezel: 12, magnify: 0.04 });
+  // A knob held is a drop on its track: what is under it swells toward its middle and
+  // wraps round at its rim, with only a trace of colour split (a strong one reads as a
+  // stain on a white card).
+  const KNOB_LENS = NT.glass.drop({ bezel: 14, bend: 0.8, curve: 1.4, magnify: 0.04, dispersion: 0.05 });
 
   // A knob that lifts into glass while held (glass.css, .lens): its lift is its presence
   // as glass. Its filter is there for as long as it is lifted at all or its spring is
@@ -927,57 +930,97 @@
     return { el, set: (v) => set(!!v, false), get value() { return on; } };
   };
 
-  /* ---------- Slider ---------- */
+  /* ---------- Slider ----------
+     The thumb is a drop of glass on a track. It goes where the finger is, not where
+     the steps are: its place is a spring toward the finger (so a press away from it is
+     a glide, never a jump), it stretches along its way with its speed, and it lifts
+     into a lens while it is held. The value is the step nearest to it, said as it
+     changes; let go, the thumb settles on the value's own place. */
 
   UI.slider = function ({ min = 0, max = 100, step = 1, value = 0, onInput, label }) {
     const thumb = NT.glass.refract(h('div.slider-thumb.lens'), KNOB_LENS);
     const el = h('div.slider', { role: 'slider', tabIndex: 0, 'aria-label': label, 'aria-valuemin': min, 'aria-valuemax': max },
       h('div.slider-track', h('div.slider-fill')), thumb);
-    let v = value;
+    const span = max - min;
+    const at = (x) => (span > 0 ? clamp((x - min) / span, 0, 1) : 0);
+    let v = clamp(value, min, max);
+    let held = false;
+    // How far the thumb travels, for its speed in px: read at a press and on a resize.
+    let travel = 0;
+    const measure = () => { travel = Math.max(0, el.clientWidth - 38); };
     const paint = () => {
-      el.style.setProperty('--p', max > min ? ((v - min) / (max - min)).toFixed(4) : '0');
-      el.setAttribute('aria-valuenow', v);
+      const stretch = clamp(Math.abs(pos.velocity) * travel / 2600, 0, 0.3);
+      const l = lift.value;
+      el.style.setProperty('--p', pos.value.toFixed(5));
+      thumb.style.transform = `scale(${((1 + l * 0.42) * (1 + stretch)).toFixed(4)}, ${((1 + l * 0.58) * (1 - stretch * 0.4)).toFixed(4)})`;
+      lifted(thumb, lift);
     };
+    const pos = new Spring({ stiffness: 720, damping: 48, precision: 0.0004, value: at(v), onUpdate: paint });
+    const lift = new Spring({ stiffness: 380, damping: 24, precision: 0.002, onUpdate: paint });
+    const said = () => el.setAttribute('aria-valuenow', v);
+    // The value takes the step nearest to `nv`. → whether it changed.
     const commit = (nv, fire) => {
-      nv = clamp(+(Math.round(nv / step) * step).toFixed(6), min, max);
-      if (nv === v) return;
+      nv = clamp(+(min + Math.round((nv - min) / step) * step).toFixed(6), min, max);
+      if (nv === v) return false;
       v = nv;
-      paint();
+      said();
       if (fire && onInput) onInput(v);
+      return true;
     };
     const fromX = (x) => {
       const r = el.getBoundingClientRect();
-      commit(min + clamp((x - r.left - 19) / (r.width - 38), 0, 1) * (max - min), true);
+      const f = clamp((x - r.left - 19) / Math.max(1, r.width - 38), 0, 1);
+      pos.set(f);
+      commit(min + f * span, true);
     };
     el.addEventListener('pointerdown', (e) => {
       if (e.button > 0) return;
+      held = true;
       el.setPointerCapture(e.pointerId);
       NT.glass.refract(thumb, KNOB_LENS);
-      // The lift itself is a transition of its presence (glass.css); the filter stays
-      // until that has run back down.
-      thumb.classList.add('lens-on');
+      measure();
       el.classList.add('is-pressed');
+      lift.set(1);
       fromX(e.clientX);
     });
-    el.addEventListener('pointermove', (e) => { if (el.hasPointerCapture(e.pointerId)) fromX(e.clientX); });
-    const end = () => el.classList.remove('is-pressed');
-    thumb.addEventListener('transitionend', (e) => {
-      if (e.propertyName === '--lg-k' && !el.classList.contains('is-pressed')) thumb.classList.remove('lens-on');
-    });
+    el.addEventListener('pointermove', (e) => { if (held) fromX(e.clientX); });
+    const end = () => {
+      if (!held) return;
+      held = false;
+      el.classList.remove('is-pressed');
+      lift.set(0);
+      pos.set(at(v));
+    };
     el.addEventListener('pointerup', end);
     el.addEventListener('pointercancel', end);
+    el.addEventListener('lostpointercapture', end); // never leave the thumb lifted
     // The slider is not selectable (see .slider). If it were, a press would start a text
     // selection and the next press would drag that selection away, cancelling the gesture.
     el.addEventListener('dragstart', (e) => e.preventDefault());
     el.addEventListener('keydown', (e) => {
-      const big = Math.max(step, (max - min) / 10);
+      const big = Math.max(step, span / 10);
       const map = { ArrowLeft: -step, ArrowDown: -step, ArrowRight: step, ArrowUp: step, PageDown: -big, PageUp: big };
-      if (e.key in map) { e.preventDefault(); commit(v + map[e.key], true); }
-      else if (e.key === 'Home') { e.preventDefault(); commit(min, true); }
-      else if (e.key === 'End') { e.preventDefault(); commit(max, true); }
+      let to = null;
+      if (e.key in map) to = v + map[e.key];
+      else if (e.key === 'Home') to = min;
+      else if (e.key === 'End') to = max;
+      if (to === null) return;
+      e.preventDefault();
+      measure();
+      if (commit(to, true)) pos.set(at(v));
     });
+    if (window.ResizeObserver) new ResizeObserver(measure).observe(el);
+    thumb.classList.add('is-sprung');
+    said();
     paint();
-    return { el, set: (nv) => commit(nv, false), get value() { return v; } };
+    return {
+      el,
+      set(nv) {
+        measure();
+        if (commit(nv, false)) pos.set(at(v));
+      },
+      get value() { return v; },
+    };
   };
 
   /* ---------- Segmented control ----------

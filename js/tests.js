@@ -14,15 +14,30 @@
   a client sees of a script is what it printed and a battle it stopped, so a pass
   with nothing printed is told as no sign of the script, not as a pass.
 
+  Nor does it say the script kept running. One that throws, or spends more than the
+  game allows it, is stopped where it is and the battle goes on without it; the game
+  says so in the same place the script prints, as text:
+
+    Lua error is thrown!
+    attempt to call a nil value
+
+    Runtime quota exceeded (12.642456 ms, 16931650 bytes)
+
+  Those lines are read for what they are (run.fault, and level 'error' on the line),
+  and the run is then told as a script error however long the battle lasted. A script
+  can print the same words itself; it is then told the same.
+
     NT.tests.available()        there is a runner (asked once, with the extensions)
     NT.tests.seconds            { least, most, usual }: how long a battle is watched
     NT.tests.start(script, { values, seconds, debug })
                                 → the run, at once; what goes wrong shows on it.
                                   values(parameter) → its value, as on the script's
                                   page; left out, what setup() says. debug() → Promise
-                                  of the code to play, null for the saved script
-                                  (session.debug); it rejects with an Error whose
-                                  reason is one of REASONS' keys
+                                  of { code, warnings }: the code to play, null for
+                                  the saved script, and what its #warning lines say,
+                                  [{ path, line, message }], which open the run's
+                                  lines (session.debug); it rejects with an Error
+                                  whose reason is one of REASONS' keys
     NT.tests.setup(scriptId)    what this browser runs a script's tests with (nt.test.<id>):
                                 { seconds, map, values }. seconds: null is the usual.
                                 map: undefined is the script's own, null none, else
@@ -47,7 +62,10 @@
     run.state      'starting' | 'queued' | 'room' | 'battle' | 'leaving' | 'done'
     run.queue      { position, of } while queued
     run.lines      [{ kind: 'output' | 'log', level, text, t }] what the script printed,
-                   and what the game complained of ('warning' | 'error'), in order
+                   and what the game complained of ('warning' | 'error'), in order.
+                   level is null on a line the script printed, 'error' on one that
+                   is the game saying the script was stopped
+    run.fault      null, or what stopped the script: { kind: 'error' | 'quota', text }
     run.shot       the last look at the battle, as the runner sent it: { tick, me,
                    players, units }; state() is how it is read
     run.result     once done: { verdict: 'passed' | 'failed' | 'error' | 'cancelled',
@@ -70,7 +88,7 @@
   kind is one of NT.tests.kinds' ids; query is looked for in name, kind and team.
 
   On the sample data there is no runner: a run is acted out, from the script's own
-  print() calls, and fails if the script calls error().
+  print() calls, and is told its error as the game would if the script calls error().
 */
 (function () {
   'use strict';
@@ -87,6 +105,13 @@
   const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   const ordinal = (n) => n + (n % 100 >= 11 && n % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th');
   const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+  // What the game prints, among the script's own lines, when it stops a script: that it
+  // threw (what it threw follows, on that line or the next), or that it took more time
+  // or memory than a script gets.
+  const THROWN = /^Lua error is thrown!?\s*$/;
+  const QUOTA = /^Runtime quota exceeded \((\d+(?:\.\d+)?) ms, (\d+) bytes\)/;
+  const spent = (ms, bytes) => `${+(+ms).toFixed(2)} ms, ${+(bytes / 1e6).toFixed(1)} MB`;
 
   // Why a run did not happen or did not pass, in words.
   const REASONS = {
@@ -121,6 +146,8 @@
       this.lines = [];
       this.shot = null;
       this.result = null;
+      this.fault = null;      // what stopped the script, as the game said it
+      this.thrown = false;    // the game said it threw, and what it threw is the next line
       this.seconds = seconds;
       this.battleAt = 0;      // when the battle began, by this device's clock
       this.listeners = new Set();
@@ -146,6 +173,24 @@
       return this.state === 'done';
     }
 
+    // A line from where the script prints: the script's own, or the game saying it
+    // stopped the script. → its level. Only the first stop is kept: a script that is
+    // stopped prints nothing after it.
+    read(text) {
+      const [first, ...rest] = text.split(/\r?\n/);
+      if (this.thrown) {
+        this.thrown = false;
+        if (this.fault && !this.fault.text) this.fault.text = first.trim();
+        return 'error';
+      }
+      const quota = QUOTA.exec(first);
+      if (!quota && !THROWN.test(first)) return null;
+      const said = rest.join(' ').trim();
+      if (!quota && !said) this.thrown = true;
+      if (!this.fault) this.fault = quota ? { kind: 'quota', text: spent(quota[1], quota[2]) } : { kind: 'error', text: said };
+      return 'error';
+    }
+
     // An event of the run, as the runner sends it (its run.js).
     take(e) {
       if (this.done || !e) return;
@@ -163,10 +208,14 @@
           } else clearInterval(this.ticker);
           return this.tell('state');
         case 'output':
-        case 'log':
-          this.lines.push({ kind: e.kind, level: e.kind === 'log' ? e.level : null, text: String(e.text), t: e.t });
+        case 'log': {
+          const text = String(e.text);
+          const said = this.fault && this.fault.text;
+          this.lines.push({ kind: e.kind, level: e.kind === 'log' ? e.level : this.read(text), text, t: e.t });
           if (this.lines.length > LINES) this.lines.shift();
-          return this.tell('line');
+          // The heading says a stop as soon as it is read, and why as soon as that is.
+          return this.tell(this.fault && this.fault.text !== said ? 'state' : 'line');
+        }
         case 'field':
           this.shot = { tick: e.tick, me: e.me, players: typeof e.players === 'number' ? e.players : null, units: Array.isArray(e.units) ? e.units : [] };
           return this.tell('shot');
@@ -212,6 +261,15 @@
 
     words() {
       const printed = this.lines.filter((l) => l.kind === 'output').length;
+      // The game stopped the script. The battle may still be on; the script is not.
+      const fault = this.fault && {
+        title: this.fault.kind === 'quota' ? 'Quota exceeded' : 'Script error',
+        detail: this.fault.text || (this.fault.kind === 'quota' ? 'The script was stopped' : 'The script threw an error'),
+        tone: 'bad',
+      };
+      if (fault && this.state === 'battle') {
+        return Object.assign(fault, { progress: Math.min(1, (Date.now() - this.battleAt) / 1000 / this.seconds) });
+      }
       switch (this.state) {
         case 'starting':
           return { title: 'Starting', detail: '', tone: 'busy', progress: null };
@@ -233,6 +291,8 @@
         default:
       }
       const r = this.result;
+      // Stopped by the game, the battle running its time says nothing for the script.
+      if (fault && (r.verdict === 'passed' || r.verdict === 'cancelled')) return Object.assign(fault, { progress: null });
       if (r.verdict === 'passed') {
         const ended = r.reason === 'battle-ended';
         if (!printed) {
@@ -287,10 +347,17 @@
   }
 
   // The code a run plays instead of the saved script, or null: debug() as start() has it.
+  // What the build warned of (#warning) is the first thing the run says.
   async function debugged(run, debug) {
     if (!debug) return null;
     try {
-      return await debug();
+      const made = await debug();
+      if (!made || typeof made !== 'object') return made == null ? null : made;
+      for (const w of made.warnings || []) {
+        run.lines.push({ kind: 'log', level: 'warning', text: `${w.path}${w.line ? ':' + w.line : ''}: ${w.message}`, t: 0 });
+      }
+      if (made.warnings && made.warnings.length) run.tell('line');
+      return made.code == null ? null : made.code;
     } catch (e) {
       run.finish('error', e && REASONS[e.reason] ? e.reason : 'debug-failed');
       return undefined;
@@ -386,8 +453,10 @@
     if (code === null) {
       try { code = (await API.scriptContent(script.script_id)).content || ''; } catch (e) { code = ''; }
     }
-    const prints = [...code.matchAll(/\bprint\(\s*(["'])((?:\\.|(?!\1).)*)\1/g)].map((m) => m[2]).slice(0, 12);
-    const throws = /\berror\s*\(/.test(code);
+    // Calls as they are written, and as a minified bundle writes them (print'…').
+    const prints = [...code.matchAll(/\bprint\s*\(?\s*(["'])((?:\\.|(?!\1).)*)\1/g)].map((m) => m[2]).slice(0, 12);
+    const thrown = /\berror\s*(?:\(\s*(?:(["'])((?:\\.|(?!\1).)*)\1)?|(["'])((?:\\.|(?!\3).)*)\3)/.exec(code);
+    const throws = !!thrown;
     const seconds = Math.min(run.seconds, 8);
     run.seconds = seconds;
 
@@ -405,8 +474,10 @@
     const units = [];
     for (let i = 0; i < 6; i++) units.push([1000000 + i, 0, ['Shelly', 'Colt', 'Nita', 'Bull', 'Jessie', 'Brock'][i], i < 3 ? 0 : 1, 1500 + (i % 3) * 1650, i < 3 ? 9000 : 900, 6000, 6000]);
     for (let i = 0; i < 4; i++) units.push([4000000 + i, 3, 'Box', -1, 1200 + i * 1300, 4950, null, null]);
+    // A script that throws is stopped there, and the battle goes on without it.
     const stopAt = throws ? Math.min(3, seconds) : seconds;
-    for (let s = 0; s < stopAt * 2 && alive(); s++) {
+    for (let s = 0; s < seconds * 2 && alive(); s++) {
+      if (throws && s === stopAt * 2) run.take({ kind: 'output', text: 'Lua error is thrown!\n' + (thrown[2] || thrown[4] || 'error'), t: stopAt });
       if (s % 2 === 0) {
         for (const u of units) {
           if (u[1] !== 0) continue;
@@ -416,16 +487,11 @@
         }
         run.take({ kind: 'field', tick: s * 10, me: 1000000, players: 6, units: units.map((u) => u.slice()) });
         const line = prints[s / 2];
-        if (line !== undefined) run.take({ kind: 'output', text: line, t: s / 2 });
+        if (line !== undefined && !run.fault) run.take({ kind: 'output', text: line, t: s / 2 });
       }
       await wait(500);
     }
     if (!alive()) return;
-    if (throws) {
-      // What the game is heard to say when a battle goes from under it.
-      run.take({ kind: 'log', level: 'error', text: 'ServerErrorMessage received', t: stopAt });
-      return run.take({ kind: 'done', verdict: 'failed', reason: 'script-error', detail: null, seconds: 5, ticks: 60 });
-    }
     run.take({ kind: 'phase', name: 'leaving' });
     await wait(400);
     run.take({ kind: 'done', verdict: 'passed', reason: 'time-up', detail: null, seconds: seconds + 3, ticks: seconds * 20 });

@@ -111,18 +111,13 @@
 
   /* ---------- Generated artwork ---------- */
 
-  // Every script gets a stable mesh-gradient cover derived from its id.
+  // Every script gets a stable cover derived from its id: one colour of a fixed few,
+  // a little lighter toward the top, as a tile with no picture of its own is drawn.
+  // One hue to a cover: nothing in it competes with what a style rests on it.
+  const HUES = [22, 48, 148, 188, 232, 268, 302, 350]; // red, orange, green, teal, blue, indigo, purple, pink
   U.cover = function (id) {
-    const n = U.hash(String(id));
-    const a = n % 360;
-    const b = (a + 35 + ((n >>> 9) % 70)) % 360;
-    const c = (a + 170 + ((n >>> 17) % 90)) % 360;
-    return (
-      `background:radial-gradient(110% 130% at 6% 0%,oklch(0.76 0.18 ${a}) 0%,transparent 58%),` +
-      `radial-gradient(100% 120% at 100% 10%,oklch(0.68 0.22 ${b}) 0%,transparent 56%),` +
-      `radial-gradient(130% 120% at 55% 125%,oklch(0.6 0.2 ${c}) 0%,transparent 62%),` +
-      `oklch(0.5 0.17 ${a})`
-    );
+    const hue = HUES[U.hash(String(id)) % HUES.length];
+    return `background:linear-gradient(180deg,oklch(0.66 0.15 ${hue}),oklch(0.54 0.17 ${hue}))`;
   };
 
   const GLYPHS = ['bolt', 'sparkles', 'target', 'shield', 'flame', 'wand', 'cube', 'code'];

@@ -192,7 +192,8 @@
       if (none && run.lines.length) none.remove();
       for (; drawn < run.lines.length; drawn++) {
         const line = run.lines[drawn];
-        lines.append(h('div' + (line.kind === 'log' ? '.is-' + line.level : ''), line.text));
+        // A level is what the game said: beside the script (log), or that it stopped it.
+        lines.append(h('div' + (line.level ? '.is-' + line.level : ''), line.text));
       }
       if (run.done && !run.lines.length && !lines.firstChild) lines.append(h('div.w-tests-none', 'Nothing printed'));
       if (follow) lines.scrollTop = lines.scrollHeight;

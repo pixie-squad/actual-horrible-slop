@@ -188,7 +188,8 @@
       if (none && run.lines.length) none.remove();
       for (; drawn < run.lines.length; drawn++) {
         const line = run.lines[drawn];
-        const level = line.kind === 'log' ? (line.level === 'error' ? 'error' : 'warning') : null;
+        // A level is what the game said: beside the script (log), or that it stopped it.
+        const level = line.level ? (line.level === 'error' ? 'error' : 'warning') : null;
         lines.append(level
           ? h('div.is-' + level, W.icon(level, 16), h('span', line.text))
           : h('div', h('span', line.text)));

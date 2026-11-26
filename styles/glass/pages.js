@@ -160,6 +160,7 @@
     const el = h('div.cover' + (sel || ''), { style: NT.util.cover(id) });
     // Top glass turns dark over artwork, though not for a row's small thumbnail.
     if (sel !== '.thumb') NT.tone.mark(el);
+    // One symbol, upright and whole, as a Shortcuts tile carries its own.
     const g = icon(NT.util.glyph(id), glyphSize);
     g.classList.add('cover-glyph');
     el.append(g);
@@ -324,8 +325,10 @@
   }
 
   function favButton(s, ctx, sel) {
-    const b = h('button.fav-btn' + sel, { type: 'button' }, icon('heart', 20));
+    const b = h('button.fav-btn' + sel, { type: 'button' });
     const sync = () => {
+      // A favourite is the filled heart, as the system draws one that is on.
+      b.replaceChildren(icon(s.is_favorite ? 'heart-fill' : 'heart', 20));
       b.setAttribute('aria-pressed', String(!!s.is_favorite));
       b.setAttribute('aria-label', s.is_favorite ? 'Remove from favorites' : 'Add to favorites');
       b.title = s.is_favorite ? 'Remove from favorites' : 'Add to favorites';
@@ -357,7 +360,7 @@
     const fav = API.session ? favButton(s, ctx, '.glass.on-art.interactive') : null;
     if (fav) NT.glass.shine(fav);
     const more = h('button.more-btn', { type: 'button', 'aria-label': 'Script actions', title: 'Script actions', onclick: (e) => { e.stopPropagation(); scriptMenu(more, s, ctx); } }, icon('ellipsis', 20));
-    const art = cover(s, '', 96);
+    const art = cover(s, '', 40);
     if (!s.published_at) art.append(h('span.badge.on-art', 'Draft'));
     else if (NT.seen.updated(s)) art.append(h('span.badge.on-art', 'Updated'));
     if (fav) art.append(fav);
@@ -424,7 +427,7 @@
   // The lead card is real content, not decoration: the script you last worked on
   // (or the newest one published), with glass controls resting on its artwork.
   function spotlight(s, o) {
-    const art = cover(s, '.spotlight.pressable', 220);
+    const art = cover(s, '.spotlight.pressable', 44);
     art.tabIndex = 0;
     const button = ([label, iconName, onClick, solid]) => NT.glass.refract(
       h('button.art-btn.glass.on-art.interactive' + (solid ? '.solid' : ''), { type: 'button', onclick: (e) => { e.stopPropagation(); onClick(); } },
@@ -812,7 +815,7 @@
 
       group.firstElementChild.replaceWith(favButton(s, null, '.nav-group-btn'));
 
-      const heroEl = cover(s, '.detail-hero', 190);
+      const heroEl = cover(s, '.detail-hero', 44);
       const badges = [];
       if (!s.published_at) badges.push(h('span.badge.on-art', 'Draft'));
       if (since != null) badges.push(h('span.badge.on-art', 'Updated'));
@@ -1007,7 +1010,7 @@
   /* ---------- Editor ---------- */
 
   // The editor page is a module of its own (editor.js), built from these pieces.
-  NT.kit = { makePage, navButton, navGroup, groupButton, emptyState, errorState, publishScript, deleteScript, paramGroups, cover };
+  NT.kit = { makePage, navButton, navGroup, groupButton, emptyState, errorState, publishScript, deleteScript, paramGroups, cover, hold, settle, ph };
 
   /* ---------- Maps ---------- */
 
@@ -1263,21 +1266,35 @@
         { value: 'system', label: 'Auto' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' },
       ], prefs.theme, (v) => NT.prefs.set({ theme: v }));
       theme.el.classList.add('seg-inline');
+      // The chosen colour is marked by one ring, which goes from the old choice to the
+      // new (it is never on two at once), in the accent as the accent goes over.
       const accents = ['blue', 'indigo', 'purple', 'pink', 'orange', 'green', 'teal'];
-      const swatches = h('div.swatches', { role: 'radiogroup', 'aria-label': 'Accent color' }, accents.map((a) => {
-        const b = h('button.swatch', { type: 'button', role: 'radio', 'aria-label': a, title: a[0].toUpperCase() + a.slice(1), 'aria-checked': String(prefs.accent === a), tabIndex: prefs.accent === a ? 0 : -1, style: { background: `var(--${a})`, color: `var(--${a})` } });
+      const ring = h('span.swatch-ring', { 'aria-hidden': 'true', hidden: true });
+      const dots = accents.map((a) => {
+        const b = h('button.swatch', { type: 'button', role: 'radio', 'aria-label': a, title: a[0].toUpperCase() + a.slice(1), 'aria-checked': String(prefs.accent === a), tabIndex: prefs.accent === a ? 0 : -1, style: { background: `var(--${a})` } });
         b.addEventListener('click', () => {
           NT.prefs.set({ accent: a });
-          swatches.querySelectorAll('.swatch').forEach((x) => { x.setAttribute('aria-checked', String(x === b)); x.tabIndex = x === b ? 0 : -1; });
+          dots.forEach((x) => { x.setAttribute('aria-checked', String(x === b)); x.tabIndex = x === b ? 0 : -1; });
+          seat(true);
         });
         return b;
-      }));
-      UI.arrows(swatches, () => [...swatches.children], (i) => swatches.children[i].click());
+      });
+      const swatches = h('div.swatches', { role: 'radiogroup', 'aria-label': 'Accent color' }, ring, dots);
+      // Where the ring belongs: around the chosen colour, wherever the row has put it.
+      const seat = (glide) => {
+        const on = dots.find((x) => x.getAttribute('aria-checked') === 'true');
+        if (!on || !swatches.clientWidth) return;
+        ring.classList.toggle('is-gliding', !!glide);
+        ring.style.translate = `${on.offsetLeft}px ${on.offsetTop}px`;
+        ring.hidden = false;
+      };
+      if (window.ResizeObserver) new ResizeObserver(() => seat(false)).observe(swatches);
+      UI.arrows(swatches, () => dots, (i) => dots[i].click());
       kids.push(header('Appearance'));
       // Another whole look of the app (js/styles.js). Choosing one loads it.
       const styles = NT.styles.list;
       const stylePick = h('button.row-pick', { type: 'button', 'aria-label': 'Style' },
-        h('span', (styles.find((s) => s.id === NT.styles.current) || styles[0]).name), icon('sort', 15));
+        h('span', (styles.find((s) => s.id === NT.styles.current) || styles[0]).name), icon('updown', 15));
       stylePick.addEventListener('click', () => UI.menu(stylePick, styles.map((s) => ({
         label: s.name,
         checked: s.id === NT.styles.current,
@@ -1292,7 +1309,7 @@
       const frost = UI.slider({ min: 0, max: 100, value: Math.round(prefs.frost * 100), label: 'Liquid Glass tint', onInput: (v) => NT.prefs.set({ frost: v / 100 }) });
       kids.push(header('Liquid Glass'));
       kids.push(h('div.list',
-        h('div.glass-preview', h('div.glass-preview-art', { style: NT.util.cover('liquid-glass-preview') }, h('span', 'Liquid Glass bends what is behind it')), sample),
+        h('div.glass-preview', h('div.glass-preview-art', h('span', 'Liquid Glass bends what is behind it')), sample),
         h('div.slider-row', h('span', 'Clear'), frost.el, h('span', 'Tinted')),
         h('div.row', h('span.row-title', 'Reduce Transparency'),
           UI.toggle(!!prefs.solid, (on) => NT.prefs.set({ solid: on }), 'Reduce Transparency').el)));
@@ -1336,7 +1353,7 @@
   // A row whose value opens a menu of the values it can take. options: [[value, label]]
   function pickRow(title, key, options) {
     const value = h('span');
-    const pick = h('button.row-pick', { type: 'button', 'aria-label': title }, value, icon('sort', 15));
+    const pick = h('button.row-pick', { type: 'button', 'aria-label': title }, value, icon('updown', 15));
     const sync = () => { value.textContent = (options.find((o) => o[0] === EP.data[key]) || options[0])[1]; };
     pick.addEventListener('click', () => UI.menu(pick, options.map(([v, label]) => ({
       label,

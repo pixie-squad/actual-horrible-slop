@@ -20,6 +20,12 @@ shares are in [/DESIGN.md](../../DESIGN.md); these are on top of them.
   card's corners, so a line at the edge of the code is cut straight or not at all.
 - Use glass sparingly. Repeated glass in content (the heart on a card) takes the light
   only, never the lens (`NT.glass.shine`, not `NT.glass.refract`).
+- Content never cuts its own glass off. Glass that is held is pulled past its edge
+  (section 7), so what carries it does not clip: a script's card and its cover take
+  their corners themselves (`.card.script-card`, `.script-card > .cover`).
+- A knob that is a drop while held (a switch's, a slider's) bends what is under it
+  toward its middle and round at its rim, with a lit upper edge and a shaded lower one
+  inside it (`KNOB_LENS`, `--_body`).
 - Nothing spans the top of the screen. The top bar is floating pieces, not a slab.
 
 ## 2. The material
@@ -142,10 +148,32 @@ Glass is liquid, not only glass. Its material has a presence and a thickness
   Scripts the page is what is found, anywhere else it comes up beside the field, out of
   its glass, and only Return or All Results goes to Scripts (`NT.tabbar`).
 - Defaults are the quiet state: closed, collapsed, unselected.
-- A new theme or accent is every colour in one frame; nothing eases across it.
+- A new theme is every colour in one frame; nothing eases across it.
+- A new accent eases. The accent is one colour that goes over to the next (`--accent`,
+  tokens.css), so every label, fill and tint drawn in it is the same colour in each
+  frame on the way. What marks the chosen colour is one ring that goes from the old
+  choice to the new (`.swatch-ring`); it is never on two.
+- A slider's thumb is where the finger is, between the steps as well as on them: its
+  place is a spring toward the finger, so a press away from it is a glide, and it
+  stretches along its way with its speed. The value is the nearest step, said as it
+  changes; let go, the thumb settles on it (`UI.slider`).
+- What a control opens, opens with the press. Where what it shows has to be asked
+  for, the sheet is there at once with that part as a placeholder (`testSettings`,
+  `historySheet`); nothing waits on the network before it moves.
 
 ## 8. Colour and type
 
+- Symbols are the platform's: the set in `icons.js`, drawn to match SF Symbols (which
+  are licensed for Apple's platforms only) at one weight, brought up to the weight of
+  the words beside them. An action takes the symbol the guidelines name for it (Share
+  is `square.and.arrow.up`, Duplicate `plus.square.on.square`, what a pop-up button
+  carries is `chevron.up.chevron.down`). What is on is the filled symbol (a favourite
+  is `heart.fill`), not the outline in another colour. No symbol is drawn by hand
+  where the set has one.
+- A script with no thumbnail of its own gets a cover of one colour (the core's,
+  `NT.util.cover`) with one symbol on it, upright and whole: in the middle of a card,
+  at the leading top corner where the cover carries words (`.cover-glyph`). Never
+  several hues in one cover, and never a symbol cropped or turned.
 - Colours come from tokens (`css/tokens.css`), by meaning: `--label`, `--label-2`,
   `--label-3` for text, `--fill`, `--fill-2` for control backgrounds, `--surface` for
   content, `--accent` for the tint. Never a raw value in a component.
@@ -183,5 +211,13 @@ Liquid motion (section 7), as read on 2026-11-15:
 - [Build a SwiftUI app with the new design](https://developer.apple.com/videos/play/wwdc2025/323/) (WWDC25): controls morphing into menus, dialogs and sheets; interactive glass scaling, bouncing and shimmering.
 - [Applying Liquid Glass to custom views](https://developer.apple.com/documentation/swiftui/applying-liquid-glass-to-custom-views), [GlassEffectContainer](https://developer.apple.com/documentation/swiftui/glasseffectcontainer): shapes blending as they near each other, morphing apart and together.
 - [Adopting Liquid Glass](https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass): knobs transforming into glass, buttons morphing into menus and popovers.
+
+Controls, symbols and covers, as read on 2026-11-26:
+
+- [Materials](https://developer.apple.com/design/human-interface-guidelines/materials): the one exception to glass in content, "controls in the content layer with a transient interactive element like sliders and toggles; in these cases, the element takes on a Liquid Glass appearance to emphasize its interactivity when a person activates it".
+- [Sliders](https://developer.apple.com/design/human-interface-guidelines/sliders): a track, a thumb and a fill; live feedback as the value changes.
+- [Motion](https://developer.apple.com/design/human-interface-guidelines/motion): feedback that follows the gesture, brief and precise; never a wait on an animation.
+- [Icons](https://developer.apple.com/design/human-interface-guidelines/icons), [SF Symbols](https://developer.apple.com/design/human-interface-guidelines/sf-symbols): one weight and level of detail across an app, matched to the text beside it; the standard symbols for common actions.
+- [Framework7 Icons](https://framework7.io/icons/) 5.0.5 (MIT): the drawings in `icons.js`.
 
 Sections 9 and 10, and the parts of 7 not covered above, are this project's own rules.

@@ -216,8 +216,16 @@ html[data-theme="dark"] [data-over="dark"] {
   --_lift:
     0 8px 20px color-mix(in srgb, rgb(0 0 0 / 0.2) var(--_k), transparent),
     0 2px 5px color-mix(in srgb, rgb(0 0 0 / 0.12) var(--_k), transparent);
+  /* The body of a drop: lit from above inside its upper edge, shaded inside its lower.
+     Only the knobs that are drops take it (a switch's, a slider's). */
+  --_body: 0 0 transparent;
   background: color-mix(in srgb, rgb(255 255 255 / 0.03) var(--_k), var(--_face));
-  box-shadow: var(--_rim), var(--_lift), var(--_resting);
+  box-shadow: var(--_rim), var(--_body), var(--_lift), var(--_resting);
+}
+.switch-knob, .slider-thumb {
+  --_body:
+    inset 0 5px 6px -5px color-mix(in srgb, rgb(255 255 255 / 0.9) var(--_k), transparent),
+    inset 0 -5px 7px -5px color-mix(in srgb, rgb(0 0 0 / 0.16) var(--_k), transparent);
 }
 .lens.lens-on {
   -webkit-backdrop-filter: brightness(1.03);
@@ -302,9 +310,10 @@ html[data-theme="dark"] [data-over="dark"] {
   --_face: #fff;
   --_resting: 0 0.5px 4px color-mix(in srgb, rgb(0 0 0 / 0.14) var(--_rk), transparent),
     0 6px 13px color-mix(in srgb, rgb(0 0 0 / 0.14) var(--_rk), transparent);
-  transition: transform var(--dur-bouncy) var(--spring-bouncy), --lg-k 0.24s var(--ease-out);
+  will-change: transform;
 }
-.slider.is-pressed .slider-thumb { transform: scale(1.4, 1.5); --lg-k: 1; }
+/* Where it is, how far it has lifted and how it stretches with its speed are springs
+   (UI.slider): it follows the finger between the steps, and nothing here eases it. */
 
 /* Segmented control: press and drag the thumb between segments. */
 .seg {

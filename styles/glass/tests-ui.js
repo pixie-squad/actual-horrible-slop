@@ -20,20 +20,44 @@
 
   const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
+  // What the sheet shows of a script that has to be asked for: its parameters and its
+  // author's maps. Asked for once the editor knows tests can run (testSettings.ready),
+  // so the sheet has them when it opens; kept for the visit, and asked again behind
+  // each opening so the next one is up to date.
+  const asked = new Map(); // script id → { data, pending }
+  function ask(script) {
+    const API = NT.api;
+    const id = script.script_id;
+    const entry = asked.get(id) || { data: null, pending: null };
+    asked.set(id, entry);
+    if (!entry.pending) {
+      entry.pending = Promise.all([
+        API.parameters(id).catch(() => []),
+        API.maps(script.author_uuid).catch(() => []),
+      ]).then(([params, maps]) => {
+        entry.pending = null;
+        return (entry.data = { params, maps });
+      });
+    }
+    return entry;
+  }
+
   // What a script's tests run with (NT.tests.setup): how long, on which map, and its
   // parameters as its page shows them. A change holds from the next run on.
-  async function testSettings(script) {
+  // The sheet opens with the press: what has not arrived yet is its own layout with the
+  // words left out, and comes in place.
+  function testSettings(script) {
     const API = NT.api;
+    const { hold, settle, ph } = NT.kit;
     const id = script.script_id;
     const set = NT.tests.setup(id);
     const values = Object.assign({}, set.values);
     let seconds = set.seconds, map = set.map;
     const limit = (API.mode === 'live' && NT.ext.info('tests').seconds) || NT.tests.seconds;
     const keep = () => NT.tests.configure(id, { seconds, map, values });
-    const [params, maps] = await Promise.all([
-      API.parameters(id).catch(() => []),
-      API.maps(script.author_uuid).catch(() => []),
-    ]);
+    const entry = ask(script);
+    const known = entry.data;
+    let maps = known ? known.maps : null;
 
     const shown = () => (seconds == null ? limit.usual : seconds);
     const time = h('span.param-value', clock(shown()));
@@ -48,28 +72,47 @@
     timeReset.addEventListener('click', () => { slider.set(limit.usual); setTime(limit.usual); });
 
     const mapValue = h('span');
-    const mapPick = h('button.row-pick', { type: 'button', 'aria-label': 'Map' }, mapValue, icon('sort', 15));
+    const mapPick = h('button.row-pick', { type: 'button', 'aria-label': 'Map' }, mapValue, icon('updown', 15));
+    // A map of the author's is known by its name once their maps have arrived.
     const syncMap = () => {
-      const m = map && maps.find((x) => x.user_map_id === map.id);
-      mapValue.textContent = map === undefined ? 'Default' : m ? m.name : 'None';
+      const m = map && maps && maps.find((x) => x.user_map_id === map.id);
+      const waiting = !!map && !maps;
+      mapValue.classList.toggle('ph', waiting);
+      if (waiting) mapValue.replaceChildren(h('span.ph-bar', { style: { '--w': '5em' } }));
+      else mapValue.textContent = map === undefined ? 'Default' : m ? m.name : 'None';
     };
     const pickMap = (next) => () => { map = next; syncMap(); keep(); };
     mapPick.addEventListener('click', () => UI.menu(mapPick, [
       { label: 'Default', checked: map === undefined, onSelect: pickMap(undefined) },
       { label: 'None', checked: map === null, onSelect: pickMap(null) },
-      maps.length ? '-' : null,
-      ...maps.map((m) => ({ label: m.name, checked: !!map && map.id === m.user_map_id, onSelect: pickMap({ id: m.user_map_id, internal: m.internal_id }) })),
+      maps && maps.length ? '-' : null,
+      ...(maps || []).map((m) => ({ label: m.name, checked: !!map && map.id === m.user_map_id, onSelect: pickMap({ id: m.user_map_id, internal: m.internal_id }) })),
     ]));
     syncMap();
+
+    const groups = (params) => (params.length ? [h('h3.list-header', 'Parameters'), NT.kit.paramGroups(params, values, keep)] : []);
+    const rest = h('div');
+    if (known) rest.append(...groups(known.params));
+    else hold(rest, [h('h3.list-header.ph', h('span.ph-bar', { style: { '--w': '6em' } })), h('div.param-groups', [0, 1, 2].map((i) => h('div.list', ph.row({}, i))))]);
 
     const body = h('div',
       h('div.list',
         h('div.row.param.col', h('div.param-head', h('span.row-title', 'Duration'), timeReset, time), slider.el),
         h('div.row', h('span.row-title', 'Map'), mapPick)),
-      params.length ? h('h3.list-header', 'Parameters') : null,
-      params.length ? NT.kit.paramGroups(params, values, keep) : null);
-    return UI.sheet({ title: 'Test Settings', body });
+      rest);
+    const sheet = UI.sheet({ title: 'Test Settings', body });
+    if (!known) {
+      entry.pending.then((data) => {
+        maps = data.maps;
+        if (!sheet.panel.isConnected) return;
+        syncMap();
+        settle(rest, groups(data.params));
+      });
+    }
+    return sheet;
   }
+  // The editor says a script's tests can be set up, before anyone asks to.
+  testSettings.ready = (script) => void ask(script);
 
   function testsView({ onRun, onClose, onSettings }) {
     let run = null, off = null, drawn = 0, tone = '';
@@ -147,7 +190,8 @@
       if (empty && run.lines.length) empty.remove();
       for (; drawn < run.lines.length; drawn++) {
         const line = run.lines[drawn];
-        lines.append(h('li' + (line.kind === 'log' ? '.is-' + line.level : ''), line.text));
+        // A level is what the game said: beside the script (log), or that it stopped it.
+        lines.append(h('li' + (line.level ? '.is-' + line.level : ''), line.text));
       }
       if (run.done && !run.lines.length && !lines.firstChild) lines.append(h('li.tests-none', 'Nothing printed'));
       if (follow) lines.scrollTop = lines.scrollHeight;

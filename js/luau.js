@@ -5,6 +5,10 @@
   const { h } = NT.util;
 
   const KEYWORDS = new Set(('and break continue do else elseif end export for function if in local not or repeat return then type until while').split(' '));
+  // Keywords only where they declare something: `const x = 1`, `const function f()`.
+  // Anywhere else they are names like any other (`local const = 2`).
+  const DECLARES = new Set(['const']);
+  const NAME_START = /[A-Za-z_]/;
   const CONSTANTS = new Set(['true', 'false', 'nil', 'self']);
   const BUILTINS = new Set(('assert error getmetatable ipairs next pairs pcall print rawequal rawget rawset require select setmetatable tonumber tostring typeof unpack xpcall math string table os coroutine bit32 utf8 task buffer vector').split(' '));
 
@@ -95,6 +99,7 @@
         const next = src[SPACE.lastIndex];
         const member = prev === '.' || prev === ':';
         if (!member && KEYWORDS.has(word)) out += span('k', word);
+        else if (!member && DECLARES.has(word) && SPACE.lastIndex > i && NAME_START.test(next || '')) out += span('k', word);
         else if (!member && CONSTANTS.has(word)) out += span('n', word);
         else if (next === '(' || next === '"' || next === "'" || next === '{') out += span(!member && BUILTINS.has(word) ? 'b' : 'f', word);
         else if (!member && BUILTINS.has(word)) out += span('b', word);

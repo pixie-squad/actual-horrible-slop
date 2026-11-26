@@ -14,7 +14,7 @@
   const icon = NT.icon;
   const API = NT.api;
   const UI = NT.ui;
-  const { makePage, navButton, navGroup, groupButton, emptyState, errorState, publishScript, deleteScript } = NT.kit;
+  const { makePage, navButton, navGroup, groupButton, emptyState, errorState, publishScript, deleteScript, hold, settle, ph } = NT.kit;
 
   const ENTRY = NT.project.ENTRY;
   const SIDE = { width: 260, gap: 12 }; // as in project.css
@@ -217,7 +217,7 @@
       desc.addEventListener('input', () => { counter.textContent = `${desc.value.length}/1024`; });
       let maps = null, mapId = script.user_map_id || '';
       const mapValue = h('span', '…');
-      const mapPick = h('button.row-pick', { type: 'button', 'aria-label': 'Map' }, mapValue, icon('sort', 15));
+      const mapPick = h('button.row-pick', { type: 'button', 'aria-label': 'Map' }, mapValue, icon('updown', 15));
       const syncMap = () => {
         const m = (maps || []).find((x) => x.user_map_id === mapId);
         mapValue.textContent = m ? m.name : 'None';
@@ -270,37 +270,47 @@
     const stamp = (at) => new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
     // Each save of a file (NT.history), newest first. One opens on what it changes
-    // against the file as it is now, with Restore.
-    async function historySheet() {
+    // against the file as it is now, with Restore. The sheet opens with the press, and
+    // the saves come into it.
+    function historySheet() {
       let path = ed.path || ENTRY;
       const list = h('div');
-      const pick = h('button.row-pick', { type: 'button', 'aria-label': 'File' }, h('span', path), icon('sort', 15));
+      const pick = h('button.row-pick', { type: 'button', 'aria-label': 'File' }, h('span', path), icon('updown', 15));
       pick.addEventListener('click', () => UI.menu(pick, ed.paths().slice().sort().map((p) => ({
         label: p, checked: p === path, onSelect: () => { path = p; pick.firstChild.textContent = p; fill(); },
       }))));
       let turn = 0;
       async function fill() {
         const t = ++turn;
-        const saves = await NT.history.list(id, path);
+        hold(list, [ph.list(3, { sub: true })]);
+        const saves = await NT.history.list(id, path).catch(() => []);
         if (t !== turn) return;
-        list.replaceChildren(saves.length
+        settle(list, [saves.length
           ? h('div.list', saves.map((e) => h('button.row', { type: 'button', onclick: () => historyEntry(e, sheet) },
             h('span.row-main', h('span.row-title', NT.util.rel(e.at)), h('span.row-sub', `${stamp(e.at)} · ${e.lines} line${e.lines === 1 ? '' : 's'}`)),
             h('span.row-chevron', icon('chevron-right', 16)))))
-          : emptyState('clock', 'No Saves Yet', null, null, true));
+          : emptyState('clock', 'No Saves Yet', null, null, true)]);
       }
-      await fill();
+      fill();
       const sheet = UI.sheet({ title: 'History', body: h('div.form-stack', ed.paths().length > 1 ? h('div.list', h('div.row', h('span.row-title', 'File'), pick)) : null, list) });
     }
 
     async function historyEntry(entry, under) {
-      const before = await NT.history.text(entry.id);
-      if (before == null || !ed.has(entry.path)) return void UI.toast('Couldn’t open', { warn: true });
+      if (!ed.has(entry.path)) return void UI.toast('Couldn’t open', { warn: true });
       const host = h('div.code-host');
-      const restore = h('button.btn.filled.block', { type: 'button', disabled: before === ed.text(entry.path) }, 'Restore');
-      let view = null;
-      const sheet = UI.sheet({ title: stamp(entry.at), body: h('div.form-stack', h('div.code-well.history-diff', host), restore), onClose: () => { if (view) view.dispose(); } });
-      view = await NT.code.diff(host, { before, after: ed.text(entry.path), onStats: (s) => { restore.disabled = !s.changes; } });
+      const restore = h('button.btn.filled.block', { type: 'button', disabled: true }, 'Restore');
+      let view = null, shut = false;
+      const sheet = UI.sheet({ title: stamp(entry.at), body: h('div.form-stack', h('div.code-well.history-diff', host), restore), onClose: () => { shut = true; if (view) view.dispose(); } });
+      const before = await NT.history.text(entry.id).catch(() => null);
+      if (shut) return;
+      if (before == null) {
+        sheet.close();
+        return void UI.toast('Couldn’t open', { warn: true });
+      }
+      restore.disabled = before === ed.text(entry.path);
+      const made = await NT.code.diff(host, { before, after: ed.text(entry.path), onStats: (s) => { restore.disabled = !s.changes; } });
+      if (shut) return void made.dispose();
+      view = made;
       restore.addEventListener('click', () => {
         const was = ed.text(entry.path);
         ed.open(entry.path);
@@ -402,7 +412,11 @@
       saveBtn = navButton('check', 'Save', () => commit(true, saveBtn), '.tinted');
       if (multi) filesBtn = groupButton('sidebar', 'Files', toggleFiles);
       // Three to a capsule: with testing there, Details is in the menu beside it.
-      if (NT.tests.available()) testBtn = groupButton('play', 'Test', () => runTest(testBtn));
+      if (NT.tests.available()) {
+        testBtn = groupButton('play', 'Test', () => runTest(testBtn));
+        // What Test Settings shows is asked for now, so it is there when the sheet opens.
+        NT.kit.testSettings.ready(script);
+      }
       page.setTrailing(navGroup(filesBtn, testBtn || groupButton('info', 'Details', infoSheet), more), saveBtn);
       if (multi && sideWanted()) showSide(true, false);
       // A run begun before the page was left is still this script's.
