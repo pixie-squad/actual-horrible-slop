@@ -2,133 +2,199 @@
   Material 3 Expressive.
 
   Every number here is a Material token, named in the comment beside it (the files are
-  Compose Material 3's tokens/*.kt; see DESIGN.md). Colour is a tonal scheme worked out
-  from the accent's hue: a component names a role, never a raw value. Shape is the
-  corner scale, and it answers: what is pressed, hovered or chosen changes how round it
-  is. Motion is the expressive scheme's springs (ui.js puts them in --m-*).
+  Compose Material 3's tokens/*.kt; see DESIGN.md). Colour is the scheme Material's own
+  library works out from the accent (tools/md3-colors.js): a component names a role,
+  never a raw value. Shape is the corner scale, and it answers: what is pressed,
+  hovered or chosen changes how round it is. Motion is the expressive scheme's springs
+  (ui.js puts them in --m-*).
 
   A corner that animates is always a length. "Fully round" is half the component's
   height, written out (--round), so a press morphs from that to the pressed corner and
   is right in every frame between.
 */
 
-/* ---------- Colour roles ---------- */
+/* ---------- Colour roles ----------
+   Every role, for each accent in each theme, is worked out by Material's own colour
+   library from the accent's source colour: the 2025 colour spec's Tonal Spot scheme,
+   the one a Pixel uses (tools/md3-colors.js writes what is between the two marks, and
+   says how). One family of hue: primary is the accent, secondary the same hue with
+   less colour in it, tertiary a near neighbour, and the surfaces carry a little of it. */
 
-html[data-accent="blue"] { --hue: 262; }
-html[data-accent="indigo"] { --hue: 285; }
-html[data-accent="purple"] { --hue: 312; }
-html[data-accent="pink"] { --hue: 355; }
-html[data-accent="orange"] { --hue: 55; }
-html[data-accent="green"] { --hue: 150; }
-html[data-accent="teal"] { --hue: 198; }
-
-/* A role is a tone of one of the scheme's palettes; a tone T is OKLCH lightness
-   (T + 16) / 116. The tones are the ones Material's scheme gives each role. */
+/* colour roles: written by tools/md3-colors.js */
 html[data-theme="light"] {
-  color-scheme: light;
-  --primary: oklch(0.483 0.17 var(--hue));                 /* 40 */
-  --on-primary: #ffffff;                                   /* 100 */
-  --primary-container: oklch(0.914 0.06 var(--hue));       /* 90 */
-  --on-primary-container: oklch(0.397 0.15 var(--hue));    /* 30 */
-  --secondary: oklch(0.483 0.05 var(--hue));
-  --on-secondary: #ffffff;
-  --secondary-container: oklch(0.914 0.04 var(--hue));
-  --on-secondary-container: oklch(0.397 0.05 var(--hue));
-  --tertiary: oklch(0.483 0.1 calc(var(--hue) + 60));
-  --on-tertiary: #ffffff;
-  --tertiary-container: oklch(0.914 0.055 calc(var(--hue) + 60));
-  --on-tertiary-container: oklch(0.397 0.09 calc(var(--hue) + 60));
-  --error: #ba1a1a;
-  --on-error: #ffffff;
-  --error-container: #ffdad6;
-  --on-error-container: #93000a;
-  --surface: oklch(0.983 0.006 var(--hue));                /* 98 */
-  --surface-dim: oklch(0.888 0.014 var(--hue));            /* 87 */
-  --surface-bright: oklch(0.983 0.006 var(--hue));         /* 98 */
-  --surface-container-lowest: #ffffff;                     /* 100 */
-  --surface-container-low: oklch(0.966 0.009 var(--hue));  /* 96 */
-  --surface-container: oklch(0.948 0.012 var(--hue));      /* 94 */
-  --surface-container-high: oklch(0.931 0.014 var(--hue)); /* 92 */
-  --surface-container-highest: oklch(0.914 0.016 var(--hue)); /* 90 */
-  --on-surface: oklch(0.224 0.012 var(--hue));             /* 10 */
-  --on-surface-variant: oklch(0.397 0.022 var(--hue));     /* 30 */
-  --outline: oklch(0.569 0.022 var(--hue));                /* 50 */
-  --outline-variant: oklch(0.828 0.02 var(--hue));         /* 80 */
-  --inverse-surface: oklch(0.31 0.012 var(--hue));         /* 20 */
-  --inverse-on-surface: oklch(0.957 0.006 var(--hue));     /* 95 */
-  --inverse-primary: oklch(0.828 0.1 var(--hue));          /* 80 */
-  --scrim: rgb(0 0 0 / 0.32);
-  --shadow: 0 0 0;
-
-  --code-bg: #ffffff;
-  --code-fg: #1d1b20;
-  --code-line: #1d1b200a;
-  --code-sel: #d7e3ff;
-  --code-num: #a09ca6;
-  --code-num-on: #49454f;
-  --code-guide: #1d1b2014;
-  --code-widget: #ece6f0;
-  --tk-k: #6750a4;
-  --tk-s: #a4441f;
-  --tk-n: #8c4a60;
-  --tk-c: #79747e;
-  --tk-f: #00639b;
-  --tk-b: #006a6a;
-  --tk-p: #5b5f00;
+  --primary: #505d8c; --on-primary: #faf8ff; --primary-container: #b7c4fa; --on-primary-container: #313e6b;
+  --secondary: #5a5e72; --on-secondary: #faf8ff; --secondary-container: #dee1f9; --on-secondary-container: #4c5164;
+  --tertiary: #6e567e; --on-tertiary: #fff6fe; --tertiary-container: #edcfff; --on-tertiary-container: #5a446a;
+  --error: #a8364b; --on-error: #fff7f7; --error-container: #f97386; --on-error-container: #6e0523;
+  --surface: #fbf8fe; --surface-dim: #d9d9e4; --surface-bright: #fbf8fe; --surface-container-lowest: #ffffff;
+  --surface-container-low: #f4f3fb; --surface-container: #eeedf6; --surface-container-high: #e8e7f1; --surface-container-highest: #e2e1ed;
+  --on-surface: #30323b; --on-surface-variant: #5d5e68; --outline: #797a84; --outline-variant: #b1b1bc;
+  --inverse-surface: #0d0e12; --inverse-on-surface: #9d9ca2; --inverse-primary: #b7c4fa;
 }
-
+html[data-theme="light"][data-accent="indigo"] {
+  --primary: #5d598b; --on-primary: #fcf7ff; --primary-container: #cbc6ff; --on-primary-container: #423e6e;
+  --secondary: #5f5d72; --on-secondary: #fcf7ff; --secondary-container: #e4dff9; --on-secondary-container: #524f64;
+  --tertiary: #775376; --on-tertiary: #fff7fa; --tertiary-container: #ffd2fc; --on-tertiary-container: #664467;
+  --error: #a8364b; --on-error: #fff7f7; --error-container: #f97386; --on-error-container: #6e0523;
+  --surface: #fcf8fe; --surface-dim: #dcd8e4; --surface-bright: #fcf8fe; --surface-container-lowest: #ffffff;
+  --surface-container-low: #f6f2fa; --surface-container: #f0ecf6; --surface-container-high: #ebe6f1; --surface-container-highest: #e5e1ed;
+  --on-surface: #33313a; --on-surface-variant: #605e68; --outline: #7c7984; --outline-variant: #b4b0bc;
+  --inverse-surface: #0e0e12; --inverse-on-surface: #9f9ca2; --inverse-primary: #cbc6ff;
+}
+html[data-theme="light"][data-accent="purple"] {
+  --primary: #6e5585; --on-primary: #fff6ff; --primary-container: #e5c6fe; --on-primary-container: #553d6b;
+  --secondary: #675b6f; --on-secondary: #fff6ff; --secondary-container: #edddf6; --on-secondary-container: #594d62;
+  --tertiary: #805167; --on-tertiary: #fff7f8; --tertiary-container: #f8bbd6; --on-tertiary-container: #62364c;
+  --error: #a8364b; --on-error: #fff7f7; --error-container: #f97386; --on-error-container: #6e0523;
+  --surface: #fff7fd; --surface-dim: #e1d7e3; --surface-bright: #fff7fd; --surface-container-lowest: #ffffff;
+  --surface-container-low: #faf1f9; --surface-container: #f4ebf5; --surface-container-high: #efe5f0; --surface-container-highest: #e9dfeb;
+  --on-surface: #363039; --on-surface-variant: #635d67; --outline: #807883; --outline-variant: #b8afba;
+  --inverse-surface: #100d11; --inverse-on-surface: #a19ba1; --inverse-primary: #e5c6fe;
+}
+html[data-theme="light"][data-accent="pink"] {
+  --primary: #864e65; --on-primary: #fff7f8; --primary-container: #fdb5d0; --on-primary-container: #653147;
+  --secondary: #745761; --on-secondary: #fff7f8; --secondary-container: #ffd9e5; --on-secondary-container: #654a54;
+  --tertiary: #73547a; --on-tertiary: #fff7fb; --tertiary-container: #f5cdfa; --on-tertiary-container: #604266;
+  --error: #a8364b; --on-error: #fff7f7; --error-container: #f97386; --on-error-container: #6e0523;
+  --surface: #fff8f8; --surface-dim: #ead5da; --surface-bright: #fff8f8; --surface-container-lowest: #ffffff;
+  --surface-container-low: #fff0f3; --surface-container: #fce9ee; --surface-container-high: #f7e3e8; --surface-container-highest: #f2dde3;
+  --on-surface: #3c2f33; --on-surface-variant: #6a5b60; --outline: #87767b; --outline-variant: #c0adb2;
+  --inverse-surface: #130d0f; --inverse-on-surface: #a69a9d; --inverse-primary: #fdb5d0;
+}
+html[data-theme="light"][data-accent="orange"] {
+  --primary: #88522d; --on-primary: #fff7f5; --primary-container: #ffb68a; --on-primary-container: #633412;
+  --secondary: #765947; --on-secondary: #fff7f5; --secondary-container: #ffdbc8; --on-secondary-container: #684c3b;
+  --tertiary: #6b5f27; --on-tertiary: #fff8eb; --tertiary-container: #fae8a2; --on-tertiary-container: #61551e;
+  --error: #a73b21; --on-error: #fff7f6; --error-container: #fd795a; --on-error-container: #6e1400;
+  --surface: #fff8f5; --surface-dim: #ecd6ca; --surface-bright: #fff8f5; --surface-container-lowest: #ffffff;
+  --surface-container-low: #fff1ea; --surface-container: #feeae0; --surface-container-high: #f9e4da; --surface-container-highest: #f5ded2;
+  --on-surface: #3d3028; --on-surface-variant: #6c5c53; --outline: #89776d; --outline-variant: #c3aea3;
+  --inverse-surface: #130d09; --inverse-on-surface: #a79a94; --inverse-primary: #ffb68a;
+}
+html[data-theme="light"][data-accent="green"] {
+  --primary: #396946; --on-primary: #e8ffe9; --primary-container: #baefc3; --on-primary-container: #2b5b3a;
+  --secondary: #506453; --on-secondary: #e9ffe9; --secondary-container: #d2e8d3; --on-secondary-container: #435646;
+  --tertiary: #596433; --on-tertiary: #f3ffc4; --tertiary-container: #f0fdbd; --on-tertiary-container: #576231;
+  --error: #a83836; --on-error: #fff7f6; --error-container: #fa746f; --on-error-container: #6e0a12;
+  --surface: #f7faf4; --surface-dim: #d4dcd2; --surface-bright: #f7faf4; --surface-container-lowest: #ffffff;
+  --surface-container-low: #f0f5ed; --surface-container: #e9f0e7; --surface-container-high: #e3eae0; --surface-container-highest: #dce5da;
+  --on-surface: #2c342d; --on-surface-variant: #596159; --outline: #747d74; --outline-variant: #acb4aa;
+  --inverse-surface: #0b0f0c; --inverse-on-surface: #9a9e98; --inverse-primary: #c2f8cb;
+}
+html[data-theme="light"][data-accent="teal"] {
+  --primary: #1c6871; --on-primary: #eafcff; --primary-container: #a9eef8; --on-primary-container: #005b64;
+  --secondary: #4b6367; --on-secondary: #eafcff; --secondary-container: #cde7eb; --on-secondary-container: #3d5659;
+  --tertiary: #416280; --on-tertiary: #f6f9ff; --tertiary-container: #b1d2f6; --on-tertiary-container: #264866;
+  --error: #a83836; --on-error: #fff7f6; --error-container: #fa746f; --on-error-container: #6e0a12;
+  --surface: #f6fafb; --surface-dim: #d1dcde; --surface-bright: #f6fafb; --surface-container-lowest: #ffffff;
+  --surface-container-low: #eef5f6; --surface-container: #e8eff0; --surface-container-high: #e1eaeb; --surface-container-highest: #dae4e6;
+  --on-surface: #2a3436; --on-surface-variant: #576162; --outline: #727d7e; --outline-variant: #a9b4b6;
+  --inverse-surface: #0a0f10; --inverse-on-surface: #999e9e; --inverse-primary: #aef4fe;
+}
 html[data-theme="dark"] {
-  color-scheme: dark;
-  --primary: oklch(0.828 0.1 var(--hue));                  /* 80 */
-  --on-primary: oklch(0.31 0.12 var(--hue));               /* 20 */
-  --primary-container: oklch(0.397 0.13 var(--hue));       /* 30 */
-  --on-primary-container: oklch(0.914 0.055 var(--hue));   /* 90 */
-  --secondary: oklch(0.828 0.04 var(--hue));
-  --on-secondary: oklch(0.31 0.045 var(--hue));
-  --secondary-container: oklch(0.397 0.05 var(--hue));
-  --on-secondary-container: oklch(0.914 0.04 var(--hue));
-  --tertiary: oklch(0.828 0.08 calc(var(--hue) + 60));
-  --on-tertiary: oklch(0.31 0.08 calc(var(--hue) + 60));
-  --tertiary-container: oklch(0.397 0.085 calc(var(--hue) + 60));
-  --on-tertiary-container: oklch(0.914 0.055 calc(var(--hue) + 60));
-  --error: #ffb4ab;
-  --on-error: #690005;
-  --error-container: #93000a;
-  --on-error-container: #ffdad6;
-  --surface: oklch(0.19 0.008 var(--hue));                 /* 6 */
-  --surface-dim: oklch(0.19 0.008 var(--hue));             /* 6 */
-  --surface-bright: oklch(0.345 0.016 var(--hue));         /* 24 */
-  --surface-container-lowest: oklch(0.172 0.008 var(--hue)); /* 4 */
-  --surface-container-low: oklch(0.224 0.01 var(--hue));   /* 10 */
-  --surface-container: oklch(0.241 0.012 var(--hue));      /* 12 */
-  --surface-container-high: oklch(0.284 0.014 var(--hue)); /* 17 */
-  --surface-container-highest: oklch(0.328 0.016 var(--hue)); /* 22 */
-  --on-surface: oklch(0.914 0.008 var(--hue));             /* 90 */
-  --on-surface-variant: oklch(0.828 0.02 var(--hue));      /* 80 */
-  --outline: oklch(0.655 0.02 var(--hue));                 /* 60 */
-  --outline-variant: oklch(0.397 0.02 var(--hue));         /* 30 */
-  --inverse-surface: oklch(0.914 0.008 var(--hue));        /* 90 */
-  --inverse-on-surface: oklch(0.31 0.012 var(--hue));      /* 20 */
-  --inverse-primary: oklch(0.483 0.17 var(--hue));         /* 40 */
+  --primary: #bbc5ee; --on-primary: #353f61; --primary-container: #475174; --on-primary-container: #dde2ff;
+  --secondary: #c2c5dd; --on-secondary: #3b3f52; --secondary-container: #363b4d; --on-secondary-container: #babed5;
+  --tertiary: #f6e1ff; --on-tertiary: #634c73; --tertiary-container: #edcfff; --on-tertiary-container: #5a446a;
+  --error: #f97386; --on-error: #490013; --error-container: #871c34; --on-error-container: #ff97a3;
+  --surface: #0d0e12; --surface-dim: #0d0e12; --surface-bright: #2a2c34; --surface-container-lowest: #000000;
+  --surface-container-low: #121318; --surface-container: #181920; --surface-container-high: #1e1f26; --surface-container-highest: #24252e;
+  --on-surface: #e5e4f0; --on-surface-variant: #aaaab5; --outline: #74757f; --outline-variant: #464750;
+  --inverse-surface: #fbf8fe; --inverse-on-surface: #55555a; --inverse-primary: #545e82;
+}
+html[data-theme="dark"][data-accent="indigo"] {
+  --primary: #c6c2ee; --on-primary: #3f3c60; --primary-container: #514e74; --on-primary-container: #e4e0ff;
+  --secondary: #c8c4dc; --on-secondary: #403e52; --secondary-container: #3b394d; --on-secondary-container: #c0bcd5;
+  --tertiary: #ffe7fa; --on-tertiary: #6f4d6f; --tertiary-container: #ffd2fc; --on-tertiary-container: #664467;
+  --error: #f97386; --on-error: #490013; --error-container: #871c34; --on-error-container: #ff97a3;
+  --surface: #0e0e12; --surface-dim: #0e0e12; --surface-bright: #2c2b34; --surface-container-lowest: #000000;
+  --surface-container-low: #131318; --surface-container: #1a191f; --surface-container-high: #201f26; --surface-container-highest: #26252e;
+  --on-surface: #e8e3f0; --on-surface-variant: #ada9b5; --outline: #76747f; --outline-variant: #484750;
+  --inverse-surface: #fcf8fe; --inverse-on-surface: #565459; --inverse-primary: #5e5b81;
+}
+html[data-theme="dark"][data-accent="purple"] {
+  --primary: #d6bde8; --on-primary: #4b385c; --primary-container: #5e4b6f; --on-primary-container: #f1dcff;
+  --secondary: #d1c1d9; --on-secondary: #473c50; --secondary-container: #42374b; --on-secondary-container: #c9bad2;
+  --tertiary: #ffcce1; --on-tertiary: #6c3e55; --tertiary-container: #f8bbd6; --on-tertiary-container: #62364c;
+  --error: #f97386; --on-error: #490013; --error-container: #871c34; --on-error-container: #ff97a3;
+  --surface: #100d11; --surface-dim: #100d11; --surface-bright: #2f2a33; --surface-container-lowest: #000000;
+  --surface-container-low: #151218; --surface-container: #1c181f; --surface-container-high: #221e25; --surface-container-highest: #29242c;
+  --on-surface: #ece2ee; --on-surface-variant: #b1a8b3; --outline: #7a737d; --outline-variant: #4c464f;
+  --inverse-surface: #fff7fd; --inverse-on-surface: #585459; --inverse-primary: #6b577c;
+}
+html[data-theme="dark"][data-accent="pink"] {
+  --primary: #f1b7cb; --on-primary: #5d3344; --primary-container: #714557; --on-primary-container: #ffdae5;
+  --secondary: #e1bdc9; --on-secondary: #533942; --secondary-container: #4d343e; --on-secondary-container: #dab6c2;
+  --tertiary: #fddfff; --on-tertiary: #694a6f; --tertiary-container: #f5cdfa; --on-tertiary-container: #604266;
+  --error: #f97386; --on-error: #490013; --error-container: #871c34; --on-error-container: #ff97a3;
+  --surface: #130d0f; --surface-dim: #130d0f; --surface-bright: #35292d; --surface-container-lowest: #000000;
+  --surface-container-low: #191114; --surface-container: #20171a; --surface-container-high: #271d20; --surface-container-highest: #2f2327;
+  --on-surface: #f5e0e6; --on-surface-variant: #b9a6ac; --outline: #827176; --outline-variant: #524449;
+  --inverse-surface: #fff8f8; --inverse-on-surface: #5c5355; --inverse-primary: #805163;
+}
+html[data-theme="dark"][data-accent="orange"] {
+  --primary: #f6ba96; --on-primary: #5e361c; --primary-container: #73482c; --on-primary-container: #ffdcc9;
+  --secondary: #e5bfa9; --on-secondary: #543a2a; --secondary-container: #4f3626; --on-secondary-container: #ddb8a2;
+  --tertiary: #fff6dd; --on-tertiary: #695d25; --tertiary-container: #fae8a2; --on-tertiary-container: #61551e;
+  --error: #f97758; --on-error: #450900; --error-container: #85230a; --on-error-container: #ff9b82;
+  --surface: #130d09; --surface-dim: #130d09; --surface-bright: #362922; --surface-container-lowest: #000000;
+  --surface-container-low: #1a120d; --surface-container: #211812; --surface-container-high: #281d17; --surface-container-highest: #30231c;
+  --on-surface: #f8e1d5; --on-surface-variant: #bba79c; --outline: #847268; --outline-variant: #54453c;
+  --inverse-surface: #fff8f5; --inverse-on-surface: #5d534e; --inverse-primary: #825437;
+}
+html[data-theme="dark"][data-accent="green"] {
+  --primary: #a8d0ae; --on-primary: #24472e; --primary-container: #365a3f; --on-primary-container: #c4edca;
+  --secondary: #b7ccb8; --on-secondary: #324535; --secondary-container: #2d4031; --on-secondary-container: #afc5b1;
+  --tertiary: #f4ffc8; --on-tertiary: #596432; --tertiary-container: #e4f1b3; --on-tertiary-container: #505b2b;
+  --error: #fa746f; --on-error: #490006; --error-container: #871f21; --on-error-container: #ff9993;
+  --surface: #0b0f0c; --surface-dim: #0b0f0c; --surface-bright: #262e27; --surface-container-lowest: #000000;
+  --surface-container-low: #0f1510; --surface-container: #151b16; --surface-container-high: #1b211b; --surface-container-highest: #202821;
+  --on-surface: #dfe8dd; --on-surface-variant: #a5ada3; --outline: #6f786f; --outline-variant: #424a42;
+  --inverse-surface: #f7faf4; --inverse-on-surface: #525651; --inverse-primary: #43674b;
+}
+html[data-theme="dark"][data-accent="teal"] {
+  --primary: #9ccfd7; --on-primary: #0d474e; --primary-container: #265a60; --on-primary-container: #b8ecf4;
+  --secondary: #b1cbcf; --on-secondary: #2c4448; --secondary-container: #273f43; --on-secondary-container: #aac4c8;
+  --tertiary: #c3e0ff; --on-tertiary: #2f516f; --tertiary-container: #b1d2f6; --on-tertiary-container: #264866;
+  --error: #fa746f; --on-error: #490006; --error-container: #871f21; --on-error-container: #ff9993;
+  --surface: #0a0f10; --surface-dim: #0a0f10; --surface-bright: #242e2f; --surface-container-lowest: #000000;
+  --surface-container-low: #0e1415; --surface-container: #131b1c; --surface-container-high: #192122; --surface-container-highest: #1e2729;
+  --on-surface: #dde7e9; --on-surface-variant: #a2adaf; --outline: #6d7779; --outline-variant: #404a4b;
+  --inverse-surface: #f6fafb; --inverse-on-surface: #515657; --inverse-primary: #34666d;
+}
+.m-swatch[data-accent="blue"] { background: #3b6cf6; }
+.m-swatch[data-accent="indigo"] { background: #6a5cf0; }
+.m-swatch[data-accent="purple"] { background: #9a4ee0; }
+.m-swatch[data-accent="pink"] { background: #d93a8c; }
+.m-swatch[data-accent="orange"] { background: #d66a10; }
+.m-swatch[data-accent="green"] { background: #1f9a55; }
+.m-swatch[data-accent="teal"] { background: #128f9c; }
+/* end of colour roles */
+
+html[data-theme="light"] { color-scheme: light; }
+html[data-theme="dark"] { color-scheme: dark; }
+
+:root {
   --scrim: rgb(0 0 0 / 0.32);
   --shadow: 0 0 0;
-
-  --code-bg: #0f0d13;
-  --code-fg: #e6e0e9;
-  --code-line: #e6e0e90d;
-  --code-sel: #2f4470;
-  --code-num: #6f6b76;
-  --code-num-on: #cac4d0;
-  --code-guide: #e6e0e916;
-  --code-widget: #2b2930;
-  --tk-k: #d0bcff;
-  --tk-s: #ffb59a;
-  --tk-n: #efb8c8;
-  --tk-c: #938f99;
-  --tk-f: #94ccff;
-  --tk-b: #4fd8d8;
-  --tk-p: #c9cd6c;
+  /* Code is in the scheme's own colours: keywords and types primary, strings and
+     numbers tertiary, what is called secondary; on the lowest surface in the light
+     theme and a low container in the dark one, where the lowest is black. */
+  --code-bg: var(--surface-container-lowest);
+  --code-fg: var(--on-surface);
+  --code-sel: var(--secondary-container);
+  --code-num: var(--outline);
+  --code-num-on: var(--on-surface-variant);
+  --code-widget: var(--surface-container-high);
+  --tk-k: var(--primary);
+  --tk-s: var(--tertiary);
+  --tk-n: var(--tertiary);
+  --tk-c: var(--outline);
+  --tk-f: var(--secondary);
+  --tk-b: var(--secondary);
+  --tk-p: var(--primary);
 }
+html[data-theme="light"] { --code-line: #0000000a; --code-guide: #00000014; }
+html[data-theme="dark"] { --code-bg: var(--surface-container-low); --code-line: #ffffff0d; --code-guide: #ffffff16; }
 
 :root {
   --accent: var(--primary);
@@ -137,8 +203,9 @@ html[data-theme="dark"] {
   --page: var(--surface-container);
   --piece: var(--surface-bright);
   --theme-color: var(--page);
-  --font: "Roboto Flex", Roboto, "Segoe UI", system-ui, sans-serif;
-  --mono: "Roboto Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  /* Google Sans Flex, the face Material 3 Expressive is drawn in, and Google Sans Code. */
+  --font: "Google Sans Flex", "Roboto Flex", Roboto, "Segoe UI", system-ui, sans-serif;
+  --mono: "Google Sans Code", "Roboto Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
   /* ShapeTokens: the corner scale. */
   --r-xs: 4px;
   --r-s: 8px;
@@ -146,6 +213,8 @@ html[data-theme="dark"] {
   --r-l: 16px;
   --r-li: 20px;
   --r-xl: 28px;
+  --r-xli: 32px;
+  --r-xxl: 48px;
   /* Only for corners that never animate. */
   --r-full: 999px;
   /* ElevationTokens: levels 1 to 4 (1, 3, 6 and 8 dp), as the two shadows Material draws for each. */
@@ -181,7 +250,9 @@ html[data-theme="dark"] {
      title-large 22/28 · title-medium 16/24 +0.15 (500) · title-small 14/20 +0.1 (500)
      body-large 16/24 +0.5 · body-medium 14/20 +0.25 · body-small 12/16 +0.4
      label-large 14/20 +0.1 (500) · label-medium 12/16 +0.5 (500) · label-small 11/16 +0.5 (500)
-   Emphasized: display, headline and title-large at 500; the smaller titles and the labels at 700. */
+   Emphasized: display, headline, title-large and body at 500; the smaller titles and the labels
+   at 700. The large styles (display, headline, title-large) are the brand face: the same
+   font with its terminals rounded (the ROND axis), set at the end of this file. */
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body { height: 100%; margin: 0; }
@@ -301,9 +372,9 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-bar-title > small:empty { display: none; }
 .m-bar.has-large:not(.is-collapsed) .m-bar-title > span { opacity: 0; }
 .m-scroll { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
-.m-inner { width: 100%; max-width: 1040px; margin: 0 auto; padding: 0 16px 104px; }
+.m-inner { width: 100%; max-width: 1040px; margin: 0 auto; padding: 0 16px 128px; }
 .m-inner.narrow { max-width: 720px; }
-@media (min-width: 600px) { .m-inner { padding: 0 24px 104px; } }
+@media (min-width: 600px) { .m-inner { padding: 0 24px 144px; } }
 /* A place's title starts large under the bar, as the large flexible app bar's does
    (AppBarLargeFlexibleTokens: display-small; 120 high with the bar), and moves up into it. */
 .m-large { margin: 0 0 12px; font: 500 36px/44px var(--font); letter-spacing: 0; overflow-wrap: anywhere; }
@@ -317,10 +388,13 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-link:hover { text-decoration: underline; }
 
 /* ---------- Buttons ----------
-   ButtonSmallTokens: 40 high, 16 at either end, 8 between a 20 symbol and the label,
-   label-large; round at rest and 8 while pressed. ButtonMediumTokens (.md): 56 high,
-   24 at either end, a 24 symbol, title-medium; pressed 12. The press is on the default
-   effects spring, which does not bounce (Button.kt). */
+   Five sizes, and the size says how much the action matters. ButtonSmallTokens: 40 high,
+   16 at either end, 8 between a 20 symbol and the label, label-large; round at rest and
+   8 while pressed. ButtonXSmallTokens (.xs): 32 high, 12 at either end, 4 to the symbol.
+   ButtonMediumTokens (.md): 56 high, 24 at either end, a 24 symbol, title-medium; pressed
+   12. ButtonLargeTokens (.lg): 96 high, 48 at either end, 12 to a 32 symbol,
+   headline-small; pressed 16. A filled button's label is the emphasized style. The press
+   is on the default effects spring, which does not bounce (Button.kt). */
 
 .m-btn {
   --round: 20px;
@@ -331,20 +405,24 @@ svg.m-icon, svg.icon { flex: none; display: block; }
   justify-content: center;
   gap: 8px;
   height: 40px;
-  padding: 0 16px;
+  --pad: 16px;
+  padding: 0 var(--pad);
   border-radius: var(--round);
   font: 500 14px/20px var(--font);
   letter-spacing: 0.1px;
   white-space: nowrap;
   transition: border-radius var(--m-effects-dur) var(--m-effects), box-shadow var(--m-effects-dur) var(--m-effects);
 }
-.m-btn.md { --round: 28px; --pressed: var(--r-m); height: 56px; padding: 0 24px; font: 500 16px/24px var(--font); letter-spacing: 0.15px; }
+.m-btn.xs { --round: 16px; --pad: 12px; height: 32px; gap: 4px; }
+.m-btn.md { --round: 28px; --pressed: var(--r-m); --pad: 24px; height: 56px; font: 500 16px/24px var(--font); letter-spacing: 0.15px; }
+.m-btn.lg { --round: 48px; --pressed: var(--r-l); --pad: 48px; height: 96px; gap: 12px; font: 400 24px/32px var(--font); letter-spacing: 0; }
 .m-btn:active:not(:disabled) { border-radius: var(--pressed); }
-.m-btn.filled { background: var(--primary); color: var(--on-primary); }
+.m-btn.filled { background: var(--primary); color: var(--on-primary); font-weight: 700; }
+.m-btn.lg.filled { font-weight: 500; }
 .m-btn.tonal { background: var(--secondary-container); color: var(--on-secondary-container); }
 .m-btn.elevated { background: var(--surface-container-low); color: var(--primary); box-shadow: var(--elev-1); }
 .m-btn.outlined { color: var(--on-surface-variant); box-shadow: inset 0 0 0 1px var(--outline-variant); }
-.m-btn.text { padding: 0 12px; color: var(--primary); }
+.m-btn.text { --pad: 12px; color: var(--primary); }
 .m-btn.danger.text { color: var(--error); }
 .m-btn.danger.filled { background: var(--error); color: var(--on-error); }
 @media (hover: hover) {
@@ -358,8 +436,9 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-btn.text:disabled, .m-btn.outlined:disabled { background: none; }
 .m-btn .msr { font-size: 20px; }
 .m-btn.md .msr { font-size: 24px; }
+.m-btn.lg .msr { font-size: 32px; }
 /* A button that is only a symbol is as wide as an icon button. */
-.m-btn.icon-only { width: 40px; padding: 0; }
+.m-btn.icon-only { width: 40px; --pad: 0px; }
 
 /* Icon buttons (SmallIconButtonTokens): a 40 container in a 48 target, a 24 symbol;
    round, 8 while pressed. One that is switched on is the 12 square, and takes the
@@ -378,25 +457,35 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-iconbtn.tonal[aria-pressed="true"] { background: var(--secondary); color: var(--on-secondary); }
 .m-iconbtn.filled[aria-pressed="false"] { background: var(--surface-container); color: var(--on-surface-variant); }
 .m-iconbtn:active:not(:disabled) { border-radius: var(--r-s); }
+/* A toggle's symbol gives under the press and springs back (fast spatial). It is the
+   symbol's own state, so pressing again part way turns it round and replays nothing. */
+.m-fav > .m-icon { transition: font-variation-settings var(--m-effects-dur) var(--m-effects), scale var(--m-spatial-fast-dur) var(--m-spatial-fast); }
+.m-fav:active > .m-icon { scale: 0.72; }
 
-/* The floating action button (FabBaselineTokens, FabPrimaryContainerTokens): 56, the
-   16 corner, primary container, level 3 and level 4 under the pointer. Its corner does
-   not answer a press. Extended (ExtendedFabSmallTokens): 16 at either end, 8 to the
-   label, title-medium. */
+/* The floating action button, in the primary colour style (FabPrimaryTokens), level 3
+   and level 4 under the pointer. It is the medium FAB (FabMediumTokens: 80, the 20
+   corner, a 28 symbol), and from 840 wide the large one (FabLargeTokens: 96, the 28
+   corner, a 36 symbol). Its corner does not answer a press. Extended, it is the small
+   extended FAB (ExtendedFabSmallTokens: 56, the 16 corner, 16 at either end, 8 to the
+   label, title-medium) and from 840 wide the medium one (ExtendedFabMediumTokens: 80,
+   the 20 corner, 26 at either end, 12 to a 28 symbol, title-large). */
 .m-fab-slot { position: absolute; z-index: 3; right: 16px; bottom: 16px; display: flex; pointer-events: none; }
 .m-fab-slot > * { pointer-events: auto; }
 .m-fab-host { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
-.m-fab { display: grid; place-items: center; width: 56px; height: 56px; border-radius: var(--r-l); background: var(--primary-container); color: var(--on-primary-container); box-shadow: var(--elev-3); transition: border-radius var(--m-spatial-fast-dur) var(--m-spatial-fast), background var(--m-effects-dur) var(--m-effects), color var(--m-effects-dur) var(--m-effects), box-shadow var(--m-effects-dur) var(--m-effects); }
+.m-fab { --fab: 80px; --fab-r: var(--r-li); --fab-icon: 28px; display: grid; place-items: center; width: var(--fab); height: var(--fab); border-radius: var(--fab-r); background: var(--primary); color: var(--on-primary); box-shadow: var(--elev-3); transition: width var(--m-spatial-fast-dur) var(--m-spatial-fast), height var(--m-spatial-fast-dur) var(--m-spatial-fast), border-radius var(--m-spatial-fast-dur) var(--m-spatial-fast), background var(--m-effects-dur) var(--m-effects), color var(--m-effects-dur) var(--m-effects), box-shadow var(--m-effects-dur) var(--m-effects); }
+.m-fab > .msr { font-size: var(--fab-icon); }
+@media (min-width: 840px) { .m-fab { --fab: 96px; --fab-r: var(--r-xl); --fab-icon: 36px; } }
 @media (hover: hover) { .m-fab:hover { box-shadow: var(--elev-4); } }
 .m-fab > .m-icon { grid-area: 1 / 1; transition: opacity var(--m-effects-dur) var(--m-effects), transform var(--m-spatial-fast-dur) var(--m-spatial-fast), font-size var(--m-spatial-fast-dur) var(--m-spatial-fast); }
 .m-fab-host .m-fab > .m-icon:last-child { opacity: 0; transform: rotate(-90deg); }
 /* Open, it is the FAB menu's close button (FabMenuBaselineTokens): 56, fully round
    (28), primary, a 20 symbol. */
-.m-fab-host.is-open .m-fab { border-radius: 28px; background: var(--primary); color: var(--on-primary); }
+.m-fab-host.is-open .m-fab { width: 56px; height: 56px; border-radius: 28px; }
 .m-fab-host.is-open .m-fab > .m-icon { font-size: 20px; }
 .m-fab-host.is-open .m-fab > .m-icon:first-child { opacity: 0; transform: rotate(90deg); }
 .m-fab-host.is-open .m-fab > .m-icon:last-child { opacity: 1; transform: none; }
-.m-fab.extended { display: inline-flex; align-items: center; gap: 8px; width: auto; padding: 0 16px; background: var(--primary); color: var(--on-primary); font: 500 16px/24px var(--font); letter-spacing: 0.15px; }
+.m-fab.extended { --fab-icon: 24px; display: inline-flex; align-items: center; gap: 8px; width: auto; height: 56px; padding: 0 16px; border-radius: var(--r-l); font: 700 16px/24px var(--font); letter-spacing: 0.15px; white-space: nowrap; }
+@media (min-width: 840px) { .m-fab.extended { --fab-icon: 28px; gap: 12px; height: 80px; padding: 0 26px; border-radius: var(--r-li); font: 500 22px/28px var(--font); letter-spacing: 0; } }
 .m-fab.extended:disabled { opacity: 0.6; }
 /* The menu's items: 56 high, fully round, 24 at either end, 8 to the label,
    title-medium, 4 apart, level 3. */
@@ -418,7 +507,7 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-group-btn:last-child:active { --r: 20px; }
 /* On a piece of content the unchosen ones are the colour of the page. */
 .m-item .m-group, .m-sheet .m-group { --unchecked: var(--surface-container); }
-.m-dialog .m-group { --unchecked: var(--surface-container-lowest); }
+.m-dialog .m-group { --unchecked: var(--surface-bright); }
 
 /* ---------- Switch and slider ---------- */
 
@@ -497,7 +586,8 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-error { min-height: 20px; font: 400 14px/20px var(--font); letter-spacing: 0.25px; color: var(--error); }
 .m-error:empty { display: none; }
 .m-form { display: flex; flex-direction: column; gap: 8px; }
-.m-form > .m-group { align-self: stretch; margin-bottom: 16px; }
+.m-form > .m-group { align-self: stretch; display: flex; margin-bottom: 16px; }
+.m-form > .m-group > .m-group-btn { flex: 1 1 0; }
 
 /* The search bar (SearchBarTokens): 56 high, fully round, body-large. */
 .m-search { display: flex; align-items: center; gap: 16px; height: 56px; padding: 0 16px; border-radius: 28px; background: var(--piece); color: var(--on-surface); font: 400 16px/24px var(--font); letter-spacing: 0.5px; }
@@ -527,6 +617,9 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 /* (Down a column a slider keeps its height; grown from nothing it would have none.) */
 .m-item.col > .m-slider { flex: none; }
 .m-item-icon { flex: none; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--secondary-container); color: var(--on-secondary-container); }
+/* In a list of different kinds of thing, the three accents part them. */
+.m-item-icon.primary { background: var(--primary-container); color: var(--on-primary-container); }
+.m-item-icon.tertiary { background: var(--tertiary-container); color: var(--on-tertiary-container); }
 .m-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .m-item-headline { font: 400 16px/24px var(--font); letter-spacing: 0.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .m-item-supporting { font: 400 14px/20px var(--font); letter-spacing: 0.25px; color: var(--on-surface-variant); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -560,31 +653,33 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-list > .m-fold { margin-top: -2px; }
 
 /* ---------- Cards and artwork ----------
-   A card is the 12 corner (FilledCardTokens), level 1 under the pointer; its corner
-   does not answer a press. A carousel's items are 28. */
+   A card that leads with a picture is the 28 corner, as a carousel's item is, with 8
+   around the picture, whose own corner is then 20: the outer radius less the padding,
+   so the two curves sit evenly. Level 1 under the pointer; its corner does not answer
+   a press. A badge on the picture is the bright surface, round. */
 
 .m-cover { position: relative; aspect-ratio: 16 / 9; background-color: var(--surface-container-highest); background-size: cover; background-position: center; }
 .m-cover.thumb { flex: none; width: 56px; aspect-ratio: 1; border-radius: var(--r-s); }
-.m-cover.detail { aspect-ratio: auto; height: clamp(180px, 36vh, 340px); border-radius: var(--r-xl); }
+.m-cover.detail { aspect-ratio: auto; height: clamp(180px, 36vh, 340px); border-radius: var(--r-xli); }
 .m-avatar { flex: none; display: grid; place-items: center; border-radius: 50%; color: #fff; font-weight: 500; letter-spacing: 0; background-size: cover; background-position: center; overflow: hidden; }
 /* The letter is drawn, not text: it is not there to select or copy, and it is gone while a picture is on (media.js). */
 .m-avatar::before { content: attr(data-initials); }
 .m-avatar.art-on::before { content: none; }
-.m-badge { display: inline-flex; align-items: center; height: 24px; padding: 0 8px; border-radius: var(--r-s); background: rgb(0 0 0 / 0.55); color: #fff; font: 500 12px/16px var(--font); letter-spacing: 0.5px; }
-.m-badge.tonal { background: var(--tertiary-container); color: var(--on-tertiary-container); }
-.m-cover > .m-badge, .m-badges { position: absolute; left: 12px; top: 12px; }
+.m-badge { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 12px; background: var(--surface-bright); color: var(--on-surface); font: 700 12px/16px var(--font); letter-spacing: 0.5px; }
+.m-cover > .m-badge, .m-badges { position: absolute; left: 10px; top: 10px; }
 .m-badges { display: flex; gap: 6px; }
 .m-cover > .m-iconbtn { position: absolute; right: 8px; top: 8px; margin: 0; }
 
-.m-card { display: flex; flex-direction: column; border-radius: var(--r-m); background: var(--piece); color: var(--on-surface); cursor: pointer; transition: box-shadow var(--m-effects-dur) var(--m-effects); }
+.m-card { display: flex; flex-direction: column; padding: 8px; border-radius: var(--r-xl); background: var(--piece); color: var(--on-surface); cursor: pointer; transition: box-shadow var(--m-effects-dur) var(--m-effects); }
+.m-card > .m-cover { border-radius: var(--r-li); overflow: hidden; }
 @media (hover: hover) { .m-card:hover { box-shadow: var(--elev-1); } }
-.m-card-body { display: flex; flex-direction: column; gap: 4px; padding: 16px 12px 8px 16px; }
-.m-card-body h3 { font: 500 16px/24px var(--font); letter-spacing: 0.15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.m-card-body p { height: 40px; font: 400 14px/20px var(--font); letter-spacing: 0.25px; color: var(--on-surface-variant); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.m-card-body { display: flex; flex-direction: column; gap: 4px; padding: 12px 0 0 8px; }
+.m-card-body h3 { padding-right: 8px; font: 700 16px/24px var(--font); letter-spacing: 0.15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-card-body p { height: 40px; padding-right: 8px; font: 400 14px/20px var(--font); letter-spacing: 0.25px; color: var(--on-surface-variant); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .m-card-body footer { display: flex; align-items: center; gap: 8px; min-height: 48px; font: 500 12px/16px var(--font); letter-spacing: 0.5px; color: var(--on-surface-variant); }
 .m-card-body footer .m-link { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .m-card-body footer time { flex: none; }
-.m-card-body footer .m-iconbtn { margin: 0 -4px 0 0; }
+.m-card-body footer .m-iconbtn { margin: 0; }
 .m-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 8px; }
 .m-grid-end { height: 1px; }
 .m-carousel { display: flex; gap: 8px; margin: 0 -16px; padding: 0 16px 4px; overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x proximity; scroll-padding-inline: 16px; scrollbar-width: none; }
@@ -592,24 +687,43 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 .m-carousel > .m-card { flex: 0 0 min(280px, 78%); scroll-snap-align: start; border-radius: var(--r-xl); }
 @media (min-width: 600px) { .m-carousel { margin: 0 -24px; padding: 0 24px 4px; scroll-padding-inline: 24px; } }
 
-.m-hero { display: grid; grid-template-columns: 1fr; border-radius: var(--r-xl); background: var(--primary-container); color: var(--on-primary-container); cursor: pointer; }
-.m-hero > .m-cover { aspect-ratio: 21 / 9; }
-.m-hero-body { display: flex; flex-direction: column; gap: 4px; padding: 20px 24px 24px; }
-.m-hero-body h2 { font: 500 32px/40px var(--font); letter-spacing: 0; overflow-wrap: anywhere; }
+/* The lead card: Home's hero moment, made of size, type and one colour. The picture sits
+   in the card with 12 around it (its corner the card's less that), the name is set
+   large in the brand face (display-small, and display-large from 840 wide), and its
+   buttons are the 56 ones. The 32 corner, and 48 from 840 wide. */
+.m-hero { display: grid; grid-template-columns: 1fr; gap: 4px; padding: 12px; border-radius: var(--r-xli); background: var(--primary-container); color: var(--on-primary-container); cursor: pointer; }
+/* On the primary container its buttons take pairs that stand out from it in both themes. */
+.m-hero .m-btn.filled { background: var(--on-primary-container); color: var(--primary-container); }
+.m-hero .m-btn.tonal { background: var(--surface-bright); color: var(--on-surface); }
+.m-hero > .m-cover { aspect-ratio: 21 / 9; border-radius: var(--r-li); overflow: hidden; }
+.m-hero-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; padding: 16px 12px 12px; }
+.m-hero-body h2 { font: 500 36px/44px var(--font); letter-spacing: 0; overflow-wrap: anywhere; }
 .m-hero-body p { font: 400 16px/24px var(--font); letter-spacing: 0.5px; }
-.m-eyebrow { font: 500 14px/20px var(--font); letter-spacing: 0.1px; }
+.m-eyebrow { font: 700 14px/20px var(--font); letter-spacing: 0.1px; }
 @media (min-width: 840px) {
-  .m-hero { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: stretch; }
-  .m-hero > .m-cover { aspect-ratio: auto; min-height: 240px; }
-  .m-hero-body { justify-content: center; padding: 32px; }
-  .m-hero-body h2 { font-size: 45px; line-height: 52px; }
+  .m-hero { grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); align-items: stretch; gap: 0; padding: 16px; border-radius: var(--r-xxl); }
+  .m-hero > .m-cover { aspect-ratio: auto; min-height: 264px; border-radius: var(--r-xli); }
+  .m-hero-body { justify-content: center; padding: 24px 24px 24px 40px; }
+  .m-hero-body h2 { font-size: 57px; line-height: 64px; letter-spacing: -0.25px; }
 }
+/* Buttons side by side are a standard button group (ButtonGroup.kt): the one being
+   pressed widens by about 15 % and those beside it give way by as much, so the group
+   keeps its width, on the fast spatial spring; they take their widths back the same way
+   when it is let go. */
 .m-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.m-actions > .m-btn { --give: 10px; transition: border-radius var(--m-effects-dur) var(--m-effects), box-shadow var(--m-effects-dur) var(--m-effects), padding var(--m-spatial-fast-dur) var(--m-spatial-fast); }
+.m-actions > .m-btn.md { --give: 16px; }
+.m-actions > .m-btn:active:not(:disabled) { padding: 0 calc(var(--pad) + var(--give)); }
+.m-actions > .m-btn:first-child:active:not(:disabled), .m-actions > .m-btn:last-child:active:not(:disabled) { padding: 0 calc(var(--pad) + var(--give) / 2); }
+.m-actions > .m-btn:only-child:active:not(:disabled) { padding: 0 var(--pad); }
+.m-actions > .m-btn:has(+ .m-btn:active:not(:disabled)), .m-actions > .m-btn:active:not(:disabled) + .m-btn { padding: 0 calc(var(--pad) - var(--give) / 2); }
 .m-byline { display: flex; align-items: center; gap: 8px; font: 500 14px/20px var(--font); letter-spacing: 0.1px; color: var(--on-surface-variant); }
 .m-desc { font: 400 16px/24px var(--font); letter-spacing: 0.5px; color: var(--on-surface-variant); white-space: pre-wrap; overflow-wrap: anywhere; }
 .m-banner { display: flex; align-items: flex-start; gap: 12px; padding: 16px; border-radius: var(--r-l); background: var(--tertiary-container); color: var(--on-tertiary-container); font: 400 14px/20px var(--font); letter-spacing: 0.25px; }
 
 .m-empty { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 48px 16px; text-align: center; color: var(--on-surface-variant); }
+/* Its symbol, 32, in a round 72 of the secondary container. */
+.m-empty-art { display: grid; place-items: center; width: 72px; height: 72px; margin-bottom: 8px; border-radius: 36px; background: var(--secondary-container); color: var(--on-secondary-container); }
 .m-empty h3 { font: 500 22px/28px var(--font); letter-spacing: 0; color: var(--on-surface); }
 .m-empty p { font: 400 14px/20px var(--font); letter-spacing: 0.25px; }
 .m-empty .m-btn { margin-top: 12px; }
@@ -626,25 +740,22 @@ svg.m-icon, svg.icon { flex: none; display: block; }
 /* ---------- Profile, settings ---------- */
 
 .m-profile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 0 8px; text-align: center; }
+/* The figures are one segmented piece, as a list is: three parts 2 apart, the 4 corner
+   between them and 20 at the ends, each with its number in headline-medium emphasized. */
 .m-face { position: relative; display: block; margin-bottom: 12px; }
 .m-face-edit { position: absolute; right: -4px; bottom: -4px; margin: 0; box-shadow: 0 0 0 4px var(--page); }
 .m-handle { font: 400 16px/24px var(--font); letter-spacing: 0.5px; color: var(--on-surface-variant); }
-.m-stats { display: flex; gap: 8px; margin-top: 16px; }
-.m-stats > div { display: flex; flex-direction: column; align-items: center; min-width: 96px; padding: 12px 16px; border-radius: var(--r-l); background: var(--piece); }
-.m-stats b { font: 500 24px/32px var(--font); letter-spacing: 0; }
+.m-stats { display: flex; gap: 2px; margin-top: 20px; }
+.m-stats > div { display: flex; flex-direction: column; align-items: center; min-width: 104px; padding: 12px 20px; border-radius: var(--r-xs); background: var(--piece); }
+.m-stats > div:first-child { border-top-left-radius: var(--r-li); border-bottom-left-radius: var(--r-li); }
+.m-stats > div:last-child { border-top-right-radius: var(--r-li); border-bottom-right-radius: var(--r-li); }
+.m-stats b { font: 500 28px/36px var(--font); letter-spacing: 0; color: var(--primary); }
 .m-stats span { font: 500 12px/16px var(--font); letter-spacing: 0.5px; color: var(--on-surface-variant); }
 .m-swatches { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0; }
 /* Each is a toggle: round, and the 12 square when it is the one chosen. */
 .m-swatch { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 20px; color: transparent; transition: border-radius var(--m-spatial-fast-dur) var(--m-spatial-fast), color var(--m-effects-dur) var(--m-effects); }
 .m-swatch[aria-checked="true"] { border-radius: var(--r-m); color: #fff; }
 .m-swatch:active { border-radius: var(--r-s); }
-.m-swatch[data-accent="blue"] { background: oklch(0.55 0.19 262); }
-.m-swatch[data-accent="indigo"] { background: oklch(0.55 0.19 285); }
-.m-swatch[data-accent="purple"] { background: oklch(0.55 0.19 312); }
-.m-swatch[data-accent="pink"] { background: oklch(0.58 0.2 355); }
-.m-swatch[data-accent="orange"] { background: oklch(0.62 0.16 55); }
-.m-swatch[data-accent="green"] { background: oklch(0.55 0.15 150); }
-.m-swatch[data-accent="teal"] { background: oklch(0.55 0.11 198); }
 
 /* ---------- Menus, dialogs, sheets, snackbars ---------- */
 
@@ -961,6 +1072,9 @@ html:not(.m-symbols) .m-chip-check { visibility: hidden; }
 .m-sheet-body > .m-tests .m-tests-summary { margin: 12px 8px 4px; }
 .m-sheet-body > .m-tests .m-tests-body { flex: none; height: 380px; }
 .m-sheet-body > .m-tests .m-tests-lines { padding: 12px 8px 0; }
+
+/* The brand face: the large styles, with the font's terminals rounded. */
+.m-large, .m-headline, .m-hero-body h2, .m-section h2, .m-bar-title, .m-dialog > h2, .m-sheet h2, .m-empty h3, .m-stats b, .m-tests-title, .m-fab.extended, .m-btn.lg, .m-btn.md { font-variation-settings: "ROND" 100; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; scroll-behavior: auto !important; }

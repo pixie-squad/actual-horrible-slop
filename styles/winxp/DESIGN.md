@@ -80,11 +80,11 @@ Top to bottom (`ui.js`, `W.window`):
   Luna's blue scheme has them, colour by colour, and each is drawn from that
   (`--luna-…`, and the tokens in `style.css` that begin `oklch(from #…`): the accent
   turns its hue (`--H`) and keeps as much of the colour as that hue can carry (`--C`),
-  and the dark theme lowers the frame and bars to near black in the same hue (`--L`), as
-  Royale Noir lowered them. Blue turns nothing: it is Luna as XP has it. Luna's bitmaps
-  (`icons/cap-*`, `sb-*`, `combo*`, `pane-up`) are turned the same way by a filter.
-  Close stays red and the start button green, as in every scheme XP has. A window has
-  no shadow; a menu has a small hard one.
+  and the dark theme lowers the frame and bars to a charcoal in the same hue (`--L`,
+  `--Cx`), as Royale Noir lowered them. Blue turns nothing: it is Luna as XP has it.
+  Luna's bitmaps (`icons/cap-*`, `sb-*`, `combo*`, `pane-up`) are turned the same way by
+  a filter. Close stays red and the start button green, as in every scheme XP has. A
+  window has no shadow; a menu has a small hard one.
 - A colour of Luna is never written into a rule as it is: it is given a token beside
   the others, so it follows too.
 - The accent is also XP's *Selected Items* colour (`--hilight`): what is chosen in a
@@ -107,9 +107,42 @@ Top to bottom (`ui.js`, `W.window`):
 - **Icons are Windows XP's own** (`icons.js`, `icons/`): `W.icon(name, size)` gives
   the picture drawn for that size (16, 24, 32, 48) and for the screen's scaling, so
   nothing is stretched from a smaller one. None is drawn for this app.
-- Colours come from the tokens at the top of `style.css`. The dark theme is not XP's:
-  it keeps every rule here, makes the faces dark and lowers Luna and the desktop's
-  picture, by tokens only.
+- Colours come from the tokens at the top of `style.css`.
+- **The dark theme is not XP's.** It is a dark scheme of Luna. It is modelled on Royale
+  Noir and Zune, the black visual styles Microsoft made for XP, and on the dark chrome
+  of Windows Media Player 11. Those lowered the frame, the taskbar and the Start menu
+  and left the inside of a window light. Here the inside is dark too. Every rule above
+  holds in it. Each part is Luna's own drawing with its values chosen again for a dark
+  face, never the light drawing on a dark colour:
+  - The frame, title bar, taskbar, tray and Start menu are Luna's gradients, stop for
+    stop, at half their lightness and a third of their colour (`--Lt`, `--Ct`). A
+    window that is not in front is flatter and greyer and never lighter than the one in
+    front (`--Lt-off`, `--Ct-off`). The start button is a lower green.
+  - The task pane and the two sides of the Start menu are dark slates in the accent's
+    hue, with pale words.
+  - The face is charcoal. A field, a list and the content of a place are a darker well
+    in it, and a tab's page lies between the two. What is raised (a push button, a tab,
+    a toolbar button under the pointer) is lighter than the face and lightest at its
+    top, inside a near-black edge. A line that was etched dark and white is etched black
+    and grey.
+  - The glows are bright rings on the dark button: orange under the pointer, the
+    accent's for the default button and the one with the keyboard. The dotted rectangle
+    and the line round the chosen swatch are pale grey (`--focus`, `--pick`). What is
+    chosen keeps the accent, with white words. In a list that does not have the keyboard
+    it is a grey lighter than the field (`--sel-off`). Orange, green and teal are
+    lowered a little as *Selected Items*, so that white reads on them.
+  - A menu is near black in a grey line, and its shadow is harder. A tooltip, a balloon
+    and a callout are dark olive with pale words in an ochre line (`--tip`,
+    `--tip-edge`).
+  - Luna's bitmaps have dark ones beside them (`icons/*-dark.png`), made from the light
+    ones by `dark-bitmaps.js`: the same tracing with a dim rim, a dark face and a pale
+    mark. The filter turns them as it turns the light ones. A filter does not reach a
+    scroll bar's own parts. So there the arrow buttons, and the drop-down button with
+    them, are drawn from the tokens the thumb is drawn from, with only the arrow as a
+    picture, and the grip is white and black laid thinly over the thumb.
+  - Text is at least 4.5 to 1 against what it is on. That includes the grey of text
+    that cannot be used (`--gray-text`).
+  - The desktop's picture is lowered. With none the desktop is a darker blue.
 
 ## 4. Motion
 
@@ -140,7 +173,8 @@ screen a window is the whole screen and cannot be moved or sized.
   - [XP.css](https://github.com/botoxparty/XP.css) (MIT): pixel tracings of Luna's
     caption buttons, scroll bar, drop-down button, trackbar thumb, check mark and
     option dot, drawn here as PNG at three times their size; and the measured colours
-    of buttons, tabs, fields and group boxes.
+    of buttons, tabs, fields and group boxes. The dark theme's bitmaps
+    (`icons/*-dark.png`) are these with their colours given again (`dark-bitmaps.js`).
   - The Start menu's green arrow (`icons/all.png`) is from ShizukuIchi/winXP, at three
     times its size; Favorites (`icons/star-*`) is from LinXP.
   - The wallpapers (`wallpapers/`) are the twenty XP came with, as they are on the

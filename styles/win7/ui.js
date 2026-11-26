@@ -1155,8 +1155,8 @@
         const v = cs.getPropertyValue(name).trim();
         return /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
       };
-      const face = tok('--face', dark ? '#2d3036' : '#f0f0f0'), text = tok('--text', dark ? '#e9e9ea' : '#000000');
-      const sel = tok('--sel', '#3399ff'), field = tok('--window', dark ? '#1c1e23' : '#ffffff');
+      const face = tok('--face', dark ? '#2e3136' : '#f0f0f0'), text = tok('--text', dark ? '#ececee' : '#000000');
+      const sel = tok('--sel', dark ? '#2672c8' : '#3399ff'), field = tok('--window', dark ? '#1f2125' : '#ffffff');
       Object.assign(t.colors, {
         'editorWidget.background': face,
         'editorWidget.foreground': text,
@@ -1168,8 +1168,8 @@
         'editorSuggestWidget.selectedForeground': '#ffffff',
         'editorSuggestWidget.highlightForeground': text,
         'editorSuggestWidget.focusHighlightForeground': '#ffffff',
-        'editorHoverWidget.background': dark ? '#33363d' : '#ffffff',
-        'editorHoverWidget.foreground': tok('--tip-text', dark ? '#e9e9ea' : '#575757'),
+        'editorHoverWidget.background': tok('--tip-tail', dark ? '#2f3237' : '#ffffff'),
+        'editorHoverWidget.foreground': tok('--tip-text', dark ? '#e6e7ea' : '#575757'),
         'editorHoverWidget.border': '#00000000',
         'input.background': field,
         'input.foreground': text,
@@ -1178,7 +1178,7 @@
         'menu.foreground': text,
         'menu.selectionBackground': sel,
         'menu.selectionForeground': '#ffffff',
-        'menu.separatorBackground': tok('--menu-gutter', '#e2e3e3'),
+        'menu.separatorBackground': tok('--menu-gutter', dark ? '#191a1d' : '#e2e3e3'),
         'list.hoverBackground': '#00000000',
         'list.focusBackground': sel,
         'list.focusForeground': '#ffffff',

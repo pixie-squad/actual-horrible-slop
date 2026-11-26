@@ -86,6 +86,21 @@ const round = (d) => d
   .replace(/ ?([MLCQZHVSAmlcqzhvsa]) ?/g, '$1')
   .trim();
 
+// Some of the set's drawings are placed in their square by a transform on the path
+// (gear_alt: translate(4 4)). Left out, the symbol sits off to one side of its button,
+// so it is worked into the numbers. Only a move is known here.
+const NUM = /-?\d*\.?\d+(?:e-?\d+)?/g;
+function placed(tag, d, name) {
+  const t = (/\stransform="([^"]*)"/.exec(tag) || [])[1];
+  if (!t) return d;
+  const m = /^\s*translate\(\s*(-?[\d.]+)(?:[\s,]+(-?[\d.]+))?\s*\)\s*$/.exec(t);
+  if (!m) throw new Error(`${name} has transform="${t}", which is not a plain move`);
+  if (/[^MLCZ\s,]/.test(d.replace(NUM, ''))) throw new Error(`${name} is moved and has more than M, L, C and Z`);
+  const by = [+m[1], +(m[2] || 0)];
+  let i = 0;
+  return d.replace(NUM, (v) => String(+v + by[i++ % 2]));
+}
+
 async function main() {
   const rows = [];
   for (const [name, theirs] of Object.entries(MAP)) {
@@ -94,7 +109,7 @@ async function main() {
     const svg = await res.text();
     const box = (/viewBox="([^"]+)"/.exec(svg) || [])[1];
     if (box !== '0 0 56 56') throw new Error(`${theirs} is drawn on ${box}, not 0 0 56 56`);
-    const paths = [...svg.matchAll(/<path[^>]*\sd="([^"]+)"/g)].map((m) => round(m[1]));
+    const paths = [...svg.matchAll(/<path[^>]*\sd="([^"]+)"[^>]*>/g)].map((m) => round(placed(m[0], m[1], theirs)));
     if (!paths.length || /<(circle|rect|polygon|ellipse|g)[\s>]/.test(svg)) throw new Error(`${theirs} is not plain paths`);
     rows.push(`    ${/^[a-z]+$/.test(name) ? name : `'${name}'`}: '${paths.join('')}',`);
   }

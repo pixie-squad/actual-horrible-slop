@@ -1061,8 +1061,30 @@
         const v = cs.getPropertyValue(name).trim();
         return /^#[0-9a-f]{6}$/i.test(v) ? v : fallback;
       };
-      const face = tok('--face', dark ? '#3a3d45' : '#ece9d8'), text = tok('--text', dark ? '#e8e8e8' : '#000000');
-      const sel = tok('--hilight', '#316ac5'), field = tok('--window', dark ? '#1b1d22' : '#ffffff');
+      const face = tok('--face', dark ? '#33353b' : '#ece9d8'), text = tok('--text', dark ? '#ebebed' : '#000000');
+      const sel = tok('--hilight', '#316ac5'), field = tok('--window', dark ? '#18191d' : '#ffffff');
+      // Dark, selected code is in the accent's hue as the token has it. The token is drawn
+      // from Luna's blue, not written as #rrggbb, so it is painted once and read back.
+      if (dark) {
+        const probe = document.createElement('i'), dot = document.createElement('canvas').getContext('2d');
+        probe.style.color = 'var(--code-sel)';
+        document.documentElement.append(probe);
+        const drawn = getComputedStyle(probe).color;
+        probe.remove();
+        if (dot && drawn) {
+          dot.fillStyle = drawn;
+          dot.fillRect(0, 0, 1, 1);
+          const [r, g, b, a] = dot.getImageData(0, 0, 1, 1).data;
+          const code = '#' + [r, g, b].map((v) => v.toString(16).padStart(2, '0')).join('');
+          if (a === 255) Object.assign(t.colors, {
+            'editor.selectionBackground': code,
+            'editor.inactiveSelectionBackground': code + '80',
+            'editor.rangeHighlightBackground': code + '40',
+            'editor.wordHighlightBackground': code + '55',
+            'editor.wordHighlightStrongBackground': code + '88',
+          });
+        }
+      }
       Object.assign(t.colors, {
         'editorWidget.background': face,
         'editorWidget.foreground': text,
@@ -1074,17 +1096,17 @@
         'editorSuggestWidget.selectedForeground': '#ffffff',
         'editorSuggestWidget.highlightForeground': text,
         'editorSuggestWidget.focusHighlightForeground': '#ffffff',
-        'editorHoverWidget.background': tok('--tip', dark ? '#3a3a22' : '#ffffe1'),
-        'editorHoverWidget.foreground': tok('--tip-text', dark ? '#e6e6e6' : '#000000'),
+        'editorHoverWidget.background': tok('--tip', dark ? '#353322' : '#ffffe1'),
+        'editorHoverWidget.foreground': tok('--tip-text', dark ? '#f2efd8' : '#000000'),
         'editorHoverWidget.border': '#00000000',
         'input.background': field,
         'input.foreground': text,
         'input.border': '#00000000',
-        'menu.background': face,
+        'menu.background': dark ? tok('--menu', '#202125') : face,
         'menu.foreground': text,
         'menu.selectionBackground': sel,
         'menu.selectionForeground': '#ffffff',
-        'menu.separatorBackground': tok('--edge', '#aca899'),
+        'menu.separatorBackground': tok('--menu-sep', '#aca899'),
         'list.hoverBackground': '#00000000',
         'list.focusBackground': sel,
         'list.focusForeground': '#ffffff',

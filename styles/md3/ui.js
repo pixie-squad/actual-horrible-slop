@@ -39,6 +39,57 @@
   const still = () => NT.util.reducedMotion();
   const play = (el, frames, sp, more) => (still() ? null : el.animate(frames, Object.assign({ duration: sp.duration, easing: sp.easing }, more)));
 
+  // Something that was not there comes to be there, or goes: its height springs open or
+  // shut (default spatial) while it fades (default effects), and what is around it moves
+  // with it instead of jumping. It can be turned round part way. The gap its parent
+  // keeps between its children opens and shuts with it.
+  M.reveal = function (el, show) {
+    const shown = !el.hidden;
+    const at = shown ? el.getBoundingClientRect().height : 0;
+    const dim = shown ? Number(getComputedStyle(el).opacity) : 0;
+    const going = el._reveal;
+    if (going) { going.forEach((a) => a.cancel()); el._reveal = null; }
+    else if (shown === show) return;
+    el.hidden = false;
+    el.style.overflow = el.style.flex = '';
+    const full = el.getBoundingClientRect().height;
+    const gap = (el.parentNode && parseFloat(getComputedStyle(el.parentNode).rowGap)) || 0;
+    const part = full ? Math.min(1, at / full) : 1;
+    const end = () => {
+      el._reveal = null;
+      el.style.overflow = el.style.flex = '';
+      el.hidden = !show;
+    };
+    if (still() || !full) return void end();
+    el.style.overflow = 'clip';
+    el.style.flex = 'none'; // in a column that shares its room out, its height is its own meanwhile
+    const size = play(el, [{ height: at + 'px', marginBottom: -gap * (1 - part) + 'px' }, show ? { height: full + 'px', marginBottom: '0px' } : { height: '0px', marginBottom: -gap + 'px' }], M.motion.spatial, { fill: 'forwards' });
+    const fade = play(el, [{ opacity: dim }, { opacity: show ? 1 : 0 }], M.motion.effects, { fill: 'forwards' });
+    el._reveal = [size, fade];
+    size.onfinish = () => { size.cancel(); fade.cancel(); end(); };
+  };
+
+  // A button that says something else from now on: it is as wide as its words, and gets
+  // there on the fast spatial spring.
+  M.relabel = function (btn, text) {
+    const words = btn.lastChild;
+    if (words.textContent === text) return;
+    const from = btn.getBoundingClientRect().width;
+    words.textContent = text;
+    const to = btn.getBoundingClientRect().width;
+    if (from !== to) play(btn, [{ width: from + 'px' }, { width: to + 'px' }], M.motion.spatialFast);
+  };
+
+  // What a page shows once it has read it: each piece rises into place (default spatial)
+  // as it fades in (default effects), one a little after another.
+  M.arrive = function (host) {
+    [...host.children].slice(0, 9).forEach((el, i) => {
+      const more = { delay: i * 35, fill: 'backwards' };
+      play(el, [{ transform: 'translateY(20px)' }, { transform: 'none' }], M.motion.spatial, more);
+      play(el, [{ opacity: 0 }, { opacity: 1 }], M.motion.effects, more);
+    });
+  };
+
   /* ---------- Icons: Material Symbols, by name ---------- */
 
   // Until the symbol font is in, a symbol would show as its name spelt out; they stay
@@ -131,10 +182,11 @@
   /* ---------- Buttons ---------- */
 
   // o: { variant: 'filled' | 'tonal' | 'outlined' | 'text' | 'elevated', icon, submit, danger, cls,
-  //      size: 'md' (56 high, for the one action a screen leads with; 40 otherwise) }
+  //      size: 'xs' (32), 'md' (56, for the action a screen leads with) or 'lg' (96, for
+  //      the one thing a screen is for); 40 otherwise }
   // With no label it is a symbol alone.
   M.button = function (label, onClick, o = {}) {
-    return h('button.m-btn.m-press.' + (o.variant || 'filled') + (o.size === 'md' ? '.md' : '') + (label ? '' : '.icon-only') + (o.danger ? '.danger' : '') + (o.cls || ''),
+    return h('button.m-btn.m-press.' + (o.variant || 'filled') + (o.size ? '.' + o.size : '') + (label ? '' : '.icon-only') + (o.danger ? '.danger' : '') + (o.cls || ''),
       { type: o.submit ? 'submit' : 'button', disabled: !!o.disabled, onclick: onClick || null },
       o.icon ? M.icon(o.icon) : null, label ? h('span', label) : null);
   };
@@ -277,12 +329,13 @@
      The expressive list: items are separate pieces a hair apart, and the run of them
      has large corners at its two ends. */
 
-  // o: { icon, tint, leading (a node), headline, supporting, value, trailing (a node), chevron, onClick, href, danger }
+  // o: { icon, tint ('primary' | 'tertiary': the colour its symbol sits on; secondary otherwise),
+  //      leading (a node), headline, supporting, value, trailing (a node), chevron, onClick, href, danger }
   M.item = function (o) {
     const tag = o.href ? 'a' : o.onClick ? 'button' : 'div';
     const attrs = o.href ? { href: o.href, onclick: o.onClick } : o.onClick ? { type: 'button', onclick: o.onClick } : {};
     return h(tag + '.m-item' + (o.onClick || o.href ? '.m-press' : '') + (o.danger ? '.danger' : ''), attrs,
-      o.leading || (o.icon ? h('span.m-item-icon', M.icon(o.icon)) : null),
+      o.leading || (o.icon ? h('span.m-item-icon' + (o.tint ? '.' + o.tint : ''), M.icon(o.icon)) : null),
       h('span.m-item-text', h('span.m-item-headline', o.headline), o.supporting != null ? h('span.m-item-supporting' + (o.mono ? '.mono' : ''), o.supporting) : null),
       o.value != null ? h('span.m-item-value', o.value) : null,
       o.trailing || null,
@@ -297,7 +350,9 @@
      while the whole turns once in 4666 ms. The shapes are built here from their
      definitions in MaterialShapes.kt, and the animation is CSS (style.css has the turn). */
 
-  function loadingShapes(N) {
+  // How Material's shapes are built (MaterialShapes.kt): the corners of a polygon, each
+  // with its rounding, repeated about the middle.
+  const shapeKit = (function () {
     const TAU = Math.PI * 2;
     const rot = (p, deg, c) => {
       const a = (deg * Math.PI) / 180, x = p.x - c.x, y = p.y - c.y;
@@ -378,6 +433,11 @@
       return pts;
     };
     const P = (x, y, r) => ({ x, y, r: r || 0 });
+    return { TAU, custom, star, outline, oval, P };
+  })();
+
+  function loadingShapes(N) {
+    const { TAU, custom, star, outline, oval, P } = shapeKit;
     const raw = [
       { c: { x: 0.5, y: 0.5 }, pts: outline(custom([P(0.193, 0.277, 0.053), P(0.176, 0.055, 0.053)], 10)) }, // SoftBurst
       { c: { x: 0, y: 0 }, pts: outline(star(9, 0.8, 0.5, -90)) }, // Cookie9Sided
@@ -509,7 +569,24 @@
       else if (e.key === 'ArrowUp') { e.preventDefault(); (all[i - 1] || all[all.length - 1] || list).focus(); }
       else if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); e.stopPropagation(); menu.close(); }
     });
-    const outside = (e) => { if (!list.contains(e.target)) menu.close(true); };
+    const outside = (e) => {
+      if (list.contains(e.target)) return;
+      menu.close(true);
+      // A press on what opened it shuts it, and is not then taken as a press to open it again.
+      if (!anchor.contains(e.target)) return;
+      const eat = (c) => {
+        document.removeEventListener('click', eat, true);
+        document.removeEventListener('pointerdown', drop, true);
+        if (anchor.contains(c.target)) { c.stopPropagation(); c.preventDefault(); }
+      };
+      const drop = () => {
+        document.removeEventListener('click', eat, true);
+        document.removeEventListener('pointerdown', drop, true);
+      };
+      document.addEventListener('click', eat, true);
+      // (Should no click follow, the next press is nobody's to eat.)
+      setTimeout(() => document.addEventListener('pointerdown', drop, true), 0);
+    };
     const away = () => menu.close(true);
     document.addEventListener('pointerdown', outside, true);
     window.addEventListener('resize', away);
@@ -730,7 +807,7 @@
     const submit = M.button('Log In', null, { submit: true });
     // Off until asked for, and only where the server can keep someone signed in.
     const remember = api.canKeep ? M.check('Remember me', false) : null;
-    const which = M.group([{ value: 'login', label: 'Log In' }, { value: 'register', label: 'Create Account' }], mode, (v) => { mode = v; sync(); });
+    const which = M.group([{ value: 'login', label: 'Log In' }, { value: 'register', label: 'Create Account' }], mode, (v) => { mode = v; sync(true); });
     // The sample data is a quiet way past the form, not a second way to sign in.
     const looking = api.mode === 'demo' && !!api.session;
     const form = h('form.m-form', { novalidate: true }, which.el, name.row, username.row, password.row, remember && remember.el, error,
@@ -739,13 +816,27 @@
         h('span.m-gap'),
         M.button('Cancel', () => d.close(), { variant: 'text' }),
         submit));
-    function sync() {
-      name.row.hidden = mode !== 'register';
-      submit.lastChild.textContent = mode === 'register' ? 'Create Account' : 'Log In';
-      password.input.autocomplete = mode === 'register' ? 'new-password' : 'current-password';
-      error.textContent = '';
+    // What went wrong, said under the fields; its line opens and shuts as the name's does.
+    const say = (text) => {
+      if (text) error.textContent = text;
+      M.reveal(error, !!text);
+    };
+    error.hidden = true;
+    // moving: the form is on show, so what changes in it springs (the name's field opens
+    // or shuts, the button widens to its new words) instead of jumping.
+    function sync(moving) {
+      const making = mode === 'register';
+      if (moving) {
+        M.reveal(name.row, making);
+        M.relabel(submit, making ? 'Create Account' : 'Log In');
+      } else {
+        name.row.hidden = !making;
+        submit.lastChild.textContent = making ? 'Create Account' : 'Log In';
+      }
+      password.input.autocomplete = making ? 'new-password' : 'current-password';
+      say('');
     }
-    sync();
+    sync(false);
     const d = M.dialog({ title: 'Sign In', body: form, wide: true });
 
     async function lookAround() {
@@ -756,11 +847,11 @@
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const u = username.input.value.trim(), p = password.input.value, n = name.input.value.trim();
-      if (mode === 'register' && n.length < 3) return void (error.textContent = 'Display name needs at least 3 characters.');
-      if (u.length < (mode === 'register' ? 3 : 1)) return void (error.textContent = mode === 'register' ? 'Username needs at least 3 characters.' : 'Enter your username.');
-      if (!p) return void (error.textContent = 'Enter your password.');
-      if (mode === 'register' && p.length < 8) return void (error.textContent = 'Password needs at least 8 characters.');
-      error.textContent = '';
+      if (mode === 'register' && n.length < 3) return void say('Display name needs at least 3 characters.');
+      if (u.length < (mode === 'register' ? 3 : 1)) return void say(mode === 'register' ? 'Username needs at least 3 characters.' : 'Enter your username.');
+      if (!p) return void say('Enter your password.');
+      if (mode === 'register' && p.length < 8) return void say('Password needs at least 8 characters.');
+      say('');
       submit.disabled = true;
       try {
         const keep = !!remember && remember.value;
@@ -770,10 +861,10 @@
         NT.nav.reset();
         UI.toast('Signed in as ' + (api.session.name || api.session.username));
       } catch (err) {
-        if (err.message === 'live-unavailable') error.textContent = 'Start the app with “node server.js” to sign in.';
-        else if (err.status === 401) error.textContent = 'Wrong username or password.';
-        else if (err.status === 409) error.textContent = 'That username is taken.';
-        else error.textContent = NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not sign in. Try again.';
+        if (err.message === 'live-unavailable') say('Start the app with “node server.js” to sign in.');
+        else if (err.status === 401) say('Wrong username or password.');
+        else if (err.status === 409) say('That username is taken.');
+        else say(NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not sign in. Try again.');
       } finally {
         submit.disabled = false;
       }
@@ -788,7 +879,11 @@
     const oldPw = M.field('Current password', { type: 'password', autocomplete: 'current-password' });
     const newPw = M.field('New password', { type: 'password', autocomplete: 'new-password' });
     const confirmPw = M.field('Confirm', { type: 'password', autocomplete: 'new-password' });
-    const error = h('p.m-error', { role: 'alert' });
+    const error = h('p.m-error', { role: 'alert', hidden: true });
+    const say = (text) => {
+      if (text) say(text);
+      M.reveal(error, !!text);
+    };
     const submit = M.button('Save', null, { submit: true });
     oldPw.row.hidden = !hasPassword;
     const form = h('form.m-form', { novalidate: true }, oldPw.row, newPw.row, confirmPw.row, error,
@@ -796,10 +891,10 @@
     const d = M.dialog({ title: hasPassword ? 'Change Password' : 'Set Password', body: form, wide: true });
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
-      if (hasPassword && !oldPw.input.value) return void (error.textContent = 'Enter your current password.');
-      if (newPw.input.value.length < 8) return void (error.textContent = 'New password needs at least 8 characters.');
-      if (newPw.input.value !== confirmPw.input.value) return void (error.textContent = 'The new passwords do not match.');
-      error.textContent = '';
+      if (hasPassword && !oldPw.input.value) return void say('Enter your current password.');
+      if (newPw.input.value.length < 8) return void say('New password needs at least 8 characters.');
+      if (newPw.input.value !== confirmPw.input.value) return void say('The new passwords do not match.');
+      say('');
       submit.disabled = true;
       try {
         await api.changePassword(oldPw.input.value, newPw.input.value);
@@ -807,7 +902,7 @@
         NT.bus.emit('session');
         UI.toast('Password changed');
       } catch (err) {
-        error.textContent = err.status === 401 ? 'Current password is incorrect.' : NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not change the password. Try again.';
+        say(err.status === 401 ? 'Current password is incorrect.' : NT.api.unreachable(err) ? 'Upstream is unreachable.' : 'Could not change the password. Try again.');
         submit.disabled = false;
       }
     });
@@ -817,30 +912,35 @@
   /* ---------- How the core's own parts are dressed ---------- */
 
   NT.look = {
-    codeFont: '"Roboto Mono", ui-monospace, "Cascadia Mono", Consolas, monospace',
+    codeFont: '"Google Sans Code", "Roboto Mono", ui-monospace, "Cascadia Mono", Consolas, monospace',
     codeOptions: { padding: { top: 12, bottom: 12 }, roundedSelection: true },
-    // Monaco's own boxes sit on the container colours, as a menu does.
+    // Monaco's own boxes sit on the container colours, as a menu does: the roles of the
+    // scheme in use, read as they are now.
     codeTheme(t, dark) {
-      const widget = dark ? '#2b2930' : '#ece6f0', text = dark ? '#e6e0e9' : '#1d1b20', sel = dark ? '#4a4458' : '#e8def8';
+      const role = (name, or) => {
+        const v = getComputedStyle(root).getPropertyValue('--' + name).trim();
+        return /^#[0-9a-f]{6}$/i.test(v) ? v : or;
+      };
+      const widget = role('surface-container-high', dark ? '#2b2930' : '#ece6f0'), text = role('on-surface', dark ? '#e6e0e9' : '#1d1b20'), sel = role('secondary-container', dark ? '#4a4458' : '#e8def8'), onSel = role('on-secondary-container', text);
       Object.assign(t.colors, {
         'editorWidget.background': widget,
         'editorWidget.foreground': text,
         'editorSuggestWidget.background': widget,
         'editorSuggestWidget.foreground': text,
         'editorSuggestWidget.selectedBackground': sel,
-        'editorSuggestWidget.selectedForeground': text,
+        'editorSuggestWidget.selectedForeground': onSel,
         'editorHoverWidget.background': widget,
         'editorHoverWidget.foreground': text,
-        'input.background': dark ? '#141218' : '#fef7ff',
+        'input.background': role('surface-container-lowest', dark ? '#141218' : '#fef7ff'),
         'input.foreground': text,
         'menu.background': widget,
         'menu.foreground': text,
         'menu.selectionBackground': sel,
-        'menu.selectionForeground': text,
+        'menu.selectionForeground': onSel,
         'list.hoverBackground': dark ? '#ffffff14' : '#00000014',
         'list.focusBackground': sel,
         'list.activeSelectionBackground': sel,
-        'list.activeSelectionForeground': text,
+        'list.activeSelectionForeground': onSel,
       });
       return t;
     },

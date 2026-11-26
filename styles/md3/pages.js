@@ -98,13 +98,34 @@
   const cover = (s, sel) => NT.media.cover(h('div.m-cover' + (sel || ''), { style: NT.util.cover(s.script_id) }), s);
 
   function empty(icon, title, text, action) {
-    return h('div.m-empty', M.icon(icon, { size: 48 }), h('h3', title), text ? h('p', text) : null,
+    return h('div.m-empty', h('span.m-empty-art', M.icon(icon, { size: 32 })), h('h3', title), text ? h('p', text) : null,
       action ? M.button(action.label, action.onClick, { variant: action.variant || 'filled' }) : null);
   }
   // err: what went wrong, for the line that says why (NT.actions.trouble), where there is one.
   const failed = (retry, err) => empty('error', 'Couldn’t Load', A.trouble(err) || null, { label: 'Try Again', onClick: retry, variant: 'tonal' });
-  // While a page reads for the first time.
-  const wait = (host) => host.replaceChildren(M.loading('.block'));
+  // While a page reads for the first time. What takes the indicator's place arrives:
+  // it rises in, piece after piece (M.arrive).
+  const wait = (host) => {
+    if (host._waiting) host._waiting.disconnect();
+    host.replaceChildren(M.loading('.block'));
+    const seen = (host._waiting = new MutationObserver(() => {
+      if (host.querySelector(':scope > .m-loading')) return;
+      seen.disconnect();
+      host._waiting = null;
+      M.arrive(host);
+    }));
+    seen.observe(host, { childList: true });
+  };
+  // What a favorite changes on a page is drawn once the heart has been let alone for a
+  // moment: pressed again and again, it answers each press itself and nothing under it
+  // is rebuilt meanwhile.
+  const settled = (fn, ms = 900) => {
+    let timer = 0;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), ms);
+    };
+  };
 
   /* ---------- Script pieces ---------- */
 
@@ -127,9 +148,16 @@
     ]);
   }
 
-  // A toggle: the heart fills, and the button's shape answers the press.
+  // A toggle: the heart fills, and the button's shape answers the press. All of it is
+  // the button's own state (style.css), so a press in the middle of the last one's
+  // change turns that change round instead of starting it again. Every heart of the
+  // same script that is on a page follows at once.
+  const hearts = new Set();
   function favButton(s, ctx, variant) {
     const b = M.iconButton('favorite', 'Favorite', null, { variant: variant || 'standard', cls: '.m-fav' });
+    b._fav = (on) => { s.is_favorite = on; sync(); };
+    b._favId = s.script_id;
+    hearts.add(b);
     const sync = () => {
       const on = !!s.is_favorite;
       b.setAttribute('aria-pressed', String(on));
@@ -143,10 +171,15 @@
       if (!API.session) return void signIn();
       const next = !s.is_favorite;
       const done = A.favorite(s, next);
-      sync();
-      if (next) M.play(b.firstElementChild, [{ transform: 'scale(0.6)' }, { transform: 'none' }], M.motion.spatialFast);
+      const all = (on) => {
+        for (const x of hearts) {
+          if (!x.isConnected) hearts.delete(x);
+          else if (x._favId === s.script_id) x._fav(on);
+        }
+      };
+      all(next);
       if (await done) { if (ctx && ctx.onFavorite) ctx.onFavorite(s, next); }
-      else sync();
+      else all(!!s.is_favorite);
     });
     return b;
   }
@@ -215,6 +248,7 @@
   /* ---------- Home ---------- */
 
   // The lead card is real content: the script last worked on, or the newest published.
+  // It is the page's hero moment: the name set large beside its picture.
   function lead(s, o) {
     const card = h('article.m-hero.m-press', { tabIndex: 0 },
       cover(s),
@@ -222,7 +256,7 @@
         h('span.m-eyebrow', o.eyebrow),
         h('h2', nameOf(s)),
         h('p', o.meta),
-        h('div.m-actions', o.actions.map(([label, icon, onClick, primary]) => M.button(label, (e) => { e.stopPropagation(); onClick(); }, { icon, size: 'md', variant: primary ? 'filled' : 'elevated' })))));
+        h('div.m-actions', o.actions.map(([label, icon, onClick, primary]) => M.button(label, (e) => { e.stopPropagation(); onClick(); }, { icon, size: 'md', variant: primary ? 'filled' : 'tonal' })))));
     const open = () => NT.nav.go(`/scripts/${s.script_id}`);
     card.addEventListener('click', (e) => { if (!e.target.closest('button')) open(); });
     onActivate(card, open);
@@ -235,13 +269,14 @@
     page.inner.append(body);
     const pick = filePicker(page);
     let loaded = false, stamp = '';
+    const later = settled(() => load());
 
     if (API.session) page.setFab(newFab(pick));
     // While looking around, the way to the real thing stays in reach.
     if (!API.session || API.mode === 'demo') page.setTrailing(M.button('Sign In', signIn, { variant: 'tonal' }));
 
     function render(me, all, mine, favs) {
-      const ctx = { refresh: load, onFavorite: () => load() };
+      const ctx = { refresh: load, onFavorite: later };
       const kids = [];
       const card = (s) => scriptCard(s, ctx);
       const latest = byRecent(mine)[0];
@@ -330,7 +365,7 @@
     const find = h('input', { type: 'search', placeholder: 'Search scripts', 'aria-label': 'Search scripts', enterKeyHint: 'search' });
     const search = h('label.m-search', M.icon('search'), find);
     const group = M.group([{ value: 'mine', label: 'Mine' }, { value: 'favorites', label: 'Favorites' }, { value: 'all', label: 'All' }]
-      .concat(withLibs ? [{ value: 'libs', label: 'Libraries' }] : []), filter, (v) => { choose(v); render(); });
+      .concat(withLibs ? [{ value: 'libs', label: 'Libraries' }] : []), filter, (v) => { choose(v); render(); M.arrive(grid); });
     const sortBtn = M.iconButton('sort', 'Sort', () => UI.menu(sortBtn, [
       { label: 'Recently Updated', checked: sort === 'recent', onSelect: () => sortBy('recent') },
       { label: 'Name', checked: sort === 'name', onSelect: () => sortBy('name') },
@@ -358,9 +393,10 @@
         for (const list of [data.all, data.mine]) for (const x of list) if (x.script_id === s.script_id) x.is_favorite = on;
         data.favs = data.favs.filter((x) => x.script_id !== s.script_id);
         if (on) data.favs.unshift(Object.assign({}, s, { is_favorite: true }));
-        if (filter === 'favorites') render(true);
+        if (filter === 'favorites') redraw();
       },
     };
+    const redraw = settled(() => { if (data && filter === 'favorites') render(true); });
     const clear = () => {
       if (grid._watch) grid._watch.disconnect();
       grid.replaceChildren();
@@ -883,6 +919,7 @@
     const body = h('div.m-stack');
     page.inner.append(body);
     let loaded = false, stamp = '';
+    const later = settled(() => load());
     if (isRoot) page.setTrailing(M.iconButton('settings', 'Settings', () => NT.nav.go('/settings')));
 
     async function load() {
@@ -910,12 +947,12 @@
       const own = !!me && user.user_id === me.user_id;
       const name = user.name || user.username;
       page.setTitle(name);
-      const ctx = { refresh: load, onFavorite: () => { if (own) load(); } };
+      const ctx = { refresh: load, onFavorite: () => { if (own) later(); } };
       const card = (s) => scriptCard(s, ctx);
       const drafts = scripts.filter((s) => !s.published_at).length;
 
       // Your own photo carries the button that changes it.
-      const face = avatar(name, 104, user.user_id);
+      const face = avatar(name, 120, user.user_id);
       const items = own ? NT.media.items('avatars', user.user_id) : [];
       const edit = M.iconButton('edit', 'Profile Photo', () => UI.menu(edit, NT.media.items('avatars', user.user_id), { align: 'center' }), { variant: 'tonal', cls: '.m-face-edit' });
       const kids = [h('div.m-profile',
@@ -955,7 +992,7 @@
     const sync = () => { val.textContent = (options.find((o) => o[0] === cur) || options[0])[1]; };
     pick.addEventListener('click', () => UI.menu(pick, options.map(([v, label]) => ({ label, checked: cur === v, onSelect: () => { cur = v; sync(); onPick(v); } }))));
     sync();
-    return M.item({ icon, headline, trailing: pick });
+    return M.item({ icon, tint: icon === 'palette' ? 'tertiary' : null, headline, trailing: pick });
   }
 
   P.settings = function () {
@@ -970,11 +1007,11 @@
       const kids = [];
 
       const account = [];
-      if (me) account.push(M.item({ icon: 'person', headline: me.name || me.username, supporting: demo ? 'Demo account' : '@' + me.username, chevron: true, onClick: () => NT.nav.go('/profile') }));
+      if (me) account.push(M.item({ icon: 'person', tint: 'primary', headline: me.name || me.username, supporting: demo ? 'Demo account' : '@' + me.username, chevron: true, onClick: () => NT.nav.go('/profile') }));
       if (me && !demo) account.push(M.item({ icon: 'key', headline: 'Password', value: me.has_password ? 'On' : 'Not set', chevron: true, onClick: () => UI.passwordDialog() }));
-      if (!me || demo) account.push(M.item({ icon: 'login', headline: me ? 'Sign In With Your Account' : 'Sign In', onClick: signIn }));
+      if (!me || demo) account.push(M.item({ icon: 'login', tint: 'primary', headline: me ? 'Sign In With Your Account' : 'Sign In', onClick: signIn }));
       kids.push(M.list(account));
-      kids.push(M.list(M.item({ icon: 'code', headline: 'Editor', chevron: true, onClick: () => NT.nav.go('/settings/editor') })));
+      kids.push(M.list(M.item({ icon: 'code', tint: 'tertiary', headline: 'Editor', chevron: true, onClick: () => NT.nav.go('/settings/editor') })));
 
       // Another whole look of the app (js/styles.js). Choosing one loads it.
       const styles = NT.styles.list;

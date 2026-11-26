@@ -107,7 +107,7 @@ see the sources):
 
 - What is under the pointer in a list, a tree or a menu has the pale blue wash with a
   thin rounded edge (`--hot`); what is chosen has the deeper one (`--pick`), and the
-  grey one while the keyboard is somewhere else (`--pick-off`). Text stays dark.
+  grey one while the keyboard is somewhere else (`--pick-off`). Text keeps its colour.
 - A menu is grey with the gutter down its left for marks (`W.menu`).
 - Keyboard focus is a dotted rectangle inside the control.
 
@@ -139,9 +139,34 @@ see the sources):
   the list: a picture nothing asks for is not kept.
 - Under the desktop's picture, and in its place when there is none, is the desktop
   drawn in the stylesheet (`--desktop`): blue, lit, without the Windows logo.
-- Colours come from the tokens at the top of `style.css`. The dark theme is not 7's:
-  it keeps every rule here, makes the surfaces dark and lowers the desktop's picture,
-  by tokens only.
+- Colours come from the tokens at the top of `style.css`.
+- Windows 7 had no dark theme. This one is Aero with the glass set dark, as Window
+  Color lets it be, and inside a window the same controls drawn again for a dark
+  surface. It takes after Microsoft's own dark programs of those years: Windows Media
+  Player 12 and Media Center, Office 2010 in Black, Expression Blend. Its values are
+  chosen here, not measured. It keeps every rule above, and where a rule names a light
+  colour the dark theme has its own:
+  - The glass is the accent, deep, over smoke (`--glass`, `--glass-smoke`). It takes
+    less of the light: the edges, the streaks and the bevels of everything made of
+    glass are one family (`--shine-*`), which the dark theme lowers. The caption's
+    text is white with a dark glow behind it. A window that is not in front is greyer.
+    With transparency off the frames are the same deep colour, opaque.
+  - What a window shows is the darkest surface (`--window`), the face of a dialog a
+    step lighter (`--face`), a button lighter than both under a black edge. A field is
+    a well, its edge darkest along its top.
+  - Every control is built as its light one is, with values for dark: the split
+    gradient of a button with its edge and its inner highlight, the rounded washes with
+    their thin edge, the gradient of the command bar and of the details pane, a groove
+    as a dark line with a light one beside it (`--groove`, `--etch`), the glossy green
+    in its well. Under the pointer a button is lit blue. Text stays light.
+  - What is chosen is a deeper blue than the light theme's, one that white text reads
+    on (`--sel`); the washes and the lit button are shades of it. The default button's
+    glow is a see-through blue inside a darker blue edge. Keyboard focus is a light
+    dotted rectangle (`--focus`).
+  - The desktop's picture is lowered (`--wall-dim`), and the drawn desktop is a darker
+    one.
+  - It is done with tokens. One rule is the dark theme's alone: in Settings a colour
+    is shown as the glass it makes (`.w-swatch`).
 
 ## 6. Motion
 

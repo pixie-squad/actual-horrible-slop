@@ -7,6 +7,16 @@ code that carries it (in this folder unless it says `js/`). Sizes are in px, one
 dp. The rules every style shares are in [/DESIGN.md](../../DESIGN.md); these are on
 top of them.
 
+Expressive is not decoration put on Material 3. It is how the app **answers**: what is
+pressed gives and springs back, what is chosen changes shape, what comes onto the
+screen moves into place and what is around it makes room, all on springs (§4). Then it
+is hierarchy: the one thing a screen is for is larger and in the primary colour, type
+that matters is heavier, and things that belong together share a container. The
+colour is one family of hue, calm, as a Pixel makes from a wallpaper. A screen where
+something appears or changes without moving is not this style, however it is coloured;
+neither is one dressed up with shapes and contrasting colours that mean nothing.
+Material's own example screens are the reference for how quiet the result is (Sources).
+
 ## 1. Structure
 
 - The four places are in the **navigation bar** under 600 wide and the **navigation
@@ -28,7 +38,13 @@ top of them.
   as the page scrolls. The bar changes colour once something is under it.
 - The one thing a page is for is its **floating action button**: New on Home and
   Scripts, Start Friendly Battle (extended) on a script. One with more than one action
-  opens into the FAB menu (`M.fab`).
+  opens into the FAB menu (`M.fab`). It is the medium FAB, which Material recommends
+  for most windows, and the large one from 840 wide; the small FAB and the surface
+  colours are not used.
+- Home leads with the script last worked on (or the newest published) as its **hero
+  moment** (`pages.js`, `lead`; `.m-hero`), made of size and type alone: its picture
+  large in a card of the primary container, the name in display type, and 56 buttons.
+
 - Something to answer is a **dialog**; something to pick through is a **bottom sheet**;
   what just happened is a **snackbar** (`M.dialog`, `M.sheet`, `M.snackbar`).
 - A test run is the editor's **supporting pane** (`tests.js`, `editor.js`), opened by
@@ -51,19 +67,42 @@ top of them.
 
 ## 2. Colour
 
-- Every colour is a role of the tonal scheme, worked out from the accent's hue at the
-  top of `style.css`. A role is a tone of a palette, and a tone T is OKLCH lightness
-  (T + 16) / 116; the tones are Material's (primary 40, its container 90, text on the
-  container 30; surfaces 98, 96, 94, 92, 90; dark: 80, 30, 90; 6, 10, 12, 17, 22, and
-  24 for the bright surface). A component never names a raw colour, and text on a role
-  is that role's `on` colour.
+- Every colour is a role of a scheme that **Material's own colour library** works out
+  from the accent's source colour: Material Color Utilities, the 2025 colour spec that
+  came with M3 Expressive, its **Tonal Spot** variant (the one a Pixel uses), for a
+  phone, at standard contrast. `tools/md3-colors.js` runs it and writes the roles of
+  every accent in both themes at the top of `style.css`; an accent is added there,
+  never by hand. A component never names a raw colour, and text on a role is that
+  role's `on` colour.
+- The scheme is **one family of hue**: primary is the accent, secondary the same hue
+  with less colour in it, tertiary a near neighbour, and the surfaces carry a little of
+  it. Nothing on a screen contrasts in hue with the rest of it. (The library's
+  Expressive variant, which turns secondary and tertiary to other hues, was tried and
+  is not used: green beside blue on every screen is loud, and is not what Material's
+  own example screens look like.)
+- What the three are for: **primary** is the action a screen is for and what is chosen
+  (the FAB, a filled button, the chosen button of a group, a figure on a profile);
+  **secondary** is what stands back (tonal buttons, the navigation indicator, a list
+  item's symbol, an empty state's symbol); **tertiary** is used small (the chosen menu
+  item, strings in code). In a list of different kinds of thing the symbols take the
+  three in turn (`M.item`, `tint`).
+- On a container colour a control takes a pair that stands out from that container in
+  both themes: on the lead card the filled button is the card's own `on` colour and
+  the other is the bright surface (`.m-hero .m-btn`). A badge on a picture is the
+  bright surface too.
+- Code is drawn in the scheme too (`--tk-…`): keywords and types primary, strings and
+  numbers tertiary, what is called secondary, on the lowest surface (a low container
+  in the dark theme, where the lowest is black).
+
 - **The page is surface container, and what lies on it is the bright surface**
   (`--page`, `--piece`): list items, cards, the search bar. That is how the segmented
   list is meant to be seen (its items are `colorSurfaceBright` in Material Components)
   and it holds in both themes. Dialogs are surface container high, sheets and menus
   surface container low.
 - Emphasis is by role, most to least: primary, primary container, secondary container,
-  the surfaces. One primary thing in view.
+  the surfaces. One primary thing in view. Size says it too: the action a screen leads
+  with is a larger button than the ones beside it, never the same size in another
+  colour only.
 - Shadow is only for what floats (`--elev-1` … `--elev-4`, `ElevationTokens` levels
   1 to 4): the FAB and its menu 3 (4 under the pointer), menus 2, dialogs and
   snackbars 3, a sheet 1, a card or a filled button under the pointer 1.
@@ -76,7 +115,16 @@ top of them.
 
 ## 3. Shape
 
-- Corners are the scale (`ShapeTokens`): 4, 8, 12, 16, 20, 28, and round.
+- Corners are the scale (`ShapeTokens`, and the corner radius scale in Sources): 4, 8,
+  12, 16, 20, 28, 32, 48, and round. Round and nearly square are used side by side on
+  purpose: the tension between them is part of the look.
+- **Nested corners are not the same radius.** The inner one is the outer one less the
+  padding between them: a card is 28 with 8 around its picture, so the picture is 20.
+- **Material's shape library is the loading indicator's, and nothing else's here.**
+  Pictures, figures and symbols are round or on the corner scale. Cookies and bursts
+  as decoration were tried (a profile picture, the figures, the lead card's artwork)
+  and taken out: in an app of lists and code they read as stickers.
+
 - **A corner that animates is always a length.** Round is half the component's height,
   written out (20 for a 40 button), never a huge number: a morph from a huge number
   shows nothing until its last moment and then overshoots to a square. Every frame of
@@ -93,10 +141,14 @@ top of them.
   | List item: between two items | 4 | 16 | | `ListTokens`; 12 under the pointer |
   | List item: the list's own corners | 16 | 16 | | `ListTokens.ContainerShape` |
   | Menu item | 4, 12 at its group's corners | | 12 | `SegmentedMenuTokens` |
-  | FAB | 16 | 16 | 28 as the close button | `FabBaselineTokens`, `FabMenuBaselineTokens` |
+  | Button, 32 (`size: 'xs'`) | 16 | 8 | | `ButtonXSmallTokens` |
+  | Button, 96 (`size: 'lg'`) | 48 | 16 | | `ButtonLargeTokens` |
+  | FAB, 80 | 20 | 20 | 28 as the close button | `FabMediumTokens`, `FabMenuBaselineTokens` |
+  | FAB, 96 | 28 | 28 | 28 as the close button | `FabLargeTokens` |
 
-- A card is 12 (`FilledCardTokens`), a carousel's item 28, a dialog and a sheet's top
-  28, a text field and a snackbar 4. A card's corner and the FAB's do not answer a press.
+- A card that leads with a picture and a carousel's item are 28, the lead card 32 and
+  48 from 840 wide, a dialog and a sheet's top 28, a text field and a snackbar 4. A
+  card's corner and the FAB's do not answer a press.
 
 ## 4. Motion
 
@@ -118,6 +170,27 @@ top of them.
   | The supporting pane: it slides in from the trailing edge, and out again, while the code narrows and widens | spatial | `PaneMotion.kt` (`PaneMotionDefaults`, `EnterFromRight`) |
   | A full-screen dialog: it comes up from the bottom edge as a sheet does (running 48 past it, so the overshoot shows more of it), and goes back down | spatial; effects leaving | the sheet's, here (`M.dialog`) |
 
+- **Nothing appears, goes or changes size without moving**, and what is around it moves
+  with it. Where Compose has no component for it, the springs are these:
+
+  | What | How | Spring | Code |
+  | --- | --- | --- | --- |
+  | Something comes into a form or leaves it (the name's field when Sign In turns to Create Account, the line that says what went wrong) | its height opens or shuts, with the gap its parent keeps, while it fades; the dialog grows with it | spatial, effects | `M.reveal` |
+  | A button says something else (Log In, Create Account) | it widens or narrows to its words | fast spatial | `M.relabel` |
+  | What a page has read takes the loading indicator's place; another list is chosen on Scripts | each piece rises 20 into place as it fades in, 35 ms after the one before | spatial, effects | `M.arrive`; `pages.js`, `wait` |
+  | Buttons side by side (a standard button group): one is pressed | it widens by about 15 % and those beside it give way by as much, so the row keeps its width | fast spatial | `.m-actions` (`ButtonGroup.kt`, `ExpandedRatio`) |
+  | A toggle's symbol under a press (the heart) | it shrinks to 0.72 and springs back | fast spatial | `.m-fav` |
+
+- **A change that can be interrupted is the component's own state, not a script's
+  animation.** The heart's fill, its button's shape and its press are CSS on the
+  button, so a second press part way through turns the change round from where it is;
+  nothing is started again from the beginning. What a favorite changes elsewhere on a
+  page is drawn once the heart has been let alone for 900 ms (`pages.js`, `settled`),
+  and until then every heart of that script on the page follows the one pressed.
+- What opens from a control shuts on a second press of that control: the press that
+  shuts a menu is not also taken as a press to open it (`M.menu`).
+- A slider has no spring of its own beyond its handle narrowing while held; its value
+  follows the finger exactly, as Compose's does.
 - Going deeper moves forward along the horizontal axis and Back moves back along it;
   changing place fades through (`app.js`, `apply`).
 - Waiting is the **loading indicator** (`LoadingIndicator.kt`, `LoadingIndicatorTokens`):
@@ -129,23 +202,31 @@ top of them.
 
 ## 5. Type and symbols
 
-- Roboto Flex, on the type scale (`TypeScaleTokens`), with its tracking:
+- **Google Sans Flex**, the face Material 3 Expressive is drawn in (open, from Google
+  Fonts; `--font`), on the type scale (`TypeScaleTokens`), with its tracking. The large
+  styles (display, headline, title-large, and the words of a 56 button or an extended
+  FAB) are the **brand** face: the same font with its terminals rounded (its `ROND`
+  axis at 100), which is the roundness the shapes have. Body and labels are plain.
+  Code is Google Sans Code (`--mono`, `NT.look.codeFont`).
 
   | Style | Size / line | Weight | Tracking | Used for |
   | --- | --- | --- | --- | --- |
-  | display-small | 36 / 44 | 500 | 0 | a place's large title |
-  | headline-large, display-medium | 32 / 40, 45 / 52 | 500 | 0 | the lead card's title, narrow and wide |
-  | headline-medium | 28 / 36 | 500 | 0 | the name a page is about |
-  | headline-small | 24 / 32 | 400 | 0 | a dialog's headline |
-  | title-large | 22 / 28 | 400; 500 for a section | 0 | the bar's title, section headings |
-  | title-medium | 16 / 24 | 500 | 0.15 | a card's title, 56 buttons, the FAB's words |
+  | display-large | 57 / 64 | 500 | -0.25 | the lead card's title from 840 wide |
+  | display-small | 36 / 44 | 500 | 0 | a place's large title; the lead card's title, narrow |
+  | headline-medium | 28 / 36 | 500 | 0 | the name a page is about; a figure on a profile |
+  | headline-small | 24 / 32 | 400 | 0 | a dialog's headline; a 96 button |
+  | title-large | 22 / 28 | 400; 500 for a section | 0 | the bar's title, section headings, the medium extended FAB's words |
+  | title-medium | 16 / 24 | 500; 700 emphasized | 0.15 | 56 buttons; emphasized: a card's title, a filled 56 button, the small extended FAB's words |
   | body-large | 16 / 24 | 400 | 0.5 | list items, fields, menus |
   | body-medium | 14 / 20 | 400 | 0.25 | supporting text, dialogs, snackbars |
-  | label-large | 14 / 20 | 500 | 0.1 | buttons |
-  | label-medium | 12 / 16 | 500; 700 when active | 0.5 | navigation, badges |
+  | label-large | 14 / 20 | 500; 700 emphasized | 0.1 | buttons; emphasized: a filled button, the line over the lead card's title |
+  | label-medium | 12 / 16 | 500; 700 emphasized | 0.5 | navigation (emphasized where you are), a badge (emphasized) |
   | label-small | 11 / 16 | 500 | 0.5 | a list item's trailing text |
 
-  The 500 on display, headline and section titles is the emphasized set of the scale.
+- **Emphasized styles are for what matters or is chosen**, beside the baseline ones,
+  not instead of them: display, headline, title-large and body at 500, the smaller
+  titles and the labels at 700 (the emphasized set of `TypeScaleTokens`). A primary
+  action's label, a card's name, the place you are in.
 - Symbols are Material Symbols Rounded, by name (`M.icon`), 24, 20 in a 40 button and
   in menus; filled for what is chosen or on. They stay hidden until the font has
   loaded, and if it never does the app's own drawings stand in.
@@ -156,8 +237,9 @@ Use the component Material has for the job (`ui.js`):
 
 | For | Component | Measures (token) |
 | --- | --- | --- |
-| The main action of a region | Filled button; tonal beside it; elevated on a coloured container; text in dialogs | 40 high, 16 at either end, 8 to a 20 symbol (`ButtonSmallTokens`) |
-| The action a screen leads with | The same at 56 | 24 at either end, a 24 symbol (`ButtonMediumTokens`) |
+| The main action of a region | Filled button; tonal beside it; text in dialogs. Elevated only where a button must be parted from a busy background, which nothing here is | 40 high, 16 at either end, 8 to a 20 symbol (`ButtonSmallTokens`) |
+| The action a screen leads with | The same at 56; at 96 where the screen is for nothing else | 24 at either end, a 24 symbol (`ButtonMediumTokens`); 48 at either end, 12 to a 32 symbol (`ButtonLargeTokens`) |
+| A small action in a dense row | The same at 32 | 12 at either end, 4 to a 20 symbol (`ButtonXSmallTokens`) |
 | An action that is a symbol | Icon button: standard; tonal or filled to stand out | a 40 container in a 48 target (`SmallIconButtonTokens`) |
 | On or off | Switch (`M.switch`) | 52 × 32 track, 2 outline; handle 16, 24 on, 28 pressed, a 16 check; a 40 state layer (`SwitchTokens`) |
 | On or off, once its form is sent | Checkbox (`M.check`) | an 18 container, 2 corner, 2 outline in on surface variant; primary with the check in on primary once chosen; a 40 state layer; the check a 2 stroke with square ends, drawn on, and gone 100 ms into the box emptying (`CheckboxTokens`, `Checkbox.kt`) |
@@ -165,8 +247,9 @@ Use the component Material has for the job (`ui.js`):
 | One of many | A menu from the item's value (`pickItem`) | |
 | A number in a range | Slider (`M.slider`) | 16 track, 4 × 44 handle with 6 either side, 2 while held, a 4 stop at the end (`SliderTokens`) |
 | Typing | Outlined text field (`M.field`); a search bar for searching | 56 high; the search bar round (`OutlinedTextFieldTokens`, `SearchBarTokens`) |
-| Things to open | Cards in a grid or a row; list items for dense runs | list item 56 for one line, 16 at either end, items 2 apart (`ListTokens`) |
-| The page's one action | FAB; extended with its words | 56, a 24 symbol; extended 16 at either end and 8 to the words (`FabBaselineTokens`, `ExtendedFabSmallTokens`) |
+| Things to open | Cards in a grid or a row; list items for dense runs | a card 28 with 8 around its picture (20), its name title-medium emphasized, a badge on the picture the bright surface and round; list item 56 for one line, 16 at either end, items 2 apart (`ListTokens`) |
+| The page's one action | FAB, in the primary colour style; extended with its words | 80, the 20 corner, a 28 symbol; from 840 wide 96, the 28 corner, a 36 symbol (`FabPrimaryTokens`, `FabMediumTokens`, `FabLargeTokens`). Extended: 56, the 16 corner, 16 at either end, 8 to the words in title-medium emphasized; from 840 wide 80, the 20 corner, 26 at either end, 12 to a 28 symbol, title-large (`ExtendedFabSmallTokens`, `ExtendedFabMediumTokens`) |
+| Nothing to show | An empty state (`pages.js`, `empty`) | its symbol, 32, in a round 72 of the secondary container; the title title-large |
 | More than one such action | FAB menu | items 56 high, round, 24 at either end, 4 apart, 8 above the close button, which is 56, round, primary, a 20 symbol (`FabMenuBaselineTokens`) |
 | Choices from a control | Menu (`M.menu`) | groups 2 apart instead of dividers, each a 16 container with 4 around; items 44 high, 12 at either end, a 20 symbol; the chosen one tertiary container (`SegmentedMenuTokens`, `StandardMenuTokens`) |
 | A question | Dialog | 28 corner, 24 around, a 24 symbol in secondary (`DialogTokens`) |
@@ -211,6 +294,43 @@ Read on 2026-11-12.
 - Material Components for Android, `docs/components/`: `ButtonGroup.md`, `List.md`
   (the segmented list's colour), `Card.md`, `Carousel.md`, `FloatingActionButton.md`,
   `NavigationRail.md`, `TopAppBar.md`.
-- [Material Design 3](https://m3.material.io/) for how the components are meant to be
-  used. Its pages are drawn by script and could not be read by this style's author;
-  the numbers above are from the code.
+- [Material Design 3](https://m3.material.io/), read on 2026-11-26 (its pages are drawn
+  by script: they are read as a browser draws them, the checks' own will do). What
+  Expressive is, and how the parts are meant to be used:
+  - *Start building with Material 3 Expressive* (`/blog/building-with-m3-expressive`):
+    the seven expressive tactics, and hero moments (one or two in a product). Its
+    pictures of the components in motion, and the example app of the next page, are
+    what this style is held against for colour and quiet: one family of hue, soft
+    containers, a deep primary, and a single small accent at most.
+  - Foundations, Usability (`/foundations/usability/overview`,
+    `/applying-m-3-expressive`): emphasis by colour, containment, shape, size and type;
+    one primary goal a screen; like shapes kept uniform.
+  - Styles, Shape (`/styles/shape/overview-principles`, `/corner-radius-scale`,
+    `/shape-morph`): the ten-step corner scale with 20, 32 and 48; round beside square;
+    the inner radius is the outer less the padding; the shape library for pictures and
+    decoration, sparingly.
+  - Styles, Typography (`/styles/typography/overview`, `/applying-type`,
+    `/type-scale-tokens`, `/editorial-treatments`): the emphasized styles and where
+    they go; brand and plain typefaces; editorial treatments.
+  - Styles, Color (`/styles/color/roles`, `/choosing-a-scheme`): what primary,
+    secondary and tertiary are for.
+  - Styles, Motion (`/styles/motion/overview/how-it-works`, `/specs`): the two kinds of
+    spring and their three speeds.
+  - Components, specs and guidelines: buttons (five sizes, round and square, toggles),
+    FAB and extended FAB (sizes by window, the six colour styles, the small and surface
+    ones no longer recommended), FAB menu, button groups, icon buttons, app bars,
+    toolbars, navigation bar, navigation rail, lists, cards, search, loading indicator.
+- Compose's token files again, read on 2026-11-26, for the sizes those pages give only
+  as pictures: `ButtonXSmallTokens`, `ButtonLargeTokens`, `ButtonXLargeTokens`,
+  `FabMediumTokens`, `FabLargeTokens`, `FabPrimaryTokens`, `ExtendedFabMediumTokens`,
+  `AppBarMediumFlexibleTokens`, `IconButtonMediumTokens`, `TypefaceTokens`, and
+  `MaterialShapes.kt` for the loading indicator's shapes; and `Button.kt`,
+  `IconButton.kt`, `ToggleButton.kt`, `ButtonGroup.kt`, `Slider.kt` for which
+  spring each uses (a button's press is on the effects spring on purpose, a toggle and
+  a standard group on the fast spatial one, a slider on none).
+- [Material Color Utilities](https://github.com/material-foundation/material-color-utilities)
+  0.4.0 (Apache 2.0), `dynamiccolor/color_spec_2025`, the Tonal Spot variant: the scheme
+  (`tools/md3-colors.js`).
+- [Google Sans Flex](https://fonts.google.com/specimen/Google+Sans+Flex) and
+  [Google Sans Code](https://fonts.google.com/specimen/Google+Sans+Code), from Google
+  Fonts under the Open Font License.
