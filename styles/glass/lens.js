@@ -12,7 +12,8 @@
            furthest: it shows a squeezed, mirrored strip of what lies deeper
            under the glass, easing into the undistorted face.
     spec – the light the surface catches: a crisp rim that is brightest facing
-           the key light (upper left) and its reflection (lower right), a soft
+           the key light (upper left, unless the glass gives its own: a drop is
+           lit from below) and its reflection (lower right), a soft
            glow across the bevel, and a darkened band just inside the rim.
 
   A shader cannot read the page behind an element, so the bending itself is
@@ -51,6 +52,10 @@
     uniform float uThick;   // depth of glass the bent ray crosses
     uniform float uIor;     // index of refraction
     uniform float uReach;   // shift in px that maps to a full-scale channel value
+    uniform vec2 uLight;    // toward the key light
+    uniform float uBounce;  // how bright its reflection is on the side away from it
+    uniform float uShade;   // how dark the band inside the rim is
+    uniform float uRim;     // how bright the rim is where neither light falls on it
     uniform int uMode;      // 0 = refraction map, 1 = specular light
 
     float roundRect(vec2 p) {
@@ -83,23 +88,23 @@
 
       float depth = -d;
       float inside = 1.0 - smoothstep(-0.6, 0.4, d);
-      float facing = dot(outward, normalize(vec2(-0.56, -0.83))); // toward the key light
+      float facing = dot(outward, uLight);
       float key = pow(max(facing, 0.0), 1.6);
-      float bounce = pow(max(-facing, 0.0), 2.4);
+      float bounce = pow(max(-facing, 0.0), 2.4) * uBounce;
 
       float rim = 1.0 - smoothstep(0.0, 1.4, depth);
-      float light = rim * (0.24 + 0.9 * key + 0.72 * bounce) + lean * (0.3 * key + 0.16 * bounce);
+      float light = rim * (uRim + 0.9 * key + bounce) + lean * (0.3 * key + 0.22 * bounce);
       // A darkened band just inside the bright rim, strongest away from the light. It is
       // what lets a slab read as glass on a plain backdrop, where there is nothing to bend.
       float band = smoothstep(0.4, 1.6, depth) * (1.0 - smoothstep(1.6, 1.6 + uBezel * 0.55, depth));
-      float shade = band * (0.05 + 0.1 * max(-facing, 0.0)) * (1.0 - 0.7 * key);
+      float shade = band * (0.05 + 0.1 * max(-facing, 0.0)) * (1.0 - 0.7 * key) * uShade;
 
       light = clamp(light, 0.0, 1.0) * inside;
       shade = clamp(shade, 0.0, 1.0) * inside;
       gl_FragColor = vec4(vec3(light), clamp(light + shade, 0.0, 1.0)); // premultiplied
     }`;
 
-  const UNIFORMS = ['uSize', 'uRadius', 'uBezel', 'uTilt', 'uCurve', 'uThick', 'uIor', 'uReach', 'uMode'];
+  const UNIFORMS = ['uSize', 'uRadius', 'uBezel', 'uTilt', 'uCurve', 'uThick', 'uIor', 'uReach', 'uLight', 'uBounce', 'uShade', 'uRim', 'uMode'];
 
   const canvas = document.createElement('canvas');
   let gl = null, uniforms = null, failed = false, canWait = false;
@@ -157,6 +162,11 @@
     gl.uniform1f(uniforms.uThick, thick);
     gl.uniform1f(uniforms.uIor, o.ior);
     gl.uniform1f(uniforms.uReach, reach);
+    const toward = (o.light == null ? -124 : o.light) * Math.PI / 180;
+    gl.uniform2f(uniforms.uLight, Math.cos(toward), Math.sin(toward));
+    gl.uniform1f(uniforms.uBounce, o.bounce == null ? 0.72 : o.bounce);
+    gl.uniform1f(uniforms.uShade, o.shade == null ? 1 : o.shade);
+    gl.uniform1f(uniforms.uRim, o.rim == null ? 0.24 : o.rim);
     gl.uniform1i(uniforms.uMode, mode);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
@@ -327,14 +337,21 @@
     rampMost: (RAMP_SIZE - 3) / (RAMP_SIZE - 1) / 2,
     rampAlpha: RAMP_ALPHA / 255,
     /*
-      o: { radius, bezel, throw, tilt, curve, ior, dpr }
+      o: { radius, bezel, throw, tilt, curve, ior, light, bounce, rim, shade, crisp, dpr }
          throw – how far, in px, the very edge reaches into the glass
+         light – the way the key light comes from, in degrees (0 is right, 90 below)
+         bounce – how bright its reflection is on the far side
+         rim – how bright the rim is where neither falls on it
+         shade – how dark the band inside the rim is (1 as it is, 0 none)
+         crisp – the map drawn at 2×, for a rim that bends sharply
 
       Resolves to null if the lens could not be rendered, otherwise to
         corner – the larger of radius and bezel: what a corner has to contain
         cut    – that in whole px: the tile is cut this far in from each side
         reach  – shift in px that a full-scale value in the map stands for
-        pieces – the map as eight images, row by row, without the (flat) middle
+        mapScale – the map's pixels per CSS px (2 for a crisp lens, else 1)
+        pieces – the map as eight images, row by row, without the (flat) middle; a
+                 corner is a pixel larger on its inner sides than `cut` × mapScale
         spec   – the light layer, whole; slice – its corner size in image pixels
         specCut – that corner in CSS px
     */
@@ -345,21 +362,27 @@
         const thick = o.throw / throwOf(o.tilt, o.ior);
         // The edge bends most, so it sets the largest shift the map has to encode.
         const reach = Math.max(1, o.throw * 1.02);
-        // The map varies smoothly and is resampled by the filter, so 1× is enough for it;
-        // the light layer has a hairline rim and is drawn at the screen's density.
-        const size = cut * 2 + EDGE;
+        // The map of a rim that bends gently varies smoothly and is resampled by the filter,
+        // so 1× is enough for it; a rim that bends sharply (a knob's) would show the steps
+        // between its pixels, and is drawn at 2×. The light layer has a hairline rim and is
+        // drawn at the screen's density.
+        const m = o.crisp ? 2 : 1;
+        const size = cut * 2 + EDGE, mc = cut * m, mapPx = size * m;
         const slice = Math.ceil(cut * o.dpr), across = slice * 2 + Math.max(2, Math.round(EDGE * o.dpr));
         // Both are drawn, and their read-back queued, before anything is awaited: the one
         // canvas is shared by every lens.
-        const [map, spec] = await drawPair(size, size, across, across / o.dpr, o, thick, reach);
-        const spans = [[0, cut], [cut, EDGE], [cut + EDGE, cut]];
+        const [map, spec] = await drawPair(mapPx, size, across, across / o.dpr, o, thick, reach);
+        // Each corner takes one more pixel, of the straight edge beside it, so that where
+        // two pieces meet they overlap (glass.js, fit): the edge between them is drawn
+        // antialiased, and a seam would let the flat face show through it.
+        const spans = [[0, mc + 1], [mc, EDGE * m], [mc + EDGE * m - 1, mc + 1]];
         const jobs = [];
         spans.forEach(([y, h], row) => spans.forEach(([x, w], col) => {
-          if (row !== 1 || col !== 1) jobs.push(png(crop(map, size, x, y, w, h), w, h, false));
+          if (row !== 1 || col !== 1) jobs.push(png(crop(map, mapPx, x, y, w, h), w, h, false));
         }));
         jobs.push(png(spec, across, across, true));
         const urls = await Promise.all(jobs);
-        return { corner: Math.max(o.radius, o.bezel), cut, reach, throw: o.throw, pieces: urls.slice(0, 8), spec: urls[8], slice, specCut: slice / o.dpr };
+        return { corner: Math.max(o.radius, o.bezel), cut, mapScale: m, reach, throw: o.throw, pieces: urls.slice(0, 8), spec: urls[8], slice, specCut: slice / o.dpr };
       } catch (e) {
         return null;
       }

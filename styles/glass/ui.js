@@ -846,10 +846,15 @@
 
   /* ---------- Switch ---------- */
 
-  // A knob held is a drop on its track: what is under it swells toward its middle and
-  // wraps round at its rim, with only a trace of colour split (a strong one reads as a
-  // stain on a white card).
-  const KNOB_LENS = NT.glass.drop({ bezel: 14, bend: 0.8, curve: 1.4, magnify: 0.04, dispersion: 0.05 });
+  // A knob held is a drop on its track, as iOS draws it: a flat face that shows the
+  // track as it is, no larger, and a thin rim, steepest at its very edge, whose outer
+  // line looks in almost to the middle and the rest of it about halfway. So a line of
+  // the track runs round its edge, and at its ends the track's fill wells up round the
+  // rim, split into a cyan fringe (red reaches further than blue). Its map is drawn at
+  // 2×: a rim this sharp shows the steps of a 1× one. No dark band inside the rim, its
+  // light from below (the lower rim is the bright one), and hazy while it is still
+  // lifting out of its face, clearing as it arrives.
+  const KNOB_LENS = NT.glass.drop({ bevel: 0.125, bezel: 4, bend: 3.5, tilt: 80, curve: 0.6, crisp: true, magnify: 0, dispersion: -0.25, saturate: 1.15, light: 90, bounce: 0.1, rim: 0.05, shade: 0, haze: 3.5 });
 
   // A knob that lifts into glass while held (glass.css, .lens): its lift is its presence
   // as glass. Its filter is there for as long as it is lifted at all or its spring is
@@ -933,9 +938,23 @@
   /* ---------- Slider ----------
      The thumb is a drop of glass on a track. It goes where the finger is, not where
      the steps are: its place is a spring toward the finger (so a press away from it is
-     a glide, never a jump), it stretches along its way with its speed, and it lifts
-     into a lens while it is held. The value is the step nearest to it, said as it
-     changes; let go, the thumb settles on the value's own place. */
+     a glide, never a jump), and it lifts into a lens while it is held. The value is the
+     step nearest to it, said as it changes; let go, the thumb settles on the value's
+     own place.
+
+     Held, it is jelly: pushed toward more it draws out long, pushed back toward less
+     it gathers up tall, and it swings once past its own shape as it comes to rest. Its
+     shape is a spring of its own, pulled by how hard the thumb is pushed along (its
+     place spring's force) and a little by its speed, and it keeps its area. The numbers
+     are fitted to Apple's own slider (Adopting Liquid Glass, its video): its thumb's
+     path, followed by this thumb's place spring, gives this jelly's shape frame by frame. */
+
+  const JELLY = { stiffness: 70, damping: 12, precision: 0.001 };
+  // log(width / height) the jelly is pulled toward, for a thumb going at v px/s and
+  // pushed at a px/s².
+  const jellyTo = (v, a) => 0.1 * Math.tanh(v / 1100) + a / 10000;
+  // The resting thumb against the held one (38 × 24 of 54 × 36).
+  const REST_X = 38 / 54, REST_Y = 24 / 36;
 
   UI.slider = function ({ min = 0, max = 100, step = 1, value = 0, onInput, label }) {
     const thumb = NT.glass.refract(h('div.slider-thumb.lens'), KNOB_LENS);
@@ -949,14 +968,24 @@
     let travel = 0;
     const measure = () => { travel = Math.max(0, el.clientWidth - 38); };
     const paint = () => {
-      const stretch = clamp(Math.abs(pos.velocity) * travel / 2600, 0, 0.3);
       const l = lift.value;
+      // Only glass is jelly: the resting knob keeps its shape.
+      const y = clamp(jelly.value, -0.4, 0.35) * clamp(l, 0, 1);
+      const sx = Math.exp(y / 2);
       el.style.setProperty('--p', pos.value.toFixed(5));
-      thumb.style.transform = `scale(${((1 + l * 0.42) * (1 + stretch)).toFixed(4)}, ${((1 + l * 0.58) * (1 - stretch * 0.4)).toFixed(4)})`;
+      // Drawn at its held size, 54 × 36, it rests at 38 × 24 (glass.css).
+      thumb.style.transform = `scale(${((REST_X + l * (1 - REST_X)) * sx).toFixed(4)}, ${((REST_Y + l * (1 - REST_Y)) / sx).toFixed(4)})`;
       lifted(thumb, lift);
     };
-    const pos = new Spring({ stiffness: 720, damping: 48, precision: 0.0004, value: at(v), onUpdate: paint });
+    // The thumb's own speed and the force its spring pushes it with, in px.
+    const moved = () => {
+      const a = -pos.k * (pos.value - pos.target) - pos.c * pos.velocity;
+      jelly.set(jellyTo(pos.velocity * travel, a * travel));
+      paint();
+    };
+    const pos = new Spring({ stiffness: 720, damping: 48, precision: 0.0004, value: at(v), onUpdate: moved });
     const lift = new Spring({ stiffness: 380, damping: 24, precision: 0.002, onUpdate: paint });
+    const jelly = new Spring(Object.assign({ onUpdate: paint }, JELLY));
     const said = () => el.setAttribute('aria-valuenow', v);
     // The value takes the step nearest to `nv`. → whether it changed.
     const commit = (nv, fire) => {

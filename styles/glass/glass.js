@@ -49,10 +49,17 @@
     tilt: 80,         // lean of the surface at the very edge, degrees
     curve: 2,         // how quickly the bevel levels out toward the flat face
     ior: 1.5,         // glass
+    light: -124,      // the way the key light comes from, degrees (0 right, 90 below): upper left
+    bounce: 0.72,     // how bright its reflection is on the far side of the rim
+    rim: 0.24,        // how bright the rim is where neither light falls on it
+    shade: 1,         // the darkened band inside the rim, which lets a slab read as glass on a plain backdrop
+    crisp: false,     // the map drawn at 2× (lens.js), for a rim that bends sharply
     magnify: 0.03,    // whole-surface magnification
-    dispersion: 0.12, // how much more blue bends than red
+    dispersion: 0.12, // how much more blue bends than red (below 0: red bends more, a cyan fringe)
     saturate: 1.35,
     blur: null,       // fixed frost in px; null follows the Clear … Tinted preference
+    haze: 0,          // frost in px that glass has while it is only beginning to be there, and
+                      // that clears as it arrives (a knob lifting out of its face)
     frost: null,      // [px at Clear, px added by Tinted]; null picks by material
     lens: true,       // false: shader light only, no refraction filter
     // Where thick glass differs (--lg-t at 1); null: the same as above.
@@ -113,7 +120,7 @@
   }
 
   const density = () => clamp(Math.round((window.devicePixelRatio || 1) * 2) / 2, 1, 2);
-  const keyOf = (shape) => [shape.radius, shape.bezel, shape.throw, shape.tilt, shape.curve, shape.ior, shape.dpr].join('/');
+  const keyOf = (shape) => [shape.radius, shape.bezel, shape.throw, shape.tilt, shape.curve, shape.ior, shape.light, shape.bounce, shape.rim, shape.shade, shape.crisp ? 1 : 0, shape.dpr].join('/');
 
   /*
     Rendering a lens reads pixels back from the GPU, which holds the page up for
@@ -124,6 +131,8 @@
   const SHAPES_KEY = 'nt.lens.shapes';
   let known = NT.util.store.get(SHAPES_KEY, null);
   if (!Array.isArray(known)) known = [];
+  // Shapes remembered before the light could be given were lit the usual way.
+  known = known.map((s) => Object.assign({ light: DEFAULTS.light, bounce: DEFAULTS.bounce, rim: DEFAULTS.rim, shade: DEFAULTS.shade, crisp: DEFAULTS.crisp }, s));
   const knownKeys = new Set(known.map((s) => keyOf(Object.assign({ dpr: 0 }, s))));
 
   function lensFor(shape, key) {
@@ -161,7 +170,7 @@
   // Render (or reuse) the lens for the element's current shape and attach it.
   const fullShape = (entry, size) => {
     const o = entry.opts;
-    return Object.assign(shapeOf(size ? Object.assign({}, entry, size) : entry), { tilt: o.tilt * Math.PI / 180, curve: o.curve, ior: o.ior, dpr: density() });
+    return Object.assign(shapeOf(size ? Object.assign({}, entry, size) : entry), { tilt: o.tilt * Math.PI / 180, curve: o.curve, ior: o.ior, light: o.light, bounce: o.bounce, rim: o.rim, shade: o.shade, crisp: o.crisp, dpr: density() });
   };
   function wear(entry, lens, key) {
     const el = entry.el;
@@ -254,15 +263,22 @@
     const xs = [0, Math.min(c, w >> 1)], ys = [0, Math.min(c, h >> 1)];
     xs.push(w - Math.min(c, w - xs[1]), w);
     ys.push(h - Math.min(c, h - ys[1]), h);
+    // Pieces overlap where they meet, so no seam opens between them at any scale: a
+    // corner carries one pixel more of the edge beside it (lens.js), drawn at the
+    // corner's own scale, and an edge, the same all along, reaches as far under the
+    // corners at its ends.
+    const px = lens.cut * (lens.mapScale || 1); // a corner's size in its image's pixels
+    const ex = [xs[1] / px, (w - xs[2]) / px], ey = [ys[1] / px, (h - ys[2]) / px];
+    const span = (at, more, k) => [at[k] - (k > 0 ? more[k - 1] : 0), at[k + 1] + (k < 2 ? more[k] : 0)];
     entry.pieces.forEach((node, i) => {
       const col = [0, 1, 2, 0, 2, 0, 1, 2][i], row = [0, 0, 0, 1, 1, 2, 2, 2][i];
-      const pw = xs[col + 1] - xs[col], ph = ys[row + 1] - ys[row];
-      const shown = pw > 0 && ph > 0;
+      const shown = xs[col + 1] > xs[col] && ys[row + 1] > ys[row];
+      const [x0, x1] = span(xs, ex, col), [y0, y1] = span(ys, ey, row);
       // A piece with nothing to cover is parked outside the filter's area.
-      attr(node, 'x', shown ? xs[col] : -4);
-      attr(node, 'y', shown ? ys[row] : -4);
-      attr(node, 'width', shown ? pw : 1);
-      attr(node, 'height', shown ? ph : 1);
+      attr(node, 'x', shown ? +x0.toFixed(2) : -4);
+      attr(node, 'y', shown ? +y0.toFixed(2) : -4);
+      attr(node, 'width', shown ? +(x1 - x0).toFixed(2) : 1);
+      attr(node, 'height', shown ? +(y1 - y0).toFixed(2) : 1);
     });
 
     // Whole-surface magnification is the ramp, laid over the map at a fraction `a` of
@@ -275,8 +291,8 @@
     const scale = lens.reach * (now.throw / lens.throw) * 2 / (1 - a);
     // Thick glass may split colour less. Where it no longer splits at all, the filter
     // drops to one pass (shape): the three would cost a large surface its frames.
-    const spread = o.dispersion > 0 ? lerp(o.dispersion, o.dispersionThick == null ? o.dispersion : o.dispersionThick, t) : 0;
-    shape(entry, spread >= 0.004);
+    const spread = o.dispersion !== 0 ? lerp(o.dispersion, o.dispersionThick == null ? o.dispersion : o.dispersionThick, t) : 0;
+    shape(entry, Math.abs(spread) >= 0.004);
     const split = entry.passes.length > 1 ? spread : 0;
     entry.passes.forEach((node, i) => attr(node, 'scale', (scale * presence * (1 + (i - 1) * split)).toFixed(2)));
     tint(entry);
@@ -310,7 +326,10 @@
       const regular = at(o.frost || o.frostThin || (entry.el.classList.contains('tinted') ? [2.5, 6] : [0.5, 4]));
       amount = o.frost ? regular : lerp(regular, at(o.frostThick || [3, 8]), entry.t);
     }
-    attr(entry.blur, 'stdDeviation', (amount * clamp(entry.k, 0, 1)).toFixed(2));
+    const k = clamp(entry.k, 0, 1);
+    // Haze is there while the glass is only beginning to be, not before it is there at all.
+    const haze = o.haze * (1 - k) * Math.min(1, k * 10);
+    attr(entry.blur, 'stdDeviation', (amount * k + haze).toFixed(2));
   }
   NT.bus.on('prefs', () => entries.forEach(frost));
 
@@ -334,8 +353,9 @@
       return node;
     };
     if (split) {
-      // Red bends least, blue most. Each pass keeps one channel (and applies that
-      // channel's share of the saturation boost, saving a pass); the three are summed.
+      // Red bends least, blue most (the other way round below 0). Each pass keeps one
+      // channel (and applies that channel's share of the saturation boost, saving a
+      // pass); the three are summed.
       for (let i = 0; i < 3; i++) {
         const matrix = make('feColorMatrix', { in: 'b' + i, type: 'matrix', values: '', result: 'c' + i });
         entry.tints.push(matrix);
@@ -558,7 +578,7 @@
       entry.filter = filter;
       entry.blur = blur;
       // The bend itself (shape): split into colours until the glass's thickness says not.
-      shape(entry, o.dispersion > 0);
+      shape(entry, o.dispersion !== 0);
       tint(entry);
       ensureDefs().append(filter);
       el.style.setProperty('--glass-refract', `url(#${id})`);

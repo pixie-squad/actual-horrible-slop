@@ -216,16 +216,24 @@ html[data-theme="dark"] [data-over="dark"] {
   --_lift:
     0 8px 20px color-mix(in srgb, rgb(0 0 0 / 0.2) var(--_k), transparent),
     0 2px 5px color-mix(in srgb, rgb(0 0 0 / 0.12) var(--_k), transparent);
-  /* The body of a drop: lit from above inside its upper edge, shaded inside its lower.
-     Only the knobs that are drops take it (a switch's, a slider's). */
-  --_body: 0 0 transparent;
   background: color-mix(in srgb, rgb(255 255 255 / 0.03) var(--_k), var(--_face));
-  box-shadow: var(--_rim), var(--_body), var(--_lift), var(--_resting);
+  box-shadow: var(--_rim), var(--_lift), var(--_resting);
 }
+/* The body of a drop (a switch's knob, a slider's thumb), as iOS draws one held: clear,
+   shaded a little under its upper edge, with light gathering toward its lower one, and
+   a light shadow close under it. Its rim is the shader's, lit from below (ui.js,
+   KNOB_LENS). Its face goes as it comes. */
 .switch-knob, .slider-thumb {
-  --_body:
-    inset 0 5px 6px -5px color-mix(in srgb, rgb(255 255 255 / 0.9) var(--_k), transparent),
-    inset 0 -5px 7px -5px color-mix(in srgb, rgb(0 0 0 / 0.16) var(--_k), transparent);
+  --_lift:
+    0 4px 10px color-mix(in srgb, rgb(0 0 0 / 0.1) var(--_k), transparent),
+    0 1px 2px color-mix(in srgb, rgb(0 0 0 / 0.05) var(--_k), transparent);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--drop-shade) var(--_k), transparent) 0%,
+      transparent 26%,
+      color-mix(in srgb, var(--drop-light) calc(var(--_k) * 0.65), transparent) 48%,
+      color-mix(in srgb, var(--drop-light) var(--_k), transparent) 66%);
+  background-color: color-mix(in srgb, var(--_face) var(--_rk), transparent);
 }
 .lens.lens-on {
   -webkit-backdrop-filter: brightness(1.03);
@@ -294,26 +302,38 @@ html[data-theme="dark"] [data-over="dark"] {
   background: var(--fill-2);
   overflow: hidden;
 }
+/* The fill runs as far along the whole track as the value is, while the thumb's middle
+   runs only between its own half-widths: so through the held thumb its rounded end is
+   left of the middle low down and right of it high up, as on iOS. */
 .slider-fill {
   height: 100%;
-  width: calc(19px + var(--p) * (100% - 38px));
+  width: calc(var(--p) * 100%);
+  border-radius: inherit;
   background: var(--accent);
 }
+/* The thumb is drawn at the size it has held (54 × 36), so its lens and its light are
+   made for the size they are seen at, and rests drawn down to 38 × 24, opaque. Its
+   middle runs between its resting half-widths, 19px in from either end. The resting
+   shadow is given at the held size: it is drawn down with the rest. */
 .slider-thumb {
   position: absolute;
   top: 50%;
-  left: calc(var(--p) * (100% - 38px));
-  width: 38px;
-  height: 24px;
-  margin-top: -12px;
-  border-radius: 12px;
+  left: calc(var(--p) * (100% - 38px) - 8px);
+  width: 54px;
+  height: 36px;
+  margin-top: -18px;
+  border-radius: 18px;
+  transform: scale(0.7037, 0.6667);
   --_face: #fff;
-  --_resting: 0 0.5px 4px color-mix(in srgb, rgb(0 0 0 / 0.14) var(--_rk), transparent),
-    0 6px 13px color-mix(in srgb, rgb(0 0 0 / 0.14) var(--_rk), transparent);
+  --_resting: 0 0.75px 6px color-mix(in srgb, rgb(0 0 0 / 0.14) var(--_rk), transparent),
+    0 9px 19px color-mix(in srgb, rgb(0 0 0 / 0.14) var(--_rk), transparent);
+  --_lift:
+    0 5px 12px color-mix(in srgb, rgb(0 0 0 / 0.1) var(--_k), transparent),
+    0 1px 3px color-mix(in srgb, rgb(0 0 0 / 0.05) var(--_k), transparent);
   will-change: transform;
 }
-/* Where it is, how far it has lifted and how it stretches with its speed are springs
-   (UI.slider): it follows the finger between the steps, and nothing here eases it. */
+/* Where it is, how far it has lifted and its shape are springs (UI.slider): it follows
+   the finger between the steps, and nothing here eases it. */
 
 /* Segmented control: press and drag the thumb between segments. */
 .seg {

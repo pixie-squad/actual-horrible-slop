@@ -23,9 +23,12 @@ shares are in [/DESIGN.md](../../DESIGN.md); these are on top of them.
 - Content never cuts its own glass off. Glass that is held is pulled past its edge
   (section 7), so what carries it does not clip: a script's card and its cover take
   their corners themselves (`.card.script-card`, `.script-card > .cover`).
-- A knob that is a drop while held (a switch's, a slider's) bends what is under it
-  toward its middle and round at its rim, with a lit upper edge and a shaded lower one
-  inside it (`KNOB_LENS`, `--_body`).
+- A knob that is a drop while held (a switch's, a slider's) is drawn as iOS draws it:
+  a flat face that shows the track as it is, no larger, and a thin rim that reaches
+  far in, so at its ends the track's fill wells up round the rim in a cyan fringe. No
+  dark band inside the rim; its light comes from below, a little shade under its upper
+  edge and light gathering in its lower part (`KNOB_LENS`; `.slider-thumb`, `--drop-*`).
+  It is drawn at the size it has held, so its lens and light are made for that size.
 - Nothing spans the top of the screen. The top bar is floating pieces, not a slab.
 
 ## 2. The material
@@ -123,7 +126,9 @@ Glass is liquid, not only glass. Its material has a presence and a thickness
   spreads through it and reaches the glass beside it (`.is-lit`, `.is-near`). Pressed
   content recedes (`.pressable`). Neither changes colour in blocks.
 - A knob that lifts into glass (`.lens`) brings its lens in with its lift, never at
-  once; it stretches with its speed (switch, segmented control, tab bar).
+  once; it stretches with its speed (switch, segmented control, tab bar). A drop comes
+  out of its face hazy and clears as it arrives, and goes back the same way
+  (`haze`, glass.js).
 - Reduce Motion takes the elastic part away (no flex, no stretch); glass still comes
   and goes in place.
 - Popovers are not new layers that fade in: the control that was tapped becomes the
@@ -154,9 +159,13 @@ Glass is liquid, not only glass. Its material has a presence and a thickness
   frame on the way. What marks the chosen colour is one ring that goes from the old
   choice to the new (`.swatch-ring`); it is never on two.
 - A slider's thumb is where the finger is, between the steps as well as on them: its
-  place is a spring toward the finger, so a press away from it is a glide, and it
-  stretches along its way with its speed. The value is the nearest step, said as it
-  changes; let go, the thumb settles on it (`UI.slider`).
+  place is a spring toward the finger, so a press away from it is a glide. Held, it is
+  jelly that keeps its area: pushed toward more it draws out long, pushed back toward
+  less it gathers up tall, and it swings once past its shape as it stops (`JELLY`,
+  fitted to Apple's slider). The value is the nearest step, said as it changes; let go,
+  the thumb settles on it (`UI.slider`). The fill runs as far along the whole track as
+  the value is, with a round end, so through the held thumb it ends left of the middle
+  low down and right of it high up.
 - What a control opens, opens with the press. Where what it shows has to be asked
   for, the sheet is there at once with that part as a placeholder (`testSettings`,
   `historySheet`); nothing waits on the network before it moves.
@@ -216,6 +225,7 @@ Controls, symbols and covers, as read on 2026-11-26:
 
 - [Materials](https://developer.apple.com/design/human-interface-guidelines/materials): the one exception to glass in content, "controls in the content layer with a transient interactive element like sliders and toggles; in these cases, the element takes on a Liquid Glass appearance to emphasize its interactivity when a person activates it".
 - [Sliders](https://developer.apple.com/design/human-interface-guidelines/sliders): a track, a thumb and a fill; live feedback as the value changes.
+- [Adopting Liquid Glass](https://developer.apple.com/documentation/TechnologyOverviews/adopting-liquid-glass), its slider video, measured frame by frame: the held thumb's sizes, face, rim, light and shadow, its haze on the way up and down, its jelly, and where the fill ends under it (section 1 and 7, `KNOB_LENS`, `JELLY`).
 - [Motion](https://developer.apple.com/design/human-interface-guidelines/motion): feedback that follows the gesture, brief and precise; never a wait on an animation.
 - [Icons](https://developer.apple.com/design/human-interface-guidelines/icons), [SF Symbols](https://developer.apple.com/design/human-interface-guidelines/sf-symbols): one weight and level of detail across an app, matched to the text beside it; the standard symbols for common actions.
 - [Framework7 Icons](https://framework7.io/icons/) 5.0.5 (MIT): the drawings in `icons.js`.

@@ -90,6 +90,9 @@ html[data-theme="light"] {
   --rim-lo: rgb(255 255 255 / 0.24);
   --tab-sel: rgb(0 0 0 / 0.075);
   --sheet-fill: rgb(246 246 250 / calc(0.64 + var(--frost) * 0.35));
+  /* A drop held (glass.css, .switch-knob, .slider-thumb): the shade under its upper edge, the light in its lower part. */
+  --drop-shade: rgb(0 0 0 / 0.05);
+  --drop-light: rgb(255 255 255 / 0.3);
 
   --code-bg: #ffffff;
   --tk-k: #ad3da4;
@@ -144,6 +147,8 @@ html[data-theme="dark"] {
   --rim-lo: rgb(255 255 255 / 0.1);
   --tab-sel: rgb(0 0 0 / 0.3);
   --sheet-fill: rgb(30 30 34 / calc(0.66 + var(--frost) * 0.33));
+  --drop-shade: rgb(0 0 0 / 0.08);
+  --drop-light: rgb(255 255 255 / 0.06);
 
   --code-bg: #1c1c1e;
   --tk-k: #ff7ab2;
