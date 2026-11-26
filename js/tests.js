@@ -31,6 +31,12 @@
     NT.tests.configure(scriptId, patch)
                                 change some of it; null puts all of it back
     NT.tests.changed(scriptId)  how many settings are not at their default
+    NT.tests.expect()           someone is at work on a script of theirs and may test it
+                                soon. The runner keeps no client waiting for runs, and
+                                one started for a run spends the battle's first
+                                seconds getting ready to read it; told this, it has one
+                                standing by. Passed on at most every few minutes
+                                (session.js says it as a script is opened and edited)
     NT.tests.of(scriptId)       the run for a script in this tab: going, or the last
     NT.tests.kinds              [{ id, label }]: what the objects of a battle can be
                                 shown by, 'all' first
@@ -74,6 +80,8 @@
 
   const SECONDS = { least: 5, most: 120, usual: 20 };
   const LINES = 400;
+  const EXPECT_EVERY = 4 * 60 * 1000;   // the runner lets a client stand by for five
+  let expected = 0;
   const runs = new Map(); // script id → its run in this tab
 
   const clock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -485,6 +493,12 @@ ${r.team}`.toLowerCase().includes(query)))
       // Sample data has no runner; its runs are acted out.
       if (API.mode !== 'live') return true;
       return NT.ext.has('tests') && NT.ext.info('tests').ready === true;
+    },
+    expect() {
+      if (API.mode !== 'live' || !API.session || !this.available()) return;
+      if (Date.now() - expected < EXPECT_EVERY) return;
+      expected = Date.now();
+      fetch(NT.ext.url('/tests/warm'), { method: 'POST', credentials: 'include' }).catch(() => {});
     },
     of(scriptId) {
       return runs.get(scriptId) || null;

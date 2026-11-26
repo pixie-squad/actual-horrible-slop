@@ -23,8 +23,13 @@
                                         room link (32 numbers).
     GET    /x/tests/runs/<id>/events    the run as it happens (server-sent events)
     DELETE /x/tests/runs/<id>           stop it
+    POST   /x/tests/warm                a run is likely soon (js/tests.js, expect()).
+                                        The runner keeps no client waiting; told this,
+                                        it has one standing by for a few minutes, so
+                                        the run that follows sees its battle from the
+                                        first second. Answers 204 whatever came of it.
 
-  Starting, reading and stopping a run need a session, and a run is its starter's.
+  All but the status need a session, and a run is its starter's.
   What the events are is the runner's to say (its run.js); the app reads them in
   js/tests.js.
 */
@@ -173,6 +178,15 @@ async function stop(req, res, id) {
   core.send(res, 204);
 }
 
+async function warm(req, res) {
+  await user(req);
+  core.requireRate('tests-warm', req, 6, 60000);
+  req.resume();
+  // A guess passed on: if it is lost, the run it was for only starts a little colder.
+  try { (await runner('POST', '/v1/warm')).resume(); } catch (e) { /* the run itself will say */ }
+  core.send(res, 204);
+}
+
 async function status(req, res) {
   let data = null;
   try {
@@ -198,6 +212,7 @@ module.exports = {
     if (!READY) throw new core.HttpError(503, 'no-runner');
     if (parts.length === 1 && parts[0] === 'status' && req.method === 'GET') return status(req, res);
     if (parts.length === 1 && parts[0] === 'runs' && req.method === 'POST') return start(req, res);
+    if (parts.length === 1 && parts[0] === 'warm' && req.method === 'POST') return warm(req, res);
     if (parts[0] === 'runs' && parts.length >= 2 && /^[A-Za-z0-9_-]{8,64}$/.test(parts[1])) {
       if (parts.length === 3 && parts[2] === 'events' && req.method === 'GET') return events(req, res, parts[1]);
       if (parts.length === 2 && req.method === 'DELETE') return stop(req, res, parts[1]);

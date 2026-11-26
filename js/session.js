@@ -143,6 +143,8 @@
       paint();
       stash();
       autosave();
+      // Whoever is editing may test next (tests.js).
+      if (NT.tests) NT.tests.expect();
     };
 
     /* ----- Saving ----- */
@@ -385,6 +387,7 @@
         restored = !!drafted && !(same(drafted, files) && (Object.keys(files).length < 2 || draft.minify == null || draft.minify === minify));
         if (drafted && !restored) store.remove(draftKey);
         S.files = files;
+        if (NT.tests) NT.tests.expect();
         return 'ok';
       },
 
